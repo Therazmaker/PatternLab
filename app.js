@@ -66,6 +66,7 @@ import {
 } from "./modules/ui.js";
 
 const els = {
+  quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"),
   jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
   includeDuplicates: document.getElementById("import-allow-duplicates"), importReport: document.getElementById("import-report"),
   feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
@@ -387,14 +388,106 @@ function onSuggestionDecision(id, decision) {
 
 function handleValidate() { setImportPreview(buildImportPreview(els.jsonInput.value.trim(), state.signals)); rerender(); }
 
+
+function getSessionByLocalHour(hour = new Date().getHours()) {
+  if (hour >= 0 && hour < 8) return "ASIA";
+  if (hour >= 8 && hour < 13) return "LONDON";
+  if (hour >= 13 && hour < 21) return "NY";
+  return "OFF";
+}
+
+function parseQuickSignal(text) {
+  const input = String(text || "").trim();
+  const directionMatch = input.match(/\b(CALL|PUT)\b/i);
+  if (!directionMatch) return { ok: false, error: "Dirección no detectada" };
+
+  const rsiMatch = input.match(/-?\d+(?:\.\d+)?/);
+  if (!rsiMatch) return { ok: false, error: "No se detectó RSI" };
+
+  const rsi = Number(rsiMatch[0]);
+  if (!Number.isFinite(rsi) || rsi < 0 || rsi > 100) return { ok: false, error: "RSI fuera de rango" };
+
+  return {
+    ok: true,
+    direction: directionMatch[1].toUpperCase(),
+    rsi,
+  };
+}
+
+function getActiveAssetAndTimeframe() {
+  const latest = state.signals[state.signals.length - 1] || null;
+  return {
+    asset: els.filterAsset?.value || latest?.asset || "EURUSD",
+    timeframe: els.filterTimeframe?.value || latest?.timeframe || "5m",
+  };
+}
+
+function buildSignalFromQuickInput(parsed) {
+  const { asset, timeframe } = getActiveAssetAndTimeframe();
+  return {
+    asset,
+    timeframe,
+    patternName: "RSI EMA Reclaim",
+    patternVersion: "v1-debug",
+    direction: parsed.direction,
+    timestamp: Date.now(),
+    context: {
+      rsi: parsed.rsi,
+      session: getSessionByLocalHour(),
+    },
+  };
+}
+
+function setQuickAddFeedback(message, isError = false) {
+  if (!els.quickAddFeedback) return;
+  els.quickAddFeedback.textContent = message;
+  els.quickAddFeedback.classList.toggle("error", isError);
+}
+
+function importSignalsFromPreview(preview, importedMessage) {
+  if (!preview?.ok) return false;
+  const selectedRows = els.includeDuplicates.checked ? preview.valid : preview.uniqueValid;
+  replaceSignals([...state.signals, ...selectedRows]);
+  persist();
+  saveLastImportReport({
+    createdAt: new Date().toISOString(),
+    total: preview.total,
+    valid: preview.valid.length,
+    invalid: preview.invalid.length,
+    duplicates: preview.duplicates.length,
+    imported: selectedRows.length,
+  });
+  setImportPreview({ ...preview, message: importedMessage || `Importadas ${selectedRows.length} señales.` });
+  return true;
+}
 function handleImport() {
   if (!state.importPreview || !state.importPreview.ok) handleValidate();
   if (!state.importPreview?.ok) return;
-  const selectedRows = els.includeDuplicates.checked ? state.importPreview.valid : state.importPreview.uniqueValid;
-  replaceSignals([...state.signals, ...selectedRows]);
-  persist();
-  saveLastImportReport({ createdAt: new Date().toISOString(), total: state.importPreview.total, valid: state.importPreview.valid.length, invalid: state.importPreview.invalid.length, duplicates: state.importPreview.duplicates.length, imported: selectedRows.length });
-  setImportPreview({ ...state.importPreview, message: `Importadas ${selectedRows.length} señales.` });
+  importSignalsFromPreview(state.importPreview);
+  rerender();
+}
+
+function handleQuickAdd() {
+  const parsed = parseQuickSignal(els.quickAddInput?.value);
+  if (!parsed.ok) {
+    setQuickAddFeedback(parsed.error, true);
+    return;
+  }
+
+  const rawSignal = buildSignalFromQuickInput(parsed);
+  const preview = buildImportPreview(JSON.stringify(rawSignal), state.signals);
+  if (!preview.ok || !preview.uniqueValid.length) {
+    const firstError = preview.invalid?.[0]?.errors?.[0] || preview.message || "No se pudo guardar la señal";
+    setQuickAddFeedback(firstError, true);
+    setImportPreview(preview);
+    rerender();
+    return;
+  }
+
+  importSignalsFromPreview(preview, "Señal guardada");
+  els.quickAddInput.value = "";
+  setQuickAddFeedback("Señal guardada");
+  els.quickAddInput.focus();
   rerender();
 }
 
@@ -623,6 +716,13 @@ function setupTabs() {
 
 function setupEvents() {
   els.validateBtn.addEventListener("click", handleValidate);
+  els.quickAddBtn?.addEventListener("click", handleQuickAdd);
+  els.quickAddInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleQuickAdd();
+    }
+  });
   els.importBtn.addEventListener("click", handleImport);
   els.clearBtn.addEventListener("click", () => { els.jsonInput.value = ""; setImportPreview(null); rerender(); });
   els.loadDemoBtn.addEventListener("click", loadDemoJson);
