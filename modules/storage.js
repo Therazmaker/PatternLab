@@ -1,3 +1,5 @@
+import { dedupeSignals, migrateStoredSignal } from "./normalizer.js";
+
 const SIGNALS_KEY = "patternlab.signals.v1";
 
 export function loadSignals() {
@@ -5,7 +7,8 @@ export function loadSignals() {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return dedupeSignals(parsed.map(migrateStoredSignal));
   } catch {
     return [];
   }

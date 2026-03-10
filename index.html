@@ -10,7 +10,7 @@
     <header class="app-header panel">
       <div>
         <h1>PatternLab</h1>
-        <p>Importa señales, estudia patrones, afina setups</p>
+        <p>Laboratorio manual para importar, revisar y comparar patrones.</p>
       </div>
       <div class="kpi-grid" id="quick-kpis">
         <div class="kpi"><span>Total</span><strong id="kpi-total">0</strong></div>
@@ -21,8 +21,16 @@
       </div>
     </header>
 
+    <nav class="tabs panel">
+      <button class="tab-btn active" data-tab="import">Import</button>
+      <button class="tab-btn" data-tab="feed">Feed</button>
+      <button class="tab-btn" data-tab="stats">Stats</button>
+      <button class="tab-btn" data-tab="compare">Compare</button>
+      <button class="tab-btn" data-tab="journal">Journal</button>
+    </nav>
+
     <main class="layout">
-      <section class="panel importer">
+      <section class="panel tab-panel active" data-panel="import">
         <h2>Importador JSON</h2>
         <p class="muted">Pega una señal, un array de señales o un objeto con <code>signals</code>.</p>
         <textarea id="json-input" placeholder='Ejemplo: [{"asset":"EURUSD","direction":"CALL","timestamp":"2026-01-12T14:05:00Z"}]'></textarea>
@@ -35,26 +43,7 @@
         <div id="preview" class="preview"></div>
       </section>
 
-      <section class="panel stats">
-        <h2>Estadísticas</h2>
-        <div id="stats-overview" class="stats-grid"></div>
-        <div class="split">
-          <div>
-            <h3>Top assets</h3>
-            <ul id="top-assets" class="mini-list"></ul>
-          </div>
-          <div>
-            <h3>Top patterns</h3>
-            <ul id="top-patterns" class="mini-list"></ul>
-          </div>
-          <div>
-            <h3>Dirección</h3>
-            <ul id="direction-dist" class="mini-list"></ul>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel feed full-width">
+      <section class="panel tab-panel full-width" data-panel="feed">
         <div class="feed-header">
           <h2>Feed de señales</h2>
           <div class="button-row compact">
@@ -73,43 +62,77 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>Asset</th>
-                <th>TF</th>
-                <th>Direction</th>
-                <th>Pattern</th>
-                <th>Timestamp</th>
-                <th>Status</th>
-                <th>Confidence</th>
-                <th></th>
-              </tr>
+              <tr><th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th><th>Timestamp</th><th>Status</th><th>Confidence</th><th></th></tr>
             </thead>
             <tbody id="feed-body"></tbody>
           </table>
+        </div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="stats">
+        <h2>Estadísticas</h2>
+        <div id="stats-overview" class="stats-grid"></div>
+        <div class="split">
+          <div><h3>Top assets</h3><ul id="top-assets" class="mini-list"></ul></div>
+          <div><h3>Top patterns</h3><ul id="top-patterns" class="mini-list"></ul></div>
+          <div><h3>Dirección</h3><ul id="direction-dist" class="mini-list"></ul></div>
+        </div>
+        <h3>Ranking por patrón <span class="hint" title="El ranking es orientativo y depende del tamaño de muestra y revisiones realizadas.">ⓘ</span></h3>
+        <div id="ranking-wrap" class="table-wrap"></div>
+        <h3>Análisis por hora</h3>
+        <div id="hour-wrap" class="table-wrap"></div>
+        <h3>Análisis por activo</h3>
+        <div id="asset-wrap" class="table-wrap"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="compare">
+        <h2>Pattern Compare</h2>
+        <div class="filters compare-filters">
+          <select id="compare-patterns" multiple></select>
+          <select id="compare-asset"><option value="">Todos los activos</option></select>
+          <select id="compare-direction"><option value="">Todas las direcciones</option><option value="CALL">CALL</option><option value="PUT">PUT</option></select>
+          <select id="compare-timeframe"><option value="">Todos los TF</option></select>
+          <select id="compare-range-mode"><option value="all">Todo</option><option value="lastN">Últimas N señales</option><option value="days">Últimos X días</option></select>
+          <input id="compare-range-value" type="number" min="1" value="30" placeholder="N / días" />
+        </div>
+        <div id="compare-results"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="journal">
+        <h2>Journal / Lab Notes</h2>
+        <div class="journal-layout">
+          <form id="journal-form" class="journal-form">
+            <input id="note-id" type="hidden" />
+            <label>Título<input id="note-title" required placeholder="Ej: Observación Londres"></label>
+            <label>Contenido<textarea id="note-content" rows="7" required></textarea></label>
+            <label>Etiquetas (coma separadas)<input id="note-tags" placeholder="pattern,warning,session"></label>
+            <label>Pattern opcional<select id="note-pattern"><option value="">-</option></select></label>
+            <label>Asset opcional<select id="note-asset"><option value="">-</option></select></label>
+            <label>Signal ID opcional<select id="note-signal"><option value="">-</option></select></label>
+            <div class="button-row">
+              <button class="primary" type="submit">Guardar nota</button>
+              <button id="btn-note-reset" class="ghost" type="button">Nueva nota</button>
+            </div>
+          </form>
+          <div>
+            <div class="filters journal-filters">
+              <input id="note-search" placeholder="Buscar nota..." />
+              <select id="note-filter-tag"><option value="">Todas las etiquetas</option></select>
+              <select id="note-filter-pattern"><option value="">Todos los patrones</option></select>
+              <select id="note-filter-asset"><option value="">Todos los assets</option></select>
+            </div>
+            <div id="notes-list" class="notes-list"></div>
+          </div>
         </div>
       </section>
     </main>
 
     <dialog id="review-modal">
       <form method="dialog" id="review-form" class="review-form">
-        <header>
-          <h3>Revisión de señal</h3>
-          <button type="submit" class="ghost">Cerrar</button>
-        </header>
+        <header><h3>Revisión de señal</h3><button type="submit" class="ghost">Cerrar</button></header>
         <div id="review-details" class="review-details"></div>
-        <label>
-          Outcome status
-          <select id="review-status">
-            <option value="pending">pending</option>
-            <option value="win">win</option>
-            <option value="loss">loss</option>
-            <option value="skip">skip</option>
-          </select>
-        </label>
-        <label>
-          Comentario
-          <textarea id="review-comment" rows="3"></textarea>
-        </label>
+        <label>Outcome status<select id="review-status"><option value="pending">pending</option><option value="win">win</option><option value="loss">loss</option><option value="skip">skip</option></select></label>
+        <label>Comentario<textarea id="review-comment" rows="3"></textarea></label>
         <button type="button" id="btn-save-review" class="primary">Guardar revisión</button>
       </form>
     </dialog>

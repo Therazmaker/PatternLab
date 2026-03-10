@@ -12,6 +12,17 @@ export function toISODate(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+export function hourFromTimestamp(value) {
+  const iso = toISODate(value);
+  if (!iso) return null;
+  return new Date(iso).getUTCHours();
+}
+
+export function formatHourBucket(hour) {
+  if (!Number.isInteger(hour)) return "-";
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
 export function formatDate(value) {
   const iso = toISODate(value);
   if (!iso) return "invalid-date";
