@@ -3,6 +3,13 @@ function badgeList(tags = [], className = "tag") {
   return tags.map((tag) => `<span class="badge ${className}">${tag}</span>`).join(" ");
 }
 
+function renderTable(rows, columns) {
+  if (!rows.length) return '<p class="muted">Sin datos suficientes.</p>';
+  const head = `<tr>${columns.map((c) => `<th>${c.label}</th>`).join("")}</tr>`;
+  const body = rows.map((row) => `<tr>${columns.map((c) => `<td>${c.format ? c.format(row[c.key], row) : row[c.key]}</td>`).join("")}</tr>`).join("");
+  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
 export function renderPreview(container, preview) {
   if (!preview) {
     container.innerHTML = "";
@@ -48,13 +55,6 @@ export function renderList(target, entries) {
 export function renderStatsOverview(container, stats) {
   const cards = [["Total señales", stats.total], ["Revisadas", stats.reviewed], ["Wins", stats.wins], ["Losses", stats.losses], ["Skips", stats.skips], ["Pending", stats.pending], ["Winrate", `${stats.winrate}%`]];
   container.innerHTML = cards.map(([name, value]) => `<div class="stat-card"><span>${name}</span><strong>${value}</strong></div>`).join("");
-}
-
-function renderTable(rows, columns) {
-  if (!rows.length) return '<p class="muted">Sin datos suficientes.</p>';
-  const head = `<tr>${columns.map((c) => `<th>${c.label}</th>`).join("")}</tr>`;
-  const body = rows.map((row) => `<tr>${columns.map((c) => `<td>${c.format ? c.format(row[c.key], row) : row[c.key]}</td>`).join("")}</tr>`).join("");
-  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 
 export function renderRankingTable(container, rows) {
@@ -116,9 +116,6 @@ export function renderCompareCards(container, rows) {
         <li><span>Frecuencia</span><strong>${row.frequency}%</strong></li>
         <li><span>Adaptive score</span><strong>${row.adaptiveScore}</strong></li>
         <li><span>Regime dominante</span><strong>${row.dominantRegime}</strong></li>
-        <li><span>Top assets</span><strong>${row.topAssets.join(", ") || "-"}</strong></li>
-        <li><span>Top horas</span><strong>${row.topHours.join(", ") || "-"}</strong></li>
-        <li><span>CALL vs PUT</span><strong>${row.callCount} / ${row.putCount}</strong></li>
       </ul>
       </article>`).join("");
 }
@@ -152,7 +149,6 @@ export function renderNotes(container, notes, onEdit, onDelete) {
       <div class="note-head"><h4>${note.title}</h4><div class="button-row compact"><button data-edit="${note.id}" class="ghost">Editar</button><button data-delete="${note.id}" class="ghost">Eliminar</button></div></div>
       <p>${note.content.replace(/\n/g, "<br>")}</p>
       <p class="muted">Tags: ${note.tags.join(", ") || "-"} · Pattern: ${note.links.patternName || "-"} · Asset: ${note.links.asset || "-"}</p>
-      <p class="muted">Creada ${new Date(note.createdAt).toLocaleString()} · Editada ${new Date(note.updatedAt).toLocaleString()}</p>
     `;
     card.querySelector("[data-edit]").addEventListener("click", () => onEdit(note));
     card.querySelector("[data-delete]").addEventListener("click", () => onDelete(note.id));
@@ -202,7 +198,127 @@ export function renderConfidenceEvolution(container, evolution, windowSize = 20)
         <path d="${rollingPath}" fill="none" stroke="#22c55e" stroke-width="2.5" />
       </svg>
       <p class="muted">Azul: acumulado · Verde: rolling winrate</p>
-      <ul class="mini-list">${evolution.frequencyByPeriod.map((item) => `<li><span>${item.period}</span><strong>${item.count}</strong></li>`).join("")}</ul>
     </article>
   `;
+}
+
+export function renderForwardValidation(container, result) {
+  if (!result?.rows?.length) {
+    container.innerHTML = '<p class="muted">Insufficient evidence para forward validation.</p>';
+    return;
+  }
+
+  const summary = `<p class="muted">Training: ${result.trainingSize} señales · Forward: ${result.forwardSize} señales.</p>`;
+  const table = renderTable(result.rows, [
+    { key: "patternName", label: "Pattern" },
+    { key: "patternVersion", label: "Version" },
+    { key: "training", label: "Training", format: (_, row) => `${row.training.reviewed}/${row.training.total} · ${row.training.winrate}%` },
+    { key: "forward", label: "Forward", format: (_, row) => `${row.forward.reviewed}/${row.forward.total} · ${row.forward.winrate}%` },
+    { key: "stability", label: "Forward stability", format: (_, row) => `${row.forward.stability}%` },
+    { key: "drift", label: "Drift", format: (_, row) => `<span class="badge">${row.drift.label}</span> ${row.drift.value}pp` },
+  ]);
+  container.innerHTML = `${summary}<div class="table-wrap">${table}</div>`;
+}
+
+export function renderErrorClusters(container, clusters, onOpenCluster) {
+  if (!clusters.length) {
+    container.innerHTML = '<p class="muted">No se detectaron clusters de error con evidencia suficiente.</p>';
+    return;
+  }
+  container.innerHTML = "";
+  clusters.forEach((cluster) => {
+    const article = document.createElement("article");
+    article.className = "panel-soft";
+    article.innerHTML = `
+      <div class="note-head"><h3>${cluster.name}</h3><span class="badge">${cluster.count} casos · ${cluster.weight}%</span></div>
+      <p class="muted">${cluster.insight}</p>
+      <p class="muted">Ejemplos: ${cluster.sampleSignals.map((signal) => `${signal.asset} ${signal.direction} (${signal.status})`).join(" · ")}</p>
+      <button class="ghost" data-open="${cluster.id}">Ver señales del cluster</button>
+    `;
+    article.querySelector("[data-open]").addEventListener("click", () => onOpenCluster(cluster));
+    container.appendChild(article);
+  });
+}
+
+export function renderClusterDetails(container, cluster) {
+  if (!cluster) {
+    container.innerHTML = '<p class="muted">Selecciona un cluster para ver señales.</p>';
+    return;
+  }
+  container.innerHTML = `<h3>${cluster.name}</h3><p class="muted">${cluster.insight}</p><div class="table-wrap">${renderTable(cluster.signals, [
+    { key: "id", label: "ID" },
+    { key: "asset", label: "Asset" },
+    { key: "patternName", label: "Pattern" },
+    { key: "direction", label: "Direction" },
+    { key: "hourBucket", label: "Hora" },
+    { key: "marketRegime", label: "Regime" },
+    { key: "contextScore", label: "Context" },
+    { key: "status", label: "Outcome", format: (_, row) => row.outcome?.status || "-" },
+  ])}</div>`;
+}
+
+export function renderHypotheses(container, items, onDecision) {
+  if (!items.length) {
+    container.innerHTML = '<p class="muted">No hay hipótesis con evidencia suficiente todavía.</p>';
+    return;
+  }
+  container.innerHTML = "";
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = "panel-soft";
+    article.innerHTML = `
+      <div class="note-head"><h3>${item.title}</h3><span class="badge confidence-${item.confidence}">${item.confidence}</span></div>
+      <p class="muted">${item.description}</p>
+      <p class="muted">Muestra ${item.evidence.sampleSize} · Winrate ${item.evidence.winrate}% vs baseline ${item.evidence.baselineWinrate}%</p>
+      <div class="button-row compact">
+        <button class="ghost" data-decision="useful" data-id="${item.id}">Useful</button>
+        <button class="ghost" data-decision="weak" data-id="${item.id}">Marked as weak</button>
+        <button class="ghost" data-decision="dismissed" data-id="${item.id}">Dismissed</button>
+        <button class="ghost" data-decision="archived" data-id="${item.id}">Archived</button>
+      </div>
+    `;
+    article.querySelectorAll("[data-decision]").forEach((btn) => {
+      btn.addEventListener("click", () => onDecision(item.id, btn.dataset.decision));
+    });
+    container.appendChild(article);
+  });
+}
+
+export function renderSuggestions(container, items, onDecision) {
+  if (!items.length) {
+    container.innerHTML = '<p class="muted">No hay sugerencias activas con evidencia suficiente.</p>';
+    return;
+  }
+  container.innerHTML = "";
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = "panel-soft";
+    article.innerHTML = `
+      <div class="note-head"><h3>${item.title}</h3><span class="badge">${item.type} · ${item.priority}</span></div>
+      <p class="muted">${item.reason}</p>
+      <div class="button-row compact">
+        <button class="ghost" data-decision="accepted" data-id="${item.id}">Accept</button>
+        <button class="ghost" data-decision="ignored" data-id="${item.id}">Ignore</button>
+      </div>
+    `;
+    article.querySelectorAll("[data-decision]").forEach((btn) => {
+      btn.addEventListener("click", () => onDecision(item.id, btn.dataset.decision));
+    });
+    container.appendChild(article);
+  });
+}
+
+export function renderReviewQueue(container, rows, onReview) {
+  if (!rows.length) {
+    container.innerHTML = '<p class="muted">No hay señales pending actualmente.</p>';
+    return;
+  }
+  container.innerHTML = "";
+  rows.slice(0, 30).forEach((row) => {
+    const item = document.createElement("article");
+    item.className = "panel-soft";
+    item.innerHTML = `<div class="note-head"><h4>${row.patternName} · ${row.asset}</h4><button class="ghost" data-id="${row.id}">Revisar</button></div><p class="muted">${row.direction} · ${new Date(row.timestamp).toLocaleString()} · Regime ${row.marketRegime || "unclear"}</p>`;
+    item.querySelector("[data-id]").addEventListener("click", () => onReview(row.id));
+    container.appendChild(item);
+  });
 }

@@ -9,8 +9,8 @@
   <body>
     <header class="app-header panel">
       <div>
-        <h1>PatternLab</h1>
-        <p>Laboratorio manual para importar, revisar y comparar patrones.</p>
+        <h1>PatternLab V5</h1>
+        <p>Laboratorio de investigación incremental para patrones. Sin trading automático.</p>
       </div>
       <div class="kpi-grid" id="quick-kpis">
         <div class="kpi"><span>Total</span><strong id="kpi-total">0</strong></div>
@@ -24,12 +24,17 @@
     <nav class="tabs panel">
       <button class="tab-btn active" data-tab="import">Import</button>
       <button class="tab-btn" data-tab="feed">Feed</button>
-      <button class="tab-btn" data-tab="radar">Radar</button>
+      <button class="tab-btn" data-tab="review">Review</button>
       <button class="tab-btn" data-tab="stats">Stats</button>
       <button class="tab-btn" data-tab="compare">Compare</button>
+      <button class="tab-btn" data-tab="radar">Radar</button>
       <button class="tab-btn" data-tab="versions">Pattern Versions</button>
       <button class="tab-btn" data-tab="confidence">Confidence Evolution</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
+      <button class="tab-btn" data-tab="hypothesis">Hypothesis Lab</button>
+      <button class="tab-btn" data-tab="suggestions">Suggestions</button>
+      <button class="tab-btn" data-tab="clusters">Error Clusters</button>
+      <button class="tab-btn" data-tab="forward">Forward Validation</button>
     </nav>
 
     <main class="layout">
@@ -38,8 +43,8 @@
         <p class="muted">Pega una señal, un array de señales o un objeto con <code>signals</code>.</p>
         <textarea id="json-input" placeholder='Ejemplo: [{"asset":"EURUSD","direction":"CALL","timestamp":"2026-01-12T14:05:00Z"}]'></textarea>
         <div class="button-row">
-          <button id="btn-validate" title="Valida y muestra preview">Validar</button>
-          <button id="btn-import" class="primary" title="Importa solo señales válidas">Importar válidas</button>
+          <button id="btn-validate">Validar</button>
+          <button id="btn-import" class="primary">Importar válidas</button>
           <button id="btn-clear" class="ghost">Limpiar</button>
           <button id="btn-load-demo" class="ghost">Cargar demo</button>
         </div>
@@ -75,18 +80,9 @@
         </div>
       </section>
 
-      <section class="panel tab-panel" data-panel="radar">
-        <h2>Radar <span class="hint" title="Incluye score adaptativo del patrón y régimen de mercado detectado.">ⓘ</span></h2>
-        <p class="muted">Priorización visual para estudio de setups recientes. No ejecuta trading.</p>
-        <div class="filters">
-          <select id="radar-asset"><option value="">Todos los activos</option></select>
-          <select id="radar-direction"><option value="">Todas las direcciones</option><option value="CALL">CALL</option><option value="PUT">PUT</option></select>
-          <select id="radar-pattern"><option value="">Todos los patrones</option></select>
-          <select id="radar-timeframe"><option value="">Todos los TF</option></select>
-          <select id="radar-range-mode"><option value="24h">Últimas 24h</option><option value="lastN">Últimas N señales</option></select>
-          <input id="radar-range-value" type="number" min="1" value="25" placeholder="N señales" />
-        </div>
-        <div id="radar-results" class="radar-grid"></div>
+      <section class="panel tab-panel" data-panel="review">
+        <h2>Review Queue <span class="hint" title="Cola rápida de señales pending para revisión manual.">ⓘ</span></h2>
+        <div id="review-queue" class="stack"></div>
       </section>
 
       <section class="panel tab-panel" data-panel="stats">
@@ -97,7 +93,7 @@
           <div><h3>Top patterns</h3><ul id="top-patterns" class="mini-list"></ul></div>
           <div><h3>Dirección</h3><ul id="direction-dist" class="mini-list"></ul></div>
         </div>
-        <h3>Ranking por patrón <span class="hint" title="Incluye adaptive score: combina rendimiento reciente, histórico, estabilidad y muestra.">ⓘ</span></h3>
+        <h3>Ranking por patrón</h3>
         <div id="ranking-wrap" class="table-wrap"></div>
         <h3>Análisis por hora</h3>
         <div id="hour-wrap" class="table-wrap"></div>
@@ -118,13 +114,24 @@
         <div id="compare-results"></div>
       </section>
 
-      <section class="panel tab-panel" data-panel="versions">
-        <h2>Pattern Versions <span class="hint" title="Compara cómo evoluciona un mismo patrón entre v1, v2, v3...">ⓘ</span></h2>
-        <div id="versions-wrap" class="table-wrap"></div>
+      <section class="panel tab-panel" data-panel="radar">
+        <h2>Radar</h2>
+        <p class="muted">Priorización visual para estudio de setups recientes. No ejecuta trading.</p>
+        <div class="filters">
+          <select id="radar-asset"><option value="">Todos los activos</option></select>
+          <select id="radar-direction"><option value="">Todas las direcciones</option><option value="CALL">CALL</option><option value="PUT">PUT</option></select>
+          <select id="radar-pattern"><option value="">Todos los patrones</option></select>
+          <select id="radar-timeframe"><option value="">Todos los TF</option></select>
+          <select id="radar-range-mode"><option value="24h">Últimas 24h</option><option value="lastN">Últimas N señales</option></select>
+          <input id="radar-range-value" type="number" min="1" value="25" placeholder="N señales" />
+        </div>
+        <div id="radar-results" class="radar-grid"></div>
       </section>
 
+      <section class="panel tab-panel" data-panel="versions"><h2>Pattern Versions</h2><div id="versions-wrap" class="table-wrap"></div></section>
+
       <section class="panel tab-panel" data-panel="confidence">
-        <h2>Confidence Evolution <span class="hint" title="Winrate acumulado y móvil por patrón. Ventanas sugeridas: 10/20/50.">ⓘ</span></h2>
+        <h2>Confidence Evolution</h2>
         <div class="filters">
           <select id="confidence-pattern"><option value="">Selecciona patrón</option></select>
           <select id="confidence-window"><option value="10">Ventana 10</option><option value="20" selected>Ventana 20</option><option value="50">Ventana 50</option></select>
@@ -137,16 +144,13 @@
         <div class="journal-layout">
           <form id="journal-form" class="journal-form">
             <input id="note-id" type="hidden" />
-            <label>Título<input id="note-title" required placeholder="Ej: Observación Londres"></label>
+            <label>Título<input id="note-title" required></label>
             <label>Contenido<textarea id="note-content" rows="7" required></textarea></label>
-            <label>Etiquetas (coma separadas)<input id="note-tags" placeholder="pattern,warning,session"></label>
+            <label>Etiquetas<input id="note-tags"></label>
             <label>Pattern opcional<select id="note-pattern"><option value="">-</option></select></label>
             <label>Asset opcional<select id="note-asset"><option value="">-</option></select></label>
             <label>Signal ID opcional<select id="note-signal"><option value="">-</option></select></label>
-            <div class="button-row">
-              <button class="primary" type="submit">Guardar nota</button>
-              <button id="btn-note-reset" class="ghost" type="button">Nueva nota</button>
-            </div>
+            <div class="button-row"><button class="primary" type="submit">Guardar nota</button><button id="btn-note-reset" class="ghost" type="button">Nueva nota</button></div>
           </form>
           <div>
             <div class="filters journal-filters">
@@ -159,6 +163,34 @@
           </div>
         </div>
       </section>
+
+      <section class="panel tab-panel" data-panel="hypothesis">
+        <h2>Hypothesis Lab <span class="hint" title="Hipótesis exploratorias basadas en reglas transparentes.">ⓘ</span></h2>
+        <div id="hypothesis-wrap" class="stack"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="suggestions">
+        <h2>Suggestions <span class="hint" title="Sugerencias prudentes y explicables para mejorar el laboratorio.">ⓘ</span></h2>
+        <div id="suggestions-wrap" class="stack"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="clusters">
+        <h2>Error Clusters <span class="hint" title="Agrupación heurística de pérdidas y errores repetitivos.">ⓘ</span></h2>
+        <div class="split">
+          <div id="error-clusters-wrap" class="stack"></div>
+          <div id="error-cluster-details" class="panel-soft"></div>
+        </div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="forward">
+        <h2>Forward Validation <span class="hint" title="No es backtesting formal. Es validación interna training vs forward.">ⓘ</span></h2>
+        <div class="filters">
+          <select id="forward-split-mode"><option value="ratio">Split por ratio</option><option value="date">Split por fecha</option></select>
+          <input id="forward-ratio" type="range" min="40" max="90" step="5" value="70" />
+          <input id="forward-date" type="date" />
+        </div>
+        <div id="forward-wrap"></div>
+      </section>
     </main>
 
     <dialog id="review-modal">
@@ -168,14 +200,10 @@
         <label>Outcome status<select id="review-status"><option value="pending">pending</option><option value="win">win</option><option value="loss">loss</option><option value="skip">skip</option></select></label>
         <label>Expiry close opcional<input id="review-expiry-close" type="number" step="0.00001" /></label>
         <label>Comentario<textarea id="review-comment" rows="3"></textarea></label>
-        <label>Etiquetas manuales (coma separadas)<input id="review-labels" placeholder="execution,late,quality" /></label>
+        <label>Etiquetas manuales<input id="review-labels" /></label>
         <label class="inline-toggle"><input id="review-execution-error" type="checkbox" /> execution error</label>
         <label class="inline-toggle"><input id="review-late-entry" type="checkbox" /> late entry</label>
-        <div class="button-row compact">
-          <button type="button" id="btn-review-prev" class="ghost">Previous</button>
-          <button type="button" id="btn-review-next" class="ghost">Next</button>
-          <button type="button" id="btn-save-review" class="primary">Guardar revisión</button>
-        </div>
+        <div class="button-row compact"><button type="button" id="btn-review-prev" class="ghost">Previous</button><button type="button" id="btn-review-next" class="ghost">Next</button><button type="button" id="btn-save-review" class="primary">Guardar revisión</button></div>
       </form>
     </dialog>
 

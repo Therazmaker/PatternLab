@@ -2,6 +2,7 @@ import { dedupeSignals, migrateStoredSignal } from "./normalizer.js";
 
 const SIGNALS_KEY = "patternlab.signals.v1";
 const LAST_IMPORT_REPORT_KEY = "patternlab.lastImportReport";
+const META_FEEDBACK_KEY = "patternlab.metaFeedback.v1";
 
 export function loadSignals() {
   const raw = localStorage.getItem(SIGNALS_KEY);
@@ -41,4 +42,42 @@ export function loadLastImportReport() {
   } catch {
     return null;
   }
+}
+
+export function loadMetaFeedback() {
+  try {
+    const raw = localStorage.getItem(META_FEEDBACK_KEY);
+    if (!raw) {
+      return {
+        usefulHypothesisTypes: [],
+        weakHypothesisTypes: [],
+        dismissedHypothesisTypes: [],
+        acceptedSuggestionTypes: [],
+        ignoredSuggestionTypes: [],
+        history: [],
+      };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      usefulHypothesisTypes: Array.isArray(parsed.usefulHypothesisTypes) ? parsed.usefulHypothesisTypes : [],
+      weakHypothesisTypes: Array.isArray(parsed.weakHypothesisTypes) ? parsed.weakHypothesisTypes : [],
+      dismissedHypothesisTypes: Array.isArray(parsed.dismissedHypothesisTypes) ? parsed.dismissedHypothesisTypes : [],
+      acceptedSuggestionTypes: Array.isArray(parsed.acceptedSuggestionTypes) ? parsed.acceptedSuggestionTypes : [],
+      ignoredSuggestionTypes: Array.isArray(parsed.ignoredSuggestionTypes) ? parsed.ignoredSuggestionTypes : [],
+      history: Array.isArray(parsed.history) ? parsed.history : [],
+    };
+  } catch {
+    return {
+      usefulHypothesisTypes: [],
+      weakHypothesisTypes: [],
+      dismissedHypothesisTypes: [],
+      acceptedSuggestionTypes: [],
+      ignoredSuggestionTypes: [],
+      history: [],
+    };
+  }
+}
+
+export function saveMetaFeedback(metaFeedback) {
+  localStorage.setItem(META_FEEDBACK_KEY, JSON.stringify(metaFeedback));
 }

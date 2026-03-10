@@ -1,5 +1,13 @@
 import { state, setFilter, setImportPreview, setSignals } from "./modules/state.js";
-import { exportSignals, loadLastImportReport, loadSignals, saveLastImportReport, saveSignals } from "./modules/storage.js";
+import {
+  exportSignals,
+  loadLastImportReport,
+  loadMetaFeedback,
+  loadSignals,
+  saveLastImportReport,
+  saveMetaFeedback,
+  saveSignals,
+} from "./modules/storage.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
 import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modules/feed.js";
@@ -9,7 +17,35 @@ import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, compu
 import { computeConfidenceEvolution, computePatternVersionComparison } from "./modules/v4.js";
 import { filterNotes, loadNotes, saveNotes, upsertNote } from "./modules/journal.js";
 import { enrichSignals } from "./modules/intelligence.js";
-import { renderAssetTable, renderCompareCards, renderConfidenceEvolution, renderHourTable, renderImportReport, renderList, renderNotes, renderPatternVersionsTable, renderPreview, renderRadarCards, renderRankingTable, renderStatsOverview } from "./modules/ui.js";
+import {
+  applyMetaFeedbackBias,
+  buildErrorClusters,
+  computeForwardValidation,
+  generateHypotheses,
+  generateSuggestions,
+  rankSuggestions,
+  updateMetaFeedback,
+} from "./modules/v5.js";
+import {
+  renderAssetTable,
+  renderClusterDetails,
+  renderCompareCards,
+  renderConfidenceEvolution,
+  renderErrorClusters,
+  renderForwardValidation,
+  renderHourTable,
+  renderHypotheses,
+  renderImportReport,
+  renderList,
+  renderNotes,
+  renderPatternVersionsTable,
+  renderPreview,
+  renderRadarCards,
+  renderRankingTable,
+  renderReviewQueue,
+  renderStatsOverview,
+  renderSuggestions,
+} from "./modules/ui.js";
 
 const els = {
   jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
@@ -25,23 +61,38 @@ const els = {
   radarAsset: document.getElementById("radar-asset"), radarDirection: document.getElementById("radar-direction"), radarPattern: document.getElementById("radar-pattern"), radarTimeframe: document.getElementById("radar-timeframe"), radarMode: document.getElementById("radar-range-mode"), radarRangeValue: document.getElementById("radar-range-value"), radarResults: document.getElementById("radar-results"),
   noteId: document.getElementById("note-id"), noteTitle: document.getElementById("note-title"), noteContent: document.getElementById("note-content"), noteTags: document.getElementById("note-tags"), notePattern: document.getElementById("note-pattern"), noteAsset: document.getElementById("note-asset"), noteSignal: document.getElementById("note-signal"), noteForm: document.getElementById("journal-form"), noteResetBtn: document.getElementById("btn-note-reset"),
   noteSearch: document.getElementById("note-search"), noteFilterTag: document.getElementById("note-filter-tag"), noteFilterPattern: document.getElementById("note-filter-pattern"), noteFilterAsset: document.getElementById("note-filter-asset"), notesList: document.getElementById("notes-list"),
+  reviewQueue: document.getElementById("review-queue"),
+  forwardSplitMode: document.getElementById("forward-split-mode"), forwardRatio: document.getElementById("forward-ratio"), forwardDate: document.getElementById("forward-date"), forwardWrap: document.getElementById("forward-wrap"),
+  errorClustersWrap: document.getElementById("error-clusters-wrap"), errorClusterDetails: document.getElementById("error-cluster-details"),
+  hypothesisWrap: document.getElementById("hypothesis-wrap"),
+  suggestionsWrap: document.getElementById("suggestions-wrap"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30 };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
 const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
+const forwardConfig = { splitMode: "ratio", ratio: 0.7, splitDate: "" };
 let notes = [];
 let lastRanking = [];
+let metaFeedback = loadMetaFeedback();
+let forwardValidation = null;
+let errorClusters = [];
+let hypotheses = [];
+let suggestions = [];
 
 function persist() { saveSignals(state.signals); }
 function persistNotes() { saveNotes(notes); }
 
 function recalcSignals(rawSignals) {
   lastRanking = computePatternRanking(rawSignals);
-  return enrichSignals(dedupeSignals(rawSignals), lastRanking);
+  const enriched = enrichSignals(rawSignals, lastRanking).map((signal, index, arr) => ({
+    ...signal,
+    forwardBucket: index < Math.floor(arr.length * forwardConfig.ratio) ? "training" : "forward",
+  }));
+  setSignals(dedupeSignals(enriched));
 }
 
-function replaceSignals(rawSignals) { setSignals(recalcSignals(rawSignals)); }
+function replaceSignals(signals) { recalcSignals(signals); }
 
 function refreshSharedOptions() {
   const assets = [...new Set(state.signals.map((s) => s.asset))].sort();
@@ -60,11 +111,12 @@ function refreshSharedOptions() {
   renderFilterOptions(els.noteAsset, assets, "-");
   renderFilterOptions(els.noteFilterPattern, patterns, "Todos los patrones");
   renderFilterOptions(els.noteFilterAsset, assets, "Todos los assets");
-
-  const selected = new Set([...els.comparePatterns.selectedOptions].map((o) => o.value));
-  els.comparePatterns.innerHTML = patterns.map((p) => `<option value="${p}" ${selected.has(p) ? "selected" : ""}>${p}</option>`).join("");
   renderFilterOptions(els.confidencePattern, patterns, "Selecciona patrón");
-  els.noteSignal.innerHTML = `<option value="">-</option>${state.signals.slice(0, 120).map((s) => `<option value="${s.id}">${s.id} · ${s.patternName}</option>`).join("")}`;
+
+  const current = [...els.comparePatterns.selectedOptions].map((o) => o.value);
+  els.comparePatterns.innerHTML = patterns.map((p) => `<option value="${p}">${p}</option>`).join("");
+  [...els.comparePatterns.options].forEach((o) => { o.selected = current.includes(o.value); });
+  els.noteSignal.innerHTML = `<option value="">-</option>${state.signals.slice(-200).reverse().map((s) => `<option value="${s.id}">${s.id}</option>`).join("")}`;
 }
 
 function refreshStats() {
@@ -84,26 +136,19 @@ function refreshStats() {
 }
 
 function refreshFeed() { renderFeedRows(els.feedBody, getFilteredSignals(state.signals, state.filters), openReview, quickReview); }
+function refreshReviewQueue() { renderReviewQueue(els.reviewQueue, state.signals.filter((s) => s.outcome.status === "pending"), openReview); }
 
 function refreshCompare() {
   const selectedPatterns = [...els.comparePatterns.selectedOptions].map((o) => o.value);
-  const filtered = withCompareFilters(state.signals, compareFilters);
-  renderCompareCards(els.compareResults, computePatternCompare(filtered, selectedPatterns));
+  renderCompareCards(els.compareResults, computePatternCompare(withCompareFilters(state.signals, compareFilters), selectedPatterns));
 }
 
-
-function refreshVersions() {
-  renderPatternVersionsTable(els.versionsWrap, computePatternVersionComparison(state.signals));
-}
+function refreshVersions() { renderPatternVersionsTable(els.versionsWrap, computePatternVersionComparison(state.signals)); }
 
 function refreshConfidenceEvolution() {
   const pattern = els.confidencePattern.value;
   const windowSize = Number(els.confidenceWindow.value) || 20;
-  if (!pattern) {
-    renderConfidenceEvolution(els.confidenceWrap, null, windowSize);
-    return;
-  }
-  renderConfidenceEvolution(els.confidenceWrap, computeConfidenceEvolution(state.signals, pattern, windowSize), windowSize);
+  renderConfidenceEvolution(els.confidenceWrap, pattern ? computeConfidenceEvolution(state.signals, pattern, windowSize) : null, windowSize);
 }
 
 function refreshRadar() {
@@ -112,24 +157,30 @@ function refreshRadar() {
   if (radarFilters.direction) rows = rows.filter((s) => s.direction === radarFilters.direction);
   if (radarFilters.patternName) rows = rows.filter((s) => s.patternName === radarFilters.patternName);
   if (radarFilters.timeframe) rows = rows.filter((s) => s.timeframe === radarFilters.timeframe);
-
   rows.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  if (radarFilters.rangeMode === "24h") {
-    const since = Date.now() - 24 * 60 * 60 * 1000;
-    rows = rows.filter((s) => new Date(s.timestamp).getTime() >= since);
-  } else {
-    rows = rows.slice(0, radarFilters.rangeValue || 20);
-  }
-
+  rows = radarFilters.rangeMode === "24h"
+    ? rows.filter((s) => new Date(s.timestamp).getTime() >= Date.now() - 24 * 60 * 60 * 1000)
+    : rows.slice(0, radarFilters.rangeValue || 20);
   rows.sort((a, b) => b.radarScore - a.radarScore);
   renderRadarCards(els.radarResults, rows);
 }
 
 function refreshNotes() {
-  const filtered = filterNotes(notes, noteFilters);
-  renderNotes(els.notesList, filtered, editNote, removeNote);
-  const tags = [...new Set(notes.flatMap((n) => n.tags))].sort();
-  renderFilterOptions(els.noteFilterTag, tags, "Todas las etiquetas");
+  renderNotes(els.notesList, filterNotes(notes, noteFilters), editNote, removeNote);
+  renderFilterOptions(els.noteFilterTag, [...new Set(notes.flatMap((n) => n.tags))].sort(), "Todas las etiquetas");
+}
+
+function refreshV5() {
+  forwardValidation = computeForwardValidation(state.signals, forwardConfig);
+  errorClusters = buildErrorClusters(state.signals);
+  const previousDecisions = Object.fromEntries(metaFeedback.history.filter((h) => h.kind === "hypothesis").map((h) => [h.type, h.decision]));
+  hypotheses = applyMetaFeedbackBias(generateHypotheses(state.signals, { previousDecisions }), metaFeedback, "hypothesis");
+  suggestions = rankSuggestions(applyMetaFeedbackBias(generateSuggestions(state.signals, { forwardValidation, errorClusters }), metaFeedback, "suggestion"), metaFeedback);
+  renderForwardValidation(els.forwardWrap, forwardValidation);
+  renderErrorClusters(els.errorClustersWrap, errorClusters, (cluster) => renderClusterDetails(els.errorClusterDetails, cluster));
+  renderClusterDetails(els.errorClusterDetails, null);
+  renderHypotheses(els.hypothesisWrap, hypotheses, onHypothesisDecision);
+  renderSuggestions(els.suggestionsWrap, suggestions, onSuggestionDecision);
 }
 
 function rerender() {
@@ -137,12 +188,30 @@ function rerender() {
   renderImportReport(els.importReport, loadLastImportReport());
   refreshSharedOptions();
   refreshFeed();
+  refreshReviewQueue();
   refreshRadar();
   refreshStats();
   refreshCompare();
   refreshVersions();
   refreshConfidenceEvolution();
   refreshNotes();
+  refreshV5();
+}
+
+function onHypothesisDecision(id, decision) {
+  const item = hypotheses.find((h) => h.id === id);
+  if (!item) return;
+  metaFeedback = updateMetaFeedback(metaFeedback, { kind: "hypothesis", type: item.type, decision, id });
+  saveMetaFeedback(metaFeedback);
+  rerender();
+}
+
+function onSuggestionDecision(id, decision) {
+  const item = suggestions.find((s) => s.id === id);
+  if (!item) return;
+  metaFeedback = updateMetaFeedback(metaFeedback, { kind: "suggestion", type: item.type, decision, id });
+  saveMetaFeedback(metaFeedback);
+  rerender();
 }
 
 function handleValidate() { setImportPreview(buildImportPreview(els.jsonInput.value.trim(), state.signals)); rerender(); }
@@ -151,20 +220,9 @@ function handleImport() {
   if (!state.importPreview || !state.importPreview.ok) handleValidate();
   if (!state.importPreview?.ok) return;
   const selectedRows = els.includeDuplicates.checked ? state.importPreview.valid : state.importPreview.uniqueValid;
-  const merged = [...state.signals, ...selectedRows];
-  replaceSignals(merged);
+  replaceSignals([...state.signals, ...selectedRows]);
   persist();
-
-  const report = {
-    createdAt: new Date().toISOString(),
-    total: state.importPreview.total,
-    valid: state.importPreview.valid.length,
-    invalid: state.importPreview.invalid.length,
-    duplicates: state.importPreview.duplicates.length,
-    imported: selectedRows.length,
-  };
-  saveLastImportReport(report);
-
+  saveLastImportReport({ createdAt: new Date().toISOString(), total: state.importPreview.total, valid: state.importPreview.valid.length, invalid: state.importPreview.invalid.length, duplicates: state.importPreview.duplicates.length, imported: selectedRows.length });
   setImportPreview({ ...state.importPreview, message: `Importadas ${selectedRows.length} señales.` });
   rerender();
 }
@@ -201,18 +259,14 @@ function saveReviewChanges() {
 function moveReview(direction) {
   if (!state.activeSignalId) return;
   const currentIndex = state.signals.findIndex((s) => s.id === state.activeSignalId);
-  if (currentIndex < 0) return;
-  const nextIndex = currentIndex + direction;
-  if (!state.signals[nextIndex]) return;
-  openReview(state.signals[nextIndex].id);
+  const next = state.signals[currentIndex + direction];
+  if (next) openReview(next.id);
 }
 
 function quickReview(signalId, status) {
   replaceSignals(state.signals.map((s) => (s.id === signalId ? applyReview(s, { status, comment: s.outcome.comment || "", expiryClose: s.outcome.expiryClose, labels: s.reviewMeta?.labels || [], executionError: s.reviewMeta?.executionError, lateEntry: s.reviewMeta?.lateEntry }) : s)));
   persist();
-  refreshFeed();
-  refreshStats();
-  refreshRadar();
+  rerender();
 }
 
 async function loadDemoJson() {
@@ -243,41 +297,15 @@ function submitNote(event) {
   event.preventDefault();
   const tags = els.noteTags.value.split(",").map((t) => t.trim()).filter(Boolean);
   const existing = notes.find((n) => n.id === els.noteId.value);
-  notes = upsertNote(notes, {
-    id: els.noteId.value || undefined,
-    createdAt: existing?.createdAt,
-    title: els.noteTitle.value,
-    content: els.noteContent.value,
-    tags,
-    patternName: els.notePattern.value,
-    asset: els.noteAsset.value,
-    signalId: els.noteSignal.value,
-  });
+  notes = upsertNote(notes, { id: els.noteId.value || undefined, createdAt: existing?.createdAt, title: els.noteTitle.value, content: els.noteContent.value, tags, patternName: els.notePattern.value, asset: els.noteAsset.value, signalId: els.noteSignal.value });
   persistNotes();
   resetNoteForm();
   refreshNotes();
 }
 
-function resetNoteForm() {
-  els.noteId.value = "";
-  els.noteForm.reset();
-}
-
-function editNote(note) {
-  els.noteId.value = note.id;
-  els.noteTitle.value = note.title;
-  els.noteContent.value = note.content;
-  els.noteTags.value = note.tags.join(", ");
-  els.notePattern.value = note.links.patternName;
-  els.noteAsset.value = note.links.asset;
-  els.noteSignal.value = note.links.signalId;
-}
-
-function removeNote(noteId) {
-  notes = notes.filter((n) => n.id !== noteId);
-  persistNotes();
-  refreshNotes();
-}
+function resetNoteForm() { els.noteId.value = ""; els.noteForm.reset(); }
+function editNote(note) { els.noteId.value = note.id; els.noteTitle.value = note.title; els.noteContent.value = note.content; els.noteTags.value = note.tags.join(", "); els.notePattern.value = note.links.patternName; els.noteAsset.value = note.links.asset; els.noteSignal.value = note.links.signalId; }
+function removeNote(noteId) { notes = notes.filter((n) => n.id !== noteId); persistNotes(); refreshNotes(); }
 
 function setupTabs() {
   els.tabs.forEach((btn) => {
@@ -331,6 +359,10 @@ function setupEvents() {
 
   els.confidencePattern.addEventListener("change", refreshConfidenceEvolution);
   els.confidenceWindow.addEventListener("change", refreshConfidenceEvolution);
+
+  els.forwardSplitMode?.addEventListener("change", () => { forwardConfig.splitMode = els.forwardSplitMode.value; refreshV5(); });
+  els.forwardRatio?.addEventListener("input", () => { forwardConfig.ratio = Number(els.forwardRatio.value) / 100; refreshV5(); });
+  els.forwardDate?.addEventListener("change", () => { forwardConfig.splitDate = els.forwardDate.value; refreshV5(); });
 
   els.noteForm.addEventListener("submit", submitNote);
   els.noteResetBtn.addEventListener("click", resetNoteForm);
