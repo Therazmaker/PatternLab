@@ -70,6 +70,9 @@ export function renderRankingTable(container, rows) {
     { key: "sampleQuality", label: "Sample quality" },
     { key: "score", label: "Score" },
     { key: "adaptiveScore", label: "Adaptive", format: (v) => `${v ?? 0}` },
+    { key: "robustnessScore", label: "Robustness", format: (v) => `${v ?? 0}` },
+    { key: "robustnessBadge", label: "Robust badge", format: (v) => `<span class="badge">${v || "-"}</span>` },
+    { key: "overfitRisk", label: "Overfit risk", format: (v) => `<span class="badge overfit-${v || "low"}">${v || "low"}</span>` },
     { key: "confidenceBadge", label: "Badge", format: (v) => `<span class="badge confidence-${v.toLowerCase()}">${v}</span>` },
   ]);
 }
@@ -116,6 +119,9 @@ export function renderCompareCards(container, rows) {
         <li><span>Frecuencia</span><strong>${row.frequency}%</strong></li>
         <li><span>Adaptive score</span><strong>${row.adaptiveScore}</strong></li>
         <li><span>Regime dominante</span><strong>${row.dominantRegime}</strong></li>
+        <li><span>Robustness</span><strong>${row.robustnessScore} · ${row.robustnessBadge}</strong></li>
+        <li><span>Stress sensitivity</span><strong>${row.stressSensitivity}</strong></li>
+        <li><span>MC dispersión</span><strong>${row.monteCarloDispersion ?? "-"}pp</strong></li>
       </ul>
       </article>`).join("");
 }
@@ -131,7 +137,7 @@ export function renderRadarCards(container, rows) {
       <div class="context-mini"><strong>Context ${signal.contextScore}</strong><div class="bar"><span style="width:${signal.contextScore}%"></span></div><small>${signal.contextLabel}</small></div>
       <p>${badgeList(signal.radarBadges, "radar")}</p>
       <p>${badgeList(signal.autoTags, "tag")}</p>
-      <p class="muted">Regime: <strong>${signal.marketRegime || "unclear"}</strong> · Adaptive: <strong>${signal.patternMeta?.adaptiveScore ?? 0}</strong></p>
+      <p class="muted">Regime: <strong>${signal.marketRegime || "unclear"}</strong> · Adaptive: <strong>${signal.patternMeta?.adaptiveScore ?? 0}</strong> · Robustness: <strong>${signal.patternMeta?.robustness?.robustnessScore ?? "-"}</strong></p>
       <p class="muted">${signal.radarInsight}</p>
     </article>`).join("");
 }
@@ -168,6 +174,7 @@ export function renderPatternVersionsTable(container, rows) {
     { key: "maxLosingStreak", label: "Max losing streak" },
     { key: "consistency", label: "Consistency", format: (v) => `${v}%` },
     { key: "sampleSizeScore", label: "Sample size score", format: (v) => `${v}%` },
+    { key: "robustnessScore", label: "Robustness" },
   ]);
 }
 
@@ -321,4 +328,77 @@ export function renderReviewQueue(container, rows, onReview) {
     item.querySelector("[data-id]").addEventListener("click", () => onReview(row.id));
     container.appendChild(item);
   });
+}
+
+export function renderOverfitCheck(container, result) {
+  if (!result) {
+    container.innerHTML = '<p class="muted">Selecciona patrón para evaluar sobreajuste.</p>';
+    return;
+  }
+  if (!result.reasons.length) {
+    container.innerHTML = `<p><strong>Risk:</strong> <span class="badge">${result.overfitRisk}</span></p><p class="muted">Sin señales heurísticas relevantes por ahora.</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <p><strong>Overfit risk:</strong> <span class="badge overfit-${result.overfitRisk}">${result.overfitRisk}</span></p>
+    <p class="muted">${result.label}</p>
+    ${result.reasons.map((reason) => `<article class="panel-soft"><h4>${reason.message}</h4><p class="muted">Evidencia: ${reason.evidence}</p><p class="muted">Sugerencia: ${reason.suggestion}</p></article>`).join("")}
+  `;
+}
+
+export function renderStressTests(container, summary) {
+  if (!summary?.tests?.length) {
+    container.innerHTML = '<p class="muted">Insufficient evidence para Stress Test.</p>';
+    return;
+  }
+  container.innerHTML = summary.tests.map((test) => `
+    <article class="panel-soft">
+      <h4>${test.title}</h4>
+      <p class="muted">Baseline ${test.baseline.winrate}% → Stressed ${test.stressed.winrate}% · Δ ${test.delta}pp</p>
+      ${test.note ? `<p class="muted">${test.note}</p>` : ""}
+      <p>${test.interpretation}</p>
+    </article>
+  `).join("");
+}
+
+function renderMiniBars(rows = [], key) {
+  if (!rows.length) return '<p class="muted">Sin datos.</p>';
+  const max = Math.max(...rows.map((item) => item.count));
+  return rows.map((item) => `<div class="mc-bar"><span>${item[key]}</span><div class="bar"><span style="width:${Math.round((item.count / max) * 100)}%"></span></div><strong>${item.count}</strong></div>`).join("");
+}
+
+export function renderMonteCarlo(container, summary) {
+  if (!summary?.simulations) {
+    container.innerHTML = `<p class="muted">${summary?.insight || "Ejecuta simulación para ver resultados."}</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <ul class="mini-list">
+      <li><span>Simulations run</span><strong>${summary.simulations}</strong></li>
+      <li><span>Mean / Median winrate</span><strong>${summary.meanWinrate}% / ${summary.medianWinrate}%</strong></li>
+      <li><span>P10 / P25 / P75 / P90</span><strong>${summary.p10}% · ${summary.p25}% · ${summary.p75}% · ${summary.p90}%</strong></li>
+      <li><span>Best / Worst simulated</span><strong>${summary.bestCase}% / ${summary.worstCase}%</strong></li>
+      <li><span>Worst observed streak</span><strong>${summary.worstObservedStreak}</strong></li>
+      <li><span>Average max losing streak</span><strong>${summary.avgMaxLosingStreak}</strong></li>
+      <li><span>Dispersión</span><strong>${summary.dispersion}pp</strong></li>
+    </ul>
+    <p class="muted">${summary.insight}</p>
+    <h4>Histograma winrate</h4>
+    <div>${renderMiniBars(summary.histogram, "bucket")}</div>
+    <h4>Distribución max losing streak</h4>
+    <div>${renderMiniBars(summary.streakHistogram, "bucket")}</div>
+  `;
+}
+
+export function renderRobustnessScore(container, summary, insight) {
+  if (!summary) {
+    container.innerHTML = '<p class="muted">Sin datos para robustez.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <p><strong>Robustness score:</strong> ${summary.robustnessScore} / 100</p>
+    <p><strong>Badge:</strong> <span class="badge">${summary.badge}</span></p>
+    <p class="muted">${insight}</p>
+    <p class="muted">Fórmula transparente (componentes): muestra ${Math.round(summary.formula.sampleQuality)}, estabilidad ${summary.formula.stability}, adaptive ${summary.formula.adaptiveScore}, forward ${summary.formula.forwardStability}, dispersión inversa ${summary.formula.dispersionScore}, stress resistance ${summary.formula.stressResistance}, penalización dependencia ${summary.formula.dependencyPenalty}.</p>
+  `;
 }
