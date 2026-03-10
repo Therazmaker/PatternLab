@@ -1,4 +1,4 @@
-import { makeSignalId, toISODate } from "./utils.js";
+import { hourFromTimestamp, makeSignalId, toISODate } from "./utils.js";
 
 const fieldMap = {
   asset: ["asset", "symbol", "pair"],
@@ -31,11 +31,13 @@ function normalizeDirection(value) {
   return null;
 }
 
+function sanitizePattern(value) {
+  return String(value || "Unspecified pattern").trim() || "Unspecified pattern";
+}
+
 export function normalizeSignal(input) {
   const base = {};
-  for (const [target, aliases] of Object.entries(fieldMap)) {
-    base[target] = pick(input, aliases);
-  }
+  for (const [target, aliases] of Object.entries(fieldMap)) base[target] = pick(input, aliases);
 
   const normalized = {
     id: input.id || "",
@@ -44,14 +46,16 @@ export function normalizeSignal(input) {
     asset: base.asset ? String(base.asset).toUpperCase().replace("/", "") : "",
     timeframe: String(base.timeframe || "5m"),
     direction: normalizeDirection(base.direction),
-    patternName: base.patternName ? String(base.patternName) : "Unspecified pattern",
+    patternName: sanitizePattern(base.patternName),
     timestamp: toISODate(base.timestamp),
+    hourBucket: hourFromTimestamp(base.timestamp),
     entryPrice: base.entryPrice !== undefined ? Number(base.entryPrice) : null,
     stopLoss: base.stopLoss !== undefined ? Number(base.stopLoss) : null,
     takeProfit: base.takeProfit !== undefined ? Number(base.takeProfit) : null,
     expiryMinutes: Number(base.expiryMinutes || 5),
     confidence: base.confidence !== undefined ? Number(base.confidence) : null,
     session: base.session ? String(base.session) : "",
+    tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
     context: base.context && typeof base.context === "object" ? base.context : {},
     features: base.features && typeof base.features === "object" ? base.features : {},
     notes: base.notes ? String(base.notes) : "",
@@ -61,6 +65,7 @@ export function normalizeSignal(input) {
       expiryClose: null,
       reviewedAt: null,
       comment: "",
+      reviewedBy: input?.outcome?.reviewedBy || "manual",
     },
   };
 
@@ -71,6 +76,28 @@ export function normalizeSignal(input) {
   if (!normalized.direction) errors.push("Dirección inválida o faltante");
   if (!normalized.timestamp) errors.push("Timestamp inválido o faltante");
   return { normalized, errors };
+}
+
+export function migrateStoredSignal(signal) {
+  const base = { ...signal };
+  base.patternName = sanitizePattern(base.patternName || base.pattern);
+  base.asset = String(base.asset || "").toUpperCase().replace("/", "");
+  base.direction = normalizeDirection(base.direction) || "CALL";
+  base.timeframe = String(base.timeframe || "5m");
+  base.timestamp = toISODate(base.timestamp);
+  base.hourBucket = Number.isInteger(base.hourBucket) ? base.hourBucket : hourFromTimestamp(base.timestamp);
+  base.tags = Array.isArray(base.tags) ? base.tags.map(String) : [];
+  base.session = base.session ? String(base.session) : "";
+  base.outcome = {
+    status: base.outcome?.status || "pending",
+    win: base.outcome?.win ?? null,
+    expiryClose: base.outcome?.expiryClose ?? null,
+    reviewedAt: base.outcome?.reviewedAt ?? null,
+    comment: base.outcome?.comment || "",
+    reviewedBy: base.outcome?.reviewedBy || "manual",
+  };
+  base.id = base.id || makeSignalId(base);
+  return base;
 }
 
 export function dedupeSignals(signals) {

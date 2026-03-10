@@ -1,33 +1,16 @@
 {
   "signals": [
-    {
-      "asset": "EURUSD",
-      "direction": "CALL",
-      "pattern": "RSI Reclaim EMA Bias",
-      "timestamp": "2026-02-11T14:05:00Z",
-      "timeframe": "5m",
-      "entryPrice": 1.0842,
-      "confidence": 78,
-      "session": "NY"
-    },
-    {
-      "symbol": "GBPUSD",
-      "side": "PUT",
-      "setup": "Liquidity Sweep Reversal",
-      "createdAt": "2026-02-11T14:15:00Z",
-      "tf": "5m",
-      "price": 1.266,
-      "score": 66,
-      "sl": 1.267,
-      "tp": 1.2644
-    },
-    {
-      "pair": "USDJPY",
-      "signal": "buy",
-      "patternName": "Momentum Break + Retest",
-      "time": "2026-02-11T15:00:00Z",
-      "confidence": 72,
-      "notes": "Confluencia en soporte"
-    }
+    {"asset":"EURUSD","direction":"CALL","pattern":"RSI Reclaim EMA Bias","timestamp":"2026-02-11T09:05:00Z","timeframe":"5m","confidence":78,"session":"London"},
+    {"asset":"EURUSD","direction":"PUT","pattern":"RSI Reclaim EMA Bias","timestamp":"2026-02-11T10:15:00Z","timeframe":"5m","confidence":64,"session":"London"},
+    {"symbol":"GBPUSD","side":"PUT","setup":"Liquidity Sweep Reversal","createdAt":"2026-02-11T14:15:00Z","tf":"5m","score":66},
+    {"pair":"USDJPY","signal":"buy","patternName":"Momentum Break + Retest","time":"2026-02-11T15:00:00Z","confidence":72,"notes":"Confluencia en soporte"},
+    {"asset":"USDJPY","direction":"PUT","patternName":"Liquidity Sweep Reversal","timestamp":"2026-02-12T11:20:00Z","timeframe":"1m","confidence":59},
+    {"asset":"XAUUSD","direction":"CALL","patternName":"Session Open Impulse","timestamp":"2026-02-12T13:40:00Z","timeframe":"5m","confidence":82},
+    {"asset":"XAUUSD","direction":"PUT","patternName":"Session Open Impulse","timestamp":"2026-02-13T13:55:00Z","timeframe":"5m","confidence":47},
+    {"asset":"BTCUSD","direction":"CALL","patternName":"Momentum Break + Retest","timestamp":"2026-02-13T21:05:00Z","timeframe":"15m","confidence":74},
+    {"asset":"BTCUSD","direction":"PUT","patternName":"Range Fade Confirmation","timestamp":"2026-02-14T22:30:00Z","timeframe":"15m","confidence":55},
+    {"asset":"AUDUSD","direction":"CALL","patternName":"Range Fade Confirmation","timestamp":"2026-02-14T08:45:00Z","timeframe":"5m","confidence":61},
+    {"asset":"EURJPY","direction":"PUT","patternName":"Liquidity Sweep Reversal","timestamp":"2026-02-14T12:10:00Z","timeframe":"5m","confidence":70},
+    {"asset":"EURUSD","direction":"CALL","patternName":"Momentum Break + Retest","timestamp":"2026-02-15T09:25:00Z","timeframe":"1m","confidence":69}
   ]
 }
