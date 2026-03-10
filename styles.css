@@ -81,7 +81,10 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .context-mini .bar span { display:block; height: 100%; background: linear-gradient(90deg, #4264a3, #39be85); }
 .preview { border-top: 1px dashed var(--line); margin-top: .6rem; padding-top: .6rem; }
 .confidence-chart svg { width: 100%; height: auto; margin-top: 0.5rem; }
+.bot-layout { display: grid; grid-template-columns: 1.1fr .9fr; gap: .8rem; }
+#bot-definition-editor, #bot-schema-editor, #bot-prompt-editor { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+#bot-output-status { min-height: 1.2rem; margin-top: .35rem; }
 @media (max-width: 980px) {
   .app-header { flex-direction: column; }
-  .split, .journal-layout { grid-template-columns: 1fr; }
+  .split, .journal-layout, .bot-layout { grid-template-columns: 1fr; }
 }

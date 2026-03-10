@@ -35,6 +35,7 @@
       <button class="tab-btn" data-tab="suggestions">Suggestions</button>
       <button class="tab-btn" data-tab="clusters">Error Clusters</button>
       <button class="tab-btn" data-tab="forward">Forward Validation</button>
+      <button class="tab-btn" data-tab="bot-generator">Bot Generator</button>
     </nav>
 
     <main class="layout">
@@ -190,6 +191,43 @@
           <input id="forward-date" type="date" />
         </div>
         <div id="forward-wrap"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="bot-generator">
+        <h2>Bot Generator / Pattern Compiler <span class="hint" title="Convierte investigación en reglas estructuradas, schema JSON y prompt AI.">ⓘ</span></h2>
+        <div class="bot-layout">
+          <article class="panel-soft">
+            <h3>Pattern Definition</h3>
+            <div class="filters">
+              <select id="bot-pattern"><option value="">Selecciona patrón</option></select>
+              <select id="bot-version"><option value="">Selecciona versión</option></select>
+              <button id="btn-bot-build-definition" class="ghost" title="Genera una definición base usando señales y contexto disponibles.">Build Pattern Definition</button>
+              <button id="btn-bot-clone-version" class="ghost" title="Clona la versión seleccionada en una nueva editable.">Clone Version</button>
+            </div>
+            <label>Definition JSON<textarea id="bot-definition-editor" rows="16" spellcheck="false"></textarea></label>
+            <div class="button-row compact">
+              <button id="btn-bot-save-version" class="primary" title="Guarda o actualiza la versión del patrón.">Save Version</button>
+              <button id="btn-bot-compare-versions" class="ghost" title="Compara la versión seleccionada contra otra versión.">Compare Versions</button>
+            </div>
+            <label>Version Notes<input id="bot-version-notes" placeholder="Notas de esta versión" /></label>
+            <div id="bot-version-compare" class="preview"></div>
+          </article>
+
+          <article class="panel-soft">
+            <h3>Compiler Output</h3>
+            <div class="button-row">
+              <button id="btn-bot-generate-schema" title="Genera schema JSON estándar para alertas de TradingView.">Generate JSON Schema</button>
+              <button id="btn-bot-generate-prompt" title="Construye prompt técnico listo para AI (Pine Script v5).">Generate Pine Prompt</button>
+              <button id="btn-bot-copy-schema" class="ghost">Copy Schema</button>
+              <button id="btn-bot-copy-prompt" class="ghost">Copy Prompt</button>
+            </div>
+            <label>JSON Schema<textarea id="bot-schema-editor" rows="12" spellcheck="false"></textarea></label>
+            <label>Pine Prompt<textarea id="bot-prompt-editor" rows="14" spellcheck="false"></textarea></label>
+            <div id="bot-output-status" class="muted"></div>
+            <h4>Integration hints</h4>
+            <div id="bot-integration-hints" class="stack"></div>
+          </article>
+        </div>
       </section>
     </main>
 

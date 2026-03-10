@@ -3,6 +3,7 @@ import { dedupeSignals, migrateStoredSignal } from "./normalizer.js";
 const SIGNALS_KEY = "patternlab.signals.v1";
 const LAST_IMPORT_REPORT_KEY = "patternlab.lastImportReport";
 const META_FEEDBACK_KEY = "patternlab.metaFeedback.v1";
+const BOT_COMPILER_KEY = "patternlab.botCompiler.v1";
 
 export function loadSignals() {
   const raw = localStorage.getItem(SIGNALS_KEY);
@@ -80,4 +81,24 @@ export function loadMetaFeedback() {
 
 export function saveMetaFeedback(metaFeedback) {
   localStorage.setItem(META_FEEDBACK_KEY, JSON.stringify(metaFeedback));
+}
+
+export function loadBotCompilerState() {
+  try {
+    const raw = localStorage.getItem(BOT_COMPILER_KEY);
+    if (!raw) return { patternMeta: {} };
+    const parsed = JSON.parse(raw);
+    return {
+      patternMeta: parsed?.patternMeta && typeof parsed.patternMeta === "object" ? parsed.patternMeta : {},
+    };
+  } catch {
+    return { patternMeta: {} };
+  }
+}
+
+export function saveBotCompilerState(value) {
+  const normalized = {
+    patternMeta: value?.patternMeta && typeof value.patternMeta === "object" ? value.patternMeta : {},
+  };
+  localStorage.setItem(BOT_COMPILER_KEY, JSON.stringify(normalized));
 }
