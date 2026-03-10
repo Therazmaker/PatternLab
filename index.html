@@ -27,6 +27,8 @@
       <button class="tab-btn" data-tab="radar">Radar</button>
       <button class="tab-btn" data-tab="stats">Stats</button>
       <button class="tab-btn" data-tab="compare">Compare</button>
+      <button class="tab-btn" data-tab="versions">Pattern Versions</button>
+      <button class="tab-btn" data-tab="confidence">Confidence Evolution</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
     </nav>
 
@@ -66,7 +68,7 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th><th>Timestamp</th><th>Status</th><th>Context</th><th>Auto-tags</th><th>Quick review</th><th></th></tr>
+              <tr><th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th><th>Version</th><th>Timestamp</th><th>Status</th><th>Regime</th><th>Context</th><th>Auto-tags</th><th>Quick review</th><th></th></tr>
             </thead>
             <tbody id="feed-body"></tbody>
           </table>
@@ -74,7 +76,7 @@
       </section>
 
       <section class="panel tab-panel" data-panel="radar">
-        <h2>Radar</h2>
+        <h2>Radar <span class="hint" title="Incluye score adaptativo del patrón y régimen de mercado detectado.">ⓘ</span></h2>
         <p class="muted">Priorización visual para estudio de setups recientes. No ejecuta trading.</p>
         <div class="filters">
           <select id="radar-asset"><option value="">Todos los activos</option></select>
@@ -95,7 +97,7 @@
           <div><h3>Top patterns</h3><ul id="top-patterns" class="mini-list"></ul></div>
           <div><h3>Dirección</h3><ul id="direction-dist" class="mini-list"></ul></div>
         </div>
-        <h3>Ranking por patrón <span class="hint" title="El ranking es orientativo y depende del tamaño de muestra y revisiones realizadas.">ⓘ</span></h3>
+        <h3>Ranking por patrón <span class="hint" title="Incluye adaptive score: combina rendimiento reciente, histórico, estabilidad y muestra.">ⓘ</span></h3>
         <div id="ranking-wrap" class="table-wrap"></div>
         <h3>Análisis por hora</h3>
         <div id="hour-wrap" class="table-wrap"></div>
@@ -114,6 +116,20 @@
           <input id="compare-range-value" type="number" min="1" value="30" placeholder="N / días" />
         </div>
         <div id="compare-results"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="versions">
+        <h2>Pattern Versions <span class="hint" title="Compara cómo evoluciona un mismo patrón entre v1, v2, v3...">ⓘ</span></h2>
+        <div id="versions-wrap" class="table-wrap"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="confidence">
+        <h2>Confidence Evolution <span class="hint" title="Winrate acumulado y móvil por patrón. Ventanas sugeridas: 10/20/50.">ⓘ</span></h2>
+        <div class="filters">
+          <select id="confidence-pattern"><option value="">Selecciona patrón</option></select>
+          <select id="confidence-window"><option value="10">Ventana 10</option><option value="20" selected>Ventana 20</option><option value="50">Ventana 50</option></select>
+        </div>
+        <div id="confidence-wrap"></div>
       </section>
 
       <section class="panel tab-panel" data-panel="journal">

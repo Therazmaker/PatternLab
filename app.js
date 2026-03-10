@@ -6,9 +6,10 @@ import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modul
 import { applyReview } from "./modules/review.js";
 import { computeStats } from "./modules/stats.js";
 import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, computePatternRanking, withCompareFilters } from "./modules/analytics.js";
+import { computeConfidenceEvolution, computePatternVersionComparison } from "./modules/v4.js";
 import { filterNotes, loadNotes, saveNotes, upsertNote } from "./modules/journal.js";
 import { enrichSignals } from "./modules/intelligence.js";
-import { renderAssetTable, renderCompareCards, renderHourTable, renderImportReport, renderList, renderNotes, renderPreview, renderRadarCards, renderRankingTable, renderStatsOverview } from "./modules/ui.js";
+import { renderAssetTable, renderCompareCards, renderConfidenceEvolution, renderHourTable, renderImportReport, renderList, renderNotes, renderPatternVersionsTable, renderPreview, renderRadarCards, renderRankingTable, renderStatsOverview } from "./modules/ui.js";
 
 const els = {
   jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
@@ -20,6 +21,7 @@ const els = {
   kpiTotal: document.getElementById("kpi-total"), kpiPending: document.getElementById("kpi-pending"), kpiWins: document.getElementById("kpi-wins"), kpiLosses: document.getElementById("kpi-losses"), kpiWinrate: document.getElementById("kpi-winrate"),
   tabs: [...document.querySelectorAll(".tab-btn")], panels: [...document.querySelectorAll(".tab-panel")],
   comparePatterns: document.getElementById("compare-patterns"), compareAsset: document.getElementById("compare-asset"), compareDirection: document.getElementById("compare-direction"), compareTimeframe: document.getElementById("compare-timeframe"), compareRangeMode: document.getElementById("compare-range-mode"), compareRangeValue: document.getElementById("compare-range-value"), compareResults: document.getElementById("compare-results"),
+  versionsWrap: document.getElementById("versions-wrap"), confidencePattern: document.getElementById("confidence-pattern"), confidenceWindow: document.getElementById("confidence-window"), confidenceWrap: document.getElementById("confidence-wrap"),
   radarAsset: document.getElementById("radar-asset"), radarDirection: document.getElementById("radar-direction"), radarPattern: document.getElementById("radar-pattern"), radarTimeframe: document.getElementById("radar-timeframe"), radarMode: document.getElementById("radar-range-mode"), radarRangeValue: document.getElementById("radar-range-value"), radarResults: document.getElementById("radar-results"),
   noteId: document.getElementById("note-id"), noteTitle: document.getElementById("note-title"), noteContent: document.getElementById("note-content"), noteTags: document.getElementById("note-tags"), notePattern: document.getElementById("note-pattern"), noteAsset: document.getElementById("note-asset"), noteSignal: document.getElementById("note-signal"), noteForm: document.getElementById("journal-form"), noteResetBtn: document.getElementById("btn-note-reset"),
   noteSearch: document.getElementById("note-search"), noteFilterTag: document.getElementById("note-filter-tag"), noteFilterPattern: document.getElementById("note-filter-pattern"), noteFilterAsset: document.getElementById("note-filter-asset"), notesList: document.getElementById("notes-list"),
@@ -61,6 +63,7 @@ function refreshSharedOptions() {
 
   const selected = new Set([...els.comparePatterns.selectedOptions].map((o) => o.value));
   els.comparePatterns.innerHTML = patterns.map((p) => `<option value="${p}" ${selected.has(p) ? "selected" : ""}>${p}</option>`).join("");
+  renderFilterOptions(els.confidencePattern, patterns, "Selecciona patrón");
   els.noteSignal.innerHTML = `<option value="">-</option>${state.signals.slice(0, 120).map((s) => `<option value="${s.id}">${s.id} · ${s.patternName}</option>`).join("")}`;
 }
 
@@ -86,6 +89,21 @@ function refreshCompare() {
   const selectedPatterns = [...els.comparePatterns.selectedOptions].map((o) => o.value);
   const filtered = withCompareFilters(state.signals, compareFilters);
   renderCompareCards(els.compareResults, computePatternCompare(filtered, selectedPatterns));
+}
+
+
+function refreshVersions() {
+  renderPatternVersionsTable(els.versionsWrap, computePatternVersionComparison(state.signals));
+}
+
+function refreshConfidenceEvolution() {
+  const pattern = els.confidencePattern.value;
+  const windowSize = Number(els.confidenceWindow.value) || 20;
+  if (!pattern) {
+    renderConfidenceEvolution(els.confidenceWrap, null, windowSize);
+    return;
+  }
+  renderConfidenceEvolution(els.confidenceWrap, computeConfidenceEvolution(state.signals, pattern, windowSize), windowSize);
 }
 
 function refreshRadar() {
@@ -122,6 +140,8 @@ function rerender() {
   refreshRadar();
   refreshStats();
   refreshCompare();
+  refreshVersions();
+  refreshConfidenceEvolution();
   refreshNotes();
 }
 
@@ -308,6 +328,9 @@ function setupEvents() {
       refreshRadar();
     });
   });
+
+  els.confidencePattern.addEventListener("change", refreshConfidenceEvolution);
+  els.confidenceWindow.addEventListener("change", refreshConfidenceEvolution);
 
   els.noteForm.addEventListener("submit", submitNote);
   els.noteResetBtn.addEventListener("click", resetNoteForm);

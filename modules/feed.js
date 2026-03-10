@@ -24,7 +24,7 @@ export function getFilteredSignals(signals, filters) {
 export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
   tbody.innerHTML = "";
   if (!signals.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="muted">No hay señales para mostrar.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="muted">No hay señales para mostrar.</td></tr>';
     return;
   }
 
@@ -37,8 +37,10 @@ export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
       <td>${signal.timeframe}</td>
       <td><span class="badge ${directionClass}">${signal.direction}</span></td>
       <td>${signal.patternName}</td>
+      <td>${signal.patternVersion || "v1"}</td>
       <td>${formatDate(signal.timestamp)}</td>
       <td><span class="badge ${statusClass}">${signal.outcome.status}</span></td>
+      <td><span class="badge">${signal.marketRegime || "unclear"}</span></td>
       <td>
         <div class="context-mini">
           <strong>${signal.contextScore ?? 0}</strong>

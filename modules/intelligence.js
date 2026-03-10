@@ -1,4 +1,5 @@
 import { clamp, toISODate } from "./utils.js";
+import { computePatternMeta, detectMarketRegime } from "./v4.js";
 
 export const RADAR_WEIGHTS = {
   pattern: 0.38,
@@ -132,10 +133,18 @@ export function enrichSignals(signals, patternRanking = []) {
   const maxPattern = Math.max(...[...patternScores.values(), 1]);
   const minPattern = Math.min(...[...patternScores.values(), 0]);
 
-  return signals.map((signal) => {
+  const enrichedBase = signals.map((signal) => {
     const contextScore = computeContextScore(signal, context);
     const freshnessScore = computeFreshnessScore(signal);
     const autoTags = generateAutoTags(signal, context);
+    const patternRows = signals.filter((s) => s.patternName === signal.patternName);
+    const reviewedPattern = reviewedRows(patternRows, () => true);
+    const marketRegime = detectMarketRegime(signal, {
+      patternFrequency: patternRows.length,
+      patternConsistency: reviewedPattern.length
+        ? Math.round((reviewedPattern.filter((s) => s.outcome.status === "win").length / reviewedPattern.length) * 100)
+        : 50,
+    });
     const pRaw = patternScores.get(signal.patternName) ?? 0;
     const patternNormalized = Math.round(((pRaw - minPattern) / (maxPattern - minPattern || 1)) * 100);
     const radarScore = computeRadarScore({ ...signal, autoTags }, patternNormalized, contextScore, freshnessScore);
@@ -147,13 +156,26 @@ export function enrichSignals(signals, patternRanking = []) {
 
     return {
       ...signal,
+      patternVersion: signal.patternVersion || "v1",
       contextScore,
       contextLabel: contextLabel(contextScore),
       autoTags,
       freshnessScore,
       radarScore,
       radarBadges: badges,
+      marketRegime,
       radarInsight: buildRadarInsights({ ...signal, contextScore, autoTags, freshnessScore }),
     };
   });
+
+  const patternMeta = computePatternMeta(enrichedBase);
+  return enrichedBase.map((signal) => ({
+    ...signal,
+    patternMeta: patternMeta.get(signal.patternName) || signal.patternMeta || {
+      adaptiveScore: null,
+      stability: null,
+      drawdown: null,
+      regimeStats: {},
+    },
+  }));
 }

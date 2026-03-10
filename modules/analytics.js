@@ -55,7 +55,9 @@ export function computePatternCompare(signals, patternNames) {
     const frequency = signals.length ? Math.round((rows.length / signals.length) * 1000) / 10 : 0;
     const topAssets = topLabels(rows.map((s) => s.asset));
     const topHours = topLabels(rows.map((s) => formatHourBucket(s.hourBucket)));
-    const summary = { patternName, ...metrics, topAssets, topHours, callCount, putCount, frequency };
+    const adaptiveScore = rows[0]?.patternMeta?.adaptiveScore ?? 0;
+    const dominantRegime = topLabels(rows.map((s) => s.marketRegime), 1)[0] || "unclear";
+    const summary = { patternName, ...metrics, topAssets, topHours, callCount, putCount, frequency, adaptiveScore, dominantRegime };
     return { ...summary, insight: buildPatternInsight(summary) };
   });
 }
@@ -69,10 +71,11 @@ export function computePatternRanking(signals) {
     const pendingPenalty = metrics.total ? (metrics.pending / metrics.total) * 12 : 0;
     const lowSamplePenalty = metrics.reviewed < 8 ? (8 - metrics.reviewed) * 2.2 : 0;
     const consistencyBonus = metrics.reviewed >= 12 && metrics.winrate >= 55 ? 4 : 0;
-    const score = Number((metrics.winrate * reviewedWeight - pendingPenalty - lowSamplePenalty + consistencyBonus).toFixed(2));
+    const adaptiveScore = rows[0]?.patternMeta?.adaptiveScore ?? 0;
+    const score = Number((metrics.winrate * reviewedWeight - pendingPenalty - lowSamplePenalty + consistencyBonus + adaptiveScore * 0.25).toFixed(2));
     const sampleQuality = metrics.reviewed >= 25 ? "High" : metrics.reviewed >= 12 ? "Medium" : "Low";
     const confidenceBadge = metrics.reviewed >= 25 ? "Stable" : metrics.reviewed >= 12 ? "Developing" : metrics.reviewed >= 6 ? "Early" : "Exploratory";
-    return { patternName, ...metrics, sampleQuality, score, confidenceBadge };
+    return { patternName, ...metrics, sampleQuality, score, confidenceBadge, adaptiveScore };
   });
   return ranked.sort((a, b) => b.score - a.score).map((item, index) => ({ ...item, rank: index + 1 }));
 }
