@@ -84,3 +84,9 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
   .app-header { flex-direction: column; }
   .split, .journal-layout { grid-template-columns: 1fr; }
 }
+
+.confidence-chart svg {
+  width: 100%;
+  height: auto;
+  margin-top: 0.5rem;
+}

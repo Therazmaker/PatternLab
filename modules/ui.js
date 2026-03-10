@@ -69,6 +69,7 @@ export function renderRankingTable(container, rows) {
     { key: "winrate", label: "Winrate", format: (v) => `${v}%` },
     { key: "sampleQuality", label: "Sample quality" },
     { key: "score", label: "Score" },
+    { key: "adaptiveScore", label: "Adaptive", format: (v) => `${v ?? 0}` },
     { key: "confidenceBadge", label: "Badge", format: (v) => `<span class="badge confidence-${v.toLowerCase()}">${v}</span>` },
   ]);
 }
@@ -113,6 +114,8 @@ export function renderCompareCards(container, rows) {
         <li><span>Skips/Pending</span><strong>${row.skips}/${row.pending}</strong></li>
         <li><span>Winrate</span><strong>${row.winrate}%</strong></li>
         <li><span>Frecuencia</span><strong>${row.frequency}%</strong></li>
+        <li><span>Adaptive score</span><strong>${row.adaptiveScore}</strong></li>
+        <li><span>Regime dominante</span><strong>${row.dominantRegime}</strong></li>
         <li><span>Top assets</span><strong>${row.topAssets.join(", ") || "-"}</strong></li>
         <li><span>Top horas</span><strong>${row.topHours.join(", ") || "-"}</strong></li>
         <li><span>CALL vs PUT</span><strong>${row.callCount} / ${row.putCount}</strong></li>
@@ -131,6 +134,7 @@ export function renderRadarCards(container, rows) {
       <div class="context-mini"><strong>Context ${signal.contextScore}</strong><div class="bar"><span style="width:${signal.contextScore}%"></span></div><small>${signal.contextLabel}</small></div>
       <p>${badgeList(signal.radarBadges, "radar")}</p>
       <p>${badgeList(signal.autoTags, "tag")}</p>
+      <p class="muted">Regime: <strong>${signal.marketRegime || "unclear"}</strong> · Adaptive: <strong>${signal.patternMeta?.adaptiveScore ?? 0}</strong></p>
       <p class="muted">${signal.radarInsight}</p>
     </article>`).join("");
 }
@@ -154,4 +158,51 @@ export function renderNotes(container, notes, onEdit, onDelete) {
     card.querySelector("[data-delete]").addEventListener("click", () => onDelete(note.id));
     container.appendChild(card);
   });
+}
+
+export function renderPatternVersionsTable(container, rows) {
+  container.innerHTML = renderTable(rows, [
+    { key: "patternName", label: "Pattern" },
+    { key: "patternVersion", label: "Version" },
+    { key: "total", label: "Total" },
+    { key: "reviewed", label: "Reviewed" },
+    { key: "wins", label: "Wins" },
+    { key: "losses", label: "Losses" },
+    { key: "winrate", label: "Winrate", format: (v) => `${v}%` },
+    { key: "maxLosingStreak", label: "Max losing streak" },
+    { key: "consistency", label: "Consistency", format: (v) => `${v}%` },
+    { key: "sampleSizeScore", label: "Sample size score", format: (v) => `${v}%` },
+  ]);
+}
+
+export function renderConfidenceEvolution(container, evolution, windowSize = 20) {
+  if (!evolution?.rolling?.length) {
+    container.innerHTML = '<p class="muted">Selecciona un patrón con señales revisadas para ver su evolución.</p>';
+    return;
+  }
+
+  const width = 760;
+  const height = 220;
+  const padX = 36;
+  const padY = 20;
+  const points = evolution.rolling;
+  const step = (width - padX * 2) / Math.max(points.length - 1, 1);
+  const y = (value) => (height - padY) - ((value / 100) * (height - padY * 2));
+
+  const rollingPath = points.map((point, index) => `${index === 0 ? "M" : "L"}${padX + step * index},${y(point.rollingWinrate)}`).join(" ");
+  const cumulativePath = points.map((point, index) => `${index === 0 ? "M" : "L"}${padX + step * index},${y(point.cumulativeWinrate)}`).join(" ");
+
+  container.innerHTML = `
+    <article class="panel-soft confidence-chart">
+      <p class="muted">Ventana móvil: ${windowSize} señales</p>
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Confidence Evolution">
+        <line x1="${padX}" y1="${height - padY}" x2="${width - padX}" y2="${height - padY}" stroke="currentColor" stroke-opacity="0.3" />
+        <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${height - padY}" stroke="currentColor" stroke-opacity="0.3" />
+        <path d="${cumulativePath}" fill="none" stroke="#7dd3fc" stroke-width="2" />
+        <path d="${rollingPath}" fill="none" stroke="#22c55e" stroke-width="2.5" />
+      </svg>
+      <p class="muted">Azul: acumulado · Verde: rolling winrate</p>
+      <ul class="mini-list">${evolution.frequencyByPeriod.map((item) => `<li><span>${item.period}</span><strong>${item.count}</strong></li>`).join("")}</ul>
+    </article>
+  `;
 }

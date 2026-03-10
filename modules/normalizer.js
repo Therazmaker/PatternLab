@@ -15,6 +15,7 @@ const fieldMap = {
   notes: ["notes", "comment"],
   context: ["context"],
   features: ["features"],
+  patternVersion: ["patternVersion", "version", "pattern_version"],
 };
 
 function pick(source, aliases) {
@@ -47,6 +48,7 @@ export function normalizeSignal(input) {
     timeframe: String(base.timeframe || "5m"),
     direction: normalizeDirection(base.direction),
     patternName: sanitizePattern(base.patternName),
+    patternVersion: String(base.patternVersion || "v1"),
     timestamp: toISODate(base.timestamp),
     hourBucket: hourFromTimestamp(base.timestamp),
     entryPrice: base.entryPrice !== undefined ? Number(base.entryPrice) : null,
@@ -76,6 +78,12 @@ export function normalizeSignal(input) {
       reviewer: "manual",
       updatedAt: null,
     },
+    patternMeta: {
+      adaptiveScore: null,
+      stability: null,
+      drawdown: null,
+      regimeStats: {},
+    },
   };
 
   normalized.id = normalized.id || makeSignalId(normalized);
@@ -90,6 +98,7 @@ export function normalizeSignal(input) {
 export function migrateStoredSignal(signal) {
   const base = { ...signal };
   base.patternName = sanitizePattern(base.patternName || base.pattern);
+  base.patternVersion = String(base.patternVersion || "v1");
   base.asset = String(base.asset || "").toUpperCase().replace("/", "");
   base.direction = normalizeDirection(base.direction) || "CALL";
   base.timeframe = String(base.timeframe || "5m");
@@ -105,6 +114,12 @@ export function migrateStoredSignal(signal) {
     lateEntry: Boolean(base.reviewMeta?.lateEntry),
     reviewer: base.reviewMeta?.reviewer || "manual",
     updatedAt: base.reviewMeta?.updatedAt || null,
+  };
+  base.patternMeta = {
+    adaptiveScore: typeof base.patternMeta?.adaptiveScore === "number" ? base.patternMeta.adaptiveScore : null,
+    stability: typeof base.patternMeta?.stability === "number" ? base.patternMeta.stability : null,
+    drawdown: typeof base.patternMeta?.drawdown === "number" ? base.patternMeta.drawdown : null,
+    regimeStats: base.patternMeta?.regimeStats && typeof base.patternMeta.regimeStats === "object" ? base.patternMeta.regimeStats : {},
   };
   base.outcome = {
     status: base.outcome?.status || "pending",
