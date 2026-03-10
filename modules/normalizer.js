@@ -78,11 +78,14 @@ export function normalizeSignal(input) {
       reviewer: "manual",
       updatedAt: null,
     },
+    forwardBucket: input.forwardBucket || null,
     patternMeta: {
       adaptiveScore: null,
       stability: null,
       drawdown: null,
       regimeStats: {},
+      hypothesisHistory: Array.isArray(input.patternMeta?.hypothesisHistory) ? input.patternMeta.hypothesisHistory : [],
+      errorClusters: Array.isArray(input.patternMeta?.errorClusters) ? input.patternMeta.errorClusters : [],
     },
   };
 
@@ -115,11 +118,14 @@ export function migrateStoredSignal(signal) {
     reviewer: base.reviewMeta?.reviewer || "manual",
     updatedAt: base.reviewMeta?.updatedAt || null,
   };
+  base.forwardBucket = base.forwardBucket || null;
   base.patternMeta = {
     adaptiveScore: typeof base.patternMeta?.adaptiveScore === "number" ? base.patternMeta.adaptiveScore : null,
     stability: typeof base.patternMeta?.stability === "number" ? base.patternMeta.stability : null,
     drawdown: typeof base.patternMeta?.drawdown === "number" ? base.patternMeta.drawdown : null,
     regimeStats: base.patternMeta?.regimeStats && typeof base.patternMeta.regimeStats === "object" ? base.patternMeta.regimeStats : {},
+    hypothesisHistory: Array.isArray(base.patternMeta?.hypothesisHistory) ? base.patternMeta.hypothesisHistory : [],
+    errorClusters: Array.isArray(base.patternMeta?.errorClusters) ? base.patternMeta.errorClusters : [],
   };
   base.outcome = {
     status: base.outcome?.status || "pending",
