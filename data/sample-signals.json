@@ -1,0 +1,33 @@
+{
+  "signals": [
+    {
+      "asset": "EURUSD",
+      "direction": "CALL",
+      "pattern": "RSI Reclaim EMA Bias",
+      "timestamp": "2026-02-11T14:05:00Z",
+      "timeframe": "5m",
+      "entryPrice": 1.0842,
+      "confidence": 78,
+      "session": "NY"
+    },
+    {
+      "symbol": "GBPUSD",
+      "side": "PUT",
+      "setup": "Liquidity Sweep Reversal",
+      "createdAt": "2026-02-11T14:15:00Z",
+      "tf": "5m",
+      "price": 1.266,
+      "score": 66,
+      "sl": 1.267,
+      "tp": 1.2644
+    },
+    {
+      "pair": "USDJPY",
+      "signal": "buy",
+      "patternName": "Momentum Break + Retest",
+      "time": "2026-02-11T15:00:00Z",
+      "confidence": 72,
+      "notes": "Confluencia en soporte"
+    }
+  ]
+}

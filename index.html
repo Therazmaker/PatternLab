@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PatternLab</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header panel">
+      <div>
+        <h1>PatternLab</h1>
+        <p>Importa señales, estudia patrones, afina setups</p>
+      </div>
+      <div class="kpi-grid" id="quick-kpis">
+        <div class="kpi"><span>Total</span><strong id="kpi-total">0</strong></div>
+        <div class="kpi"><span>Pending</span><strong id="kpi-pending">0</strong></div>
+        <div class="kpi"><span>Wins</span><strong id="kpi-wins">0</strong></div>
+        <div class="kpi"><span>Losses</span><strong id="kpi-losses">0</strong></div>
+        <div class="kpi"><span>Winrate</span><strong id="kpi-winrate">0%</strong></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel importer">
+        <h2>Importador JSON</h2>
+        <p class="muted">Pega una señal, un array de señales o un objeto con <code>signals</code>.</p>
+        <textarea id="json-input" placeholder='Ejemplo: [{"asset":"EURUSD","direction":"CALL","timestamp":"2026-01-12T14:05:00Z"}]'></textarea>
+        <div class="button-row">
+          <button id="btn-validate">Validar</button>
+          <button id="btn-import" class="primary">Importar válidas</button>
+          <button id="btn-clear" class="ghost">Limpiar</button>
+          <button id="btn-load-demo" class="ghost">Cargar demo</button>
+        </div>
+        <div id="preview" class="preview"></div>
+      </section>
+
+      <section class="panel stats">
+        <h2>Estadísticas</h2>
+        <div id="stats-overview" class="stats-grid"></div>
+        <div class="split">
+          <div>
+            <h3>Top assets</h3>
+            <ul id="top-assets" class="mini-list"></ul>
+          </div>
+          <div>
+            <h3>Top patterns</h3>
+            <ul id="top-patterns" class="mini-list"></ul>
+          </div>
+          <div>
+            <h3>Dirección</h3>
+            <ul id="direction-dist" class="mini-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel feed full-width">
+        <div class="feed-header">
+          <h2>Feed de señales</h2>
+          <div class="button-row compact">
+            <button id="btn-export" class="ghost">Exportar dataset</button>
+            <label class="file-label" for="dataset-file">Importar dataset</label>
+            <input id="dataset-file" type="file" accept="application/json" />
+          </div>
+        </div>
+        <div class="filters">
+          <input id="search" placeholder="Buscar por texto..." />
+          <select id="filter-asset"><option value="">Todos los activos</option></select>
+          <select id="filter-direction"><option value="">Todas las direcciones</option><option value="CALL">CALL</option><option value="PUT">PUT</option></select>
+          <select id="filter-pattern"><option value="">Todos los patrones</option></select>
+          <select id="filter-status"><option value="">Todos los estados</option><option value="pending">pending</option><option value="win">win</option><option value="loss">loss</option><option value="skip">skip</option></select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>TF</th>
+                <th>Direction</th>
+                <th>Pattern</th>
+                <th>Timestamp</th>
+                <th>Status</th>
+                <th>Confidence</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="feed-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="review-modal">
+      <form method="dialog" id="review-form" class="review-form">
+        <header>
+          <h3>Revisión de señal</h3>
+          <button type="submit" class="ghost">Cerrar</button>
+        </header>
+        <div id="review-details" class="review-details"></div>
+        <label>
+          Outcome status
+          <select id="review-status">
+            <option value="pending">pending</option>
+            <option value="win">win</option>
+            <option value="loss">loss</option>
+            <option value="skip">skip</option>
+          </select>
+        </label>
+        <label>
+          Comentario
+          <textarea id="review-comment" rows="3"></textarea>
+        </label>
+        <button type="button" id="btn-save-review" class="primary">Guardar revisión</button>
+      </form>
+    </dialog>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
