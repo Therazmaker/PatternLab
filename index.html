@@ -42,6 +42,14 @@
     <main class="layout">
       <section class="panel tab-panel active" data-panel="import">
         <h2>Importador JSON</h2>
+        <div class="quick-add-block">
+          <h3>Quick Add Signal</h3>
+          <div class="quick-add-row">
+            <input id="quick-add-input" placeholder="CALL RSI=69.5" />
+            <button id="btn-quick-add" class="primary">Guardar señal</button>
+          </div>
+          <div id="quick-add-feedback" class="quick-add-feedback muted"></div>
+        </div>
         <p class="muted">Pega una señal, un array de señales o un objeto con <code>signals</code>.</p>
         <textarea id="json-input" placeholder='Ejemplo: [{"asset":"EURUSD","direction":"CALL","timestamp":"2026-01-12T14:05:00Z"}]'></textarea>
         <div class="button-row">
