@@ -1,5 +1,10 @@
 import { formatDate } from "./utils.js";
 
+function renderTagBadges(tags = []) {
+  if (!tags.length) return '<span class="muted">-</span>';
+  return tags.map((tag) => `<span class="badge tag">${tag}</span>`).join(" ");
+}
+
 export function getFilteredSignals(signals, filters) {
   const term = filters.search.trim().toLowerCase();
   return signals.filter((s) => {
@@ -7,18 +12,19 @@ export function getFilteredSignals(signals, filters) {
     if (filters.direction && s.direction !== filters.direction) return false;
     if (filters.patternName && s.patternName !== filters.patternName) return false;
     if (filters.status && s.outcome.status !== filters.status) return false;
+    if (filters.timeframe && s.timeframe !== filters.timeframe) return false;
     if (term) {
-      const hay = [s.asset, s.patternName, s.direction, s.timeframe, s.notes].join(" ").toLowerCase();
+      const hay = [s.asset, s.patternName, s.direction, s.timeframe, s.notes, ...(s.autoTags || [])].join(" ").toLowerCase();
       if (!hay.includes(term)) return false;
     }
     return true;
   });
 }
 
-export function renderFeedRows(tbody, signals, onReview) {
+export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
   tbody.innerHTML = "";
   if (!signals.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="muted">No hay señales para mostrar.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="muted">No hay señales para mostrar.</td></tr>';
     return;
   }
 
@@ -33,10 +39,25 @@ export function renderFeedRows(tbody, signals, onReview) {
       <td>${signal.patternName}</td>
       <td>${formatDate(signal.timestamp)}</td>
       <td><span class="badge ${statusClass}">${signal.outcome.status}</span></td>
-      <td>${signal.confidence ?? "-"}</td>
+      <td>
+        <div class="context-mini">
+          <strong>${signal.contextScore ?? 0}</strong>
+          <div class="bar"><span style="width:${signal.contextScore ?? 0}%"></span></div>
+          <small>${signal.contextLabel || "-"}</small>
+        </div>
+      </td>
+      <td>${renderTagBadges(signal.autoTags)}</td>
+      <td class="quick-actions">
+        <button data-quick="win" data-id="${signal.id}" class="ghost" title="Marcar win">Win</button>
+        <button data-quick="loss" data-id="${signal.id}" class="ghost" title="Marcar loss">Loss</button>
+        <button data-quick="skip" data-id="${signal.id}" class="ghost" title="Marcar skip">Skip</button>
+      </td>
       <td><button data-id="${signal.id}" class="ghost">Revisar</button></td>
     `;
-    tr.querySelector("button").addEventListener("click", () => onReview(signal.id));
+    tr.querySelector('[data-id]:not([data-quick])').addEventListener("click", () => onReview(signal.id));
+    tr.querySelectorAll("[data-quick]").forEach((btn) => {
+      btn.addEventListener("click", () => onQuickReview(signal.id, btn.dataset.quick));
+    });
     tbody.appendChild(tr);
   });
 }

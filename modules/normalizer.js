@@ -56,16 +56,25 @@ export function normalizeSignal(input) {
     confidence: base.confidence !== undefined ? Number(base.confidence) : null,
     session: base.session ? String(base.session) : "",
     tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
+    autoTags: Array.isArray(input.autoTags) ? input.autoTags.map(String) : [],
     context: base.context && typeof base.context === "object" ? base.context : {},
     features: base.features && typeof base.features === "object" ? base.features : {},
     notes: base.notes ? String(base.notes) : "",
+    contextScore: typeof input.contextScore === "number" ? input.contextScore : null,
     outcome: {
-      status: "pending",
+      status: input?.outcome?.status || "pending",
       win: null,
       expiryClose: null,
       reviewedAt: null,
       comment: "",
       reviewedBy: input?.outcome?.reviewedBy || "manual",
+    },
+    reviewMeta: {
+      labels: [],
+      executionError: false,
+      lateEntry: false,
+      reviewer: "manual",
+      updatedAt: null,
     },
   };
 
@@ -87,7 +96,16 @@ export function migrateStoredSignal(signal) {
   base.timestamp = toISODate(base.timestamp);
   base.hourBucket = Number.isInteger(base.hourBucket) ? base.hourBucket : hourFromTimestamp(base.timestamp);
   base.tags = Array.isArray(base.tags) ? base.tags.map(String) : [];
+  base.autoTags = Array.isArray(base.autoTags) ? base.autoTags.map(String) : [];
   base.session = base.session ? String(base.session) : "";
+  base.contextScore = typeof base.contextScore === "number" ? base.contextScore : null;
+  base.reviewMeta = {
+    labels: Array.isArray(base.reviewMeta?.labels) ? base.reviewMeta.labels : [],
+    executionError: Boolean(base.reviewMeta?.executionError),
+    lateEntry: Boolean(base.reviewMeta?.lateEntry),
+    reviewer: base.reviewMeta?.reviewer || "manual",
+    updatedAt: base.reviewMeta?.updatedAt || null,
+  };
   base.outcome = {
     status: base.outcome?.status || "pending",
     win: base.outcome?.win ?? null,
