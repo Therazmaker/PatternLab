@@ -1,3 +1,8 @@
+function badgeList(tags = [], className = "tag") {
+  if (!tags.length) return '<span class="muted">-</span>';
+  return tags.map((tag) => `<span class="badge ${className}">${tag}</span>`).join(" ");
+}
+
 export function renderPreview(container, preview) {
   if (!preview) {
     container.innerHTML = "";
@@ -8,16 +13,29 @@ export function renderPreview(container, preview) {
     return;
   }
 
-  const errorList = preview.invalid
-    .slice(0, 10)
-    .map((row) => `<li>Fila ${row.index + 1}: ${row.errors.join(", ")}</li>`)
-    .join("");
+  const invalidList = preview.invalid.slice(0, 8).map((row) => `<li>Fila ${row.index + 1}: ${row.errors.join(", ")}</li>`).join("");
+  const duplicateList = (preview.duplicates || []).slice(0, 8).map((row) => `<li>Fila ${row.index + 1}: ${row.signal.asset} · ${row.signal.patternName}</li>`).join("");
+  const missingList = (preview.missingCritical || []).slice(0, 8).map((row) => `<li>Fila ${row.index + 1}: ${row.fields.join(", ")}</li>`).join("");
 
   container.innerHTML = `
-    <p><strong>Detectadas:</strong> ${preview.total} | <strong>Válidas:</strong> ${preview.valid.length} | <strong>Inválidas:</strong> ${preview.invalid.length}</p>
+    <p><strong>Detectadas:</strong> ${preview.total} | <strong>Válidas:</strong> ${preview.valid.length} | <strong>Inválidas:</strong> ${preview.invalid.length} | <strong>Duplicadas:</strong> ${(preview.duplicates || []).length}</p>
+    <p><strong>Importables:</strong> ${(preview.uniqueValid || []).length} (sin duplicados).</p>
     <p><strong>Assets:</strong> ${preview.assets.join(", ") || "-"}</p>
     <p><strong>Patterns:</strong> ${preview.patterns.join(", ") || "-"}</p>
-    ${errorList ? `<details><summary>Errores por fila</summary><ul>${errorList}</ul></details>` : ""}
+    ${missingList ? `<details><summary>Faltantes críticos</summary><ul>${missingList}</ul></details>` : ""}
+    ${invalidList ? `<details><summary>Errores por fila</summary><ul>${invalidList}</ul></details>` : ""}
+    ${duplicateList ? `<details><summary>Duplicadas detectadas</summary><ul>${duplicateList}</ul></details>` : ""}
+  `;
+}
+
+export function renderImportReport(container, report) {
+  if (!report) {
+    container.innerHTML = '<p class="muted">Aún no hay reportes de importación.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <p><strong>Última importación:</strong> ${new Date(report.createdAt).toLocaleString()}</p>
+    <p class="muted">Detectadas ${report.total}, válidas ${report.valid}, inválidas ${report.invalid}, duplicadas ${report.duplicates}, importadas ${report.imported}.</p>
   `;
 }
 
@@ -35,9 +53,7 @@ export function renderStatsOverview(container, stats) {
 function renderTable(rows, columns) {
   if (!rows.length) return '<p class="muted">Sin datos suficientes.</p>';
   const head = `<tr>${columns.map((c) => `<th>${c.label}</th>`).join("")}</tr>`;
-  const body = rows
-    .map((row) => `<tr>${columns.map((c) => `<td>${c.format ? c.format(row[c.key], row) : row[c.key]}</td>`).join("")}</tr>`)
-    .join("");
+  const body = rows.map((row) => `<tr>${columns.map((c) => `<td>${c.format ? c.format(row[c.key], row) : row[c.key]}</td>`).join("")}</tr>`).join("");
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 
@@ -87,9 +103,7 @@ export function renderCompareCards(container, rows) {
     container.innerHTML = '<p class="muted">Selecciona al menos un patrón para comparar.</p>';
     return;
   }
-  container.innerHTML = rows
-    .map(
-      (row) => `<article class="compare-card panel-soft">
+  container.innerHTML = rows.map((row) => `<article class="compare-card panel-soft">
       <h3>${row.patternName}</h3>
       <p class="muted">${row.insight}</p>
       <ul class="mini-list">
@@ -103,9 +117,22 @@ export function renderCompareCards(container, rows) {
         <li><span>Top horas</span><strong>${row.topHours.join(", ") || "-"}</strong></li>
         <li><span>CALL vs PUT</span><strong>${row.callCount} / ${row.putCount}</strong></li>
       </ul>
-      </article>`
-    )
-    .join("");
+      </article>`).join("");
+}
+
+export function renderRadarCards(container, rows) {
+  if (!rows.length) {
+    container.innerHTML = '<p class="muted">Radar sin señales para los filtros actuales.</p>';
+    return;
+  }
+  container.innerHTML = rows.map((signal) => `<article class="radar-card panel-soft">
+      <div class="note-head"><h3>${signal.asset} · ${signal.direction}</h3><span class="badge">Radar ${signal.radarScore}</span></div>
+      <p><strong>${signal.patternName}</strong> · ${new Date(signal.timestamp).toLocaleString()}</p>
+      <div class="context-mini"><strong>Context ${signal.contextScore}</strong><div class="bar"><span style="width:${signal.contextScore}%"></span></div><small>${signal.contextLabel}</small></div>
+      <p>${badgeList(signal.radarBadges, "radar")}</p>
+      <p>${badgeList(signal.autoTags, "tag")}</p>
+      <p class="muted">${signal.radarInsight}</p>
+    </article>`).join("");
 }
 
 export function renderNotes(container, notes, onEdit, onDelete) {

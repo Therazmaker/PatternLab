@@ -1,16 +1,22 @@
 {
   "signals": [
-    {"asset":"EURUSD","direction":"CALL","pattern":"RSI Reclaim EMA Bias","timestamp":"2026-02-11T09:05:00Z","timeframe":"5m","confidence":78,"session":"London"},
-    {"asset":"EURUSD","direction":"PUT","pattern":"RSI Reclaim EMA Bias","timestamp":"2026-02-11T10:15:00Z","timeframe":"5m","confidence":64,"session":"London"},
-    {"symbol":"GBPUSD","side":"PUT","setup":"Liquidity Sweep Reversal","createdAt":"2026-02-11T14:15:00Z","tf":"5m","score":66},
-    {"pair":"USDJPY","signal":"buy","patternName":"Momentum Break + Retest","time":"2026-02-11T15:00:00Z","confidence":72,"notes":"Confluencia en soporte"},
-    {"asset":"USDJPY","direction":"PUT","patternName":"Liquidity Sweep Reversal","timestamp":"2026-02-12T11:20:00Z","timeframe":"1m","confidence":59},
-    {"asset":"XAUUSD","direction":"CALL","patternName":"Session Open Impulse","timestamp":"2026-02-12T13:40:00Z","timeframe":"5m","confidence":82},
-    {"asset":"XAUUSD","direction":"PUT","patternName":"Session Open Impulse","timestamp":"2026-02-13T13:55:00Z","timeframe":"5m","confidence":47},
-    {"asset":"BTCUSD","direction":"CALL","patternName":"Momentum Break + Retest","timestamp":"2026-02-13T21:05:00Z","timeframe":"15m","confidence":74},
-    {"asset":"BTCUSD","direction":"PUT","patternName":"Range Fade Confirmation","timestamp":"2026-02-14T22:30:00Z","timeframe":"15m","confidence":55},
-    {"asset":"AUDUSD","direction":"CALL","patternName":"Range Fade Confirmation","timestamp":"2026-02-14T08:45:00Z","timeframe":"5m","confidence":61},
-    {"asset":"EURJPY","direction":"PUT","patternName":"Liquidity Sweep Reversal","timestamp":"2026-02-14T12:10:00Z","timeframe":"5m","confidence":70},
-    {"asset":"EURUSD","direction":"CALL","patternName":"Momentum Break + Retest","timestamp":"2026-02-15T09:25:00Z","timeframe":"1m","confidence":69}
+    {"asset":"EURUSD","direction":"CALL","pattern":"RSI Reclaim EMA Bias","timestamp":"2026-02-20T08:05:00Z","timeframe":"5m","confidence":78,"session":"London","outcome":{"status":"win"}},
+    {"asset":"EURUSD","direction":"PUT","pattern":"RSI Reclaim EMA Bias","timestamp":"2026-02-20T10:15:00Z","timeframe":"5m","confidence":64,"session":"London","outcome":{"status":"loss"}},
+    {"symbol":"GBPUSD","side":"PUT","setup":"Liquidity Sweep Reversal","createdAt":"2026-02-20T14:15:00Z","tf":"5m","score":66,"outcome":{"status":"win"}},
+    {"pair":"USDJPY","signal":"buy","patternName":"Momentum Break + Retest","time":"2026-02-20T15:00:00Z","confidence":72,"notes":"Confluencia en soporte","outcome":{"status":"win"}},
+    {"asset":"USDJPY","direction":"PUT","patternName":"Liquidity Sweep Reversal","timestamp":"2026-02-21T11:20:00Z","timeframe":"1m","confidence":59,"outcome":{"status":"loss"}},
+    {"asset":"XAUUSD","direction":"CALL","patternName":"Session Open Impulse","timestamp":"2026-02-21T13:40:00Z","timeframe":"5m","confidence":82,"outcome":{"status":"win"}},
+    {"asset":"XAUUSD","direction":"PUT","patternName":"Session Open Impulse","timestamp":"2026-02-22T13:55:00Z","timeframe":"5m","confidence":47,"outcome":{"status":"loss"}},
+    {"asset":"BTCUSD","direction":"CALL","patternName":"Momentum Break + Retest","timestamp":"2026-02-22T21:05:00Z","timeframe":"15m","confidence":74,"outcome":{"status":"win"}},
+    {"asset":"BTCUSD","direction":"PUT","patternName":"Range Fade Confirmation","timestamp":"2026-02-23T22:30:00Z","timeframe":"15m","confidence":55,"outcome":{"status":"loss"}},
+    {"asset":"AUDUSD","direction":"CALL","patternName":"Range Fade Confirmation","timestamp":"2026-02-23T08:45:00Z","timeframe":"5m","confidence":61,"outcome":{"status":"skip"}},
+    {"asset":"EURJPY","direction":"PUT","patternName":"Liquidity Sweep Reversal","timestamp":"2026-02-23T12:10:00Z","timeframe":"5m","confidence":70,"outcome":{"status":"pending"}},
+    {"asset":"EURUSD","direction":"CALL","patternName":"Momentum Break + Retest","timestamp":"2026-02-24T09:25:00Z","timeframe":"1m","confidence":69,"outcome":{"status":"pending"}},
+    {"asset":"EURUSD","direction":"CALL","patternName":"RSI Reclaim EMA Bias","timestamp":"2026-02-24T11:45:00Z","timeframe":"5m","confidence":73,"session":"London","outcome":{"status":"win"}},
+    {"asset":"GBPJPY","direction":"PUT","patternName":"NY Reversal Sweep","timestamp":"2026-02-24T14:35:00Z","timeframe":"5m","confidence":62,"session":"NY","outcome":{"status":"loss"}},
+    {"asset":"NAS100","direction":"CALL","patternName":"Session Open Impulse","timestamp":"2026-02-24T13:05:00Z","timeframe":"1m","confidence":81,"session":"NY","outcome":{"status":"pending"}},
+    {"asset":"XAUUSD","direction":"CALL","patternName":"Liquidity Sweep Reversal","timestamp":"2026-02-24T07:10:00Z","timeframe":"5m","confidence":68,"session":"Asia","outcome":{"status":"win"}},
+    {"asset":"US30","direction":"PUT","patternName":"Range Fade Confirmation","timestamp":"2026-02-24T16:10:00Z","timeframe":"5m","confidence":57,"session":"NY","outcome":{"status":"pending"}},
+    {"asset":"EURGBP","direction":"PUT","patternName":"Momentum Break + Retest","timestamp":"2026-02-24T06:30:00Z","timeframe":"15m","confidence":63,"session":"London","outcome":{"status":"loss"}}
   ]
 }

@@ -1,6 +1,7 @@
 import { dedupeSignals, migrateStoredSignal } from "./normalizer.js";
 
 const SIGNALS_KEY = "patternlab.signals.v1";
+const LAST_IMPORT_REPORT_KEY = "patternlab.lastImportReport";
 
 export function loadSignals() {
   const raw = localStorage.getItem(SIGNALS_KEY);
@@ -26,4 +27,18 @@ export function exportSignals(signals) {
   anchor.download = `patternlab-dataset-${new Date().toISOString().slice(0, 10)}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+export function saveLastImportReport(report) {
+  localStorage.setItem(LAST_IMPORT_REPORT_KEY, JSON.stringify(report));
+}
+
+export function loadLastImportReport() {
+  try {
+    const raw = localStorage.getItem(LAST_IMPORT_REPORT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }

@@ -5,6 +5,7 @@ export const state = {
     direction: "",
     patternName: "",
     status: "",
+    timeframe: "",
     search: "",
   },
   importPreview: null,
