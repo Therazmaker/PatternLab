@@ -9,7 +9,7 @@
   <body>
     <header class="app-header panel">
       <div>
-        <h1>PatternLab V5</h1>
+        <h1>PatternLab V8</h1>
         <p>Laboratorio de investigación incremental para patrones. Sin trading automático.</p>
       </div>
       <div class="kpi-grid" id="quick-kpis">
@@ -36,6 +36,7 @@
       <button class="tab-btn" data-tab="clusters">Error Clusters</button>
       <button class="tab-btn" data-tab="forward">Forward Validation</button>
       <button class="tab-btn" data-tab="bot-generator">Bot Generator</button>
+      <button class="tab-btn" data-tab="robustness">Robustness Lab</button>
     </nav>
 
     <main class="layout">
@@ -138,6 +139,41 @@
           <select id="confidence-window"><option value="10">Ventana 10</option><option value="20" selected>Ventana 20</option><option value="50">Ventana 50</option></select>
         </div>
         <div id="confidence-wrap"></div>
+      </section>
+
+
+      <section class="panel tab-panel" data-panel="robustness">
+        <h2>Robustness Lab <span class="hint" title="Laboratorio heurístico: orienta investigación, no da certezas.">ⓘ</span></h2>
+        <p class="muted">Indicadores heurísticos de posible sobreajuste, fragilidad y dispersión esperada.</p>
+        <div class="filters">
+          <select id="robustness-pattern"><option value="">Selecciona patrón</option></select>
+          <select id="robustness-version"><option value="all">Todas las versiones</option></select>
+          <select id="robustness-window"><option value="all">Histórico total</option><option value="recent">Reciente</option><option value="forward">Forward</option></select>
+          <select id="mc-method" title="Shuffle reordena secuencia. Bootstrap remuestrea con reemplazo."><option value="shuffle">Monte Carlo: shuffle sequence</option><option value="bootstrap">Monte Carlo: bootstrap resample</option></select>
+          <select id="mc-simulations"><option value="100">100 sims</option><option value="500">500 sims</option><option value="1000">1000 sims</option></select>
+          <button id="btn-run-montecarlo" class="primary" title="Ejecuta simulaciones por lotes para evitar congelar la UI.">Run Monte Carlo</button>
+        </div>
+        <div id="robustness-status" class="muted"></div>
+        <div class="split">
+          <article class="panel-soft">
+            <h3>Overfit Check <span class="hint" title="Señales heurísticas de posible sobreajuste. No es veredicto absoluto.">ⓘ</span></h3>
+            <div id="overfit-wrap"></div>
+          </article>
+          <article class="panel-soft">
+            <h3>Stress Test <span class="hint" title="Pruebas de fragilidad: excluye casos top, activos u horas dominantes.">ⓘ</span></h3>
+            <div id="stress-wrap"></div>
+          </article>
+        </div>
+        <div class="split">
+          <article class="panel-soft">
+            <h3>Monte Carlo <span class="hint" title="Simulación simple sobre secuencias win/loss para estimar dispersión y rachas.">ⓘ</span></h3>
+            <div id="montecarlo-wrap"></div>
+          </article>
+          <article class="panel-soft">
+            <h3>Robustness Score <span class="hint" title="Score compuesto 0-100. Marco exploratorio, no certeza.">ⓘ</span></h3>
+            <div id="robustness-wrap"></div>
+          </article>
+        </div>
       </section>
 
       <section class="panel tab-panel" data-panel="journal">

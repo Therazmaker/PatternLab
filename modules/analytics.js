@@ -1,4 +1,5 @@
 import { calcWinrate, formatHourBucket } from "./utils.js";
+import { buildRobustnessInsight, computeRobustnessScore } from "./robustness.js";
 
 function byCountDesc(a, b) {
   return b[1] - a[1];
@@ -56,8 +57,23 @@ export function computePatternCompare(signals, patternNames) {
     const topAssets = topLabels(rows.map((s) => s.asset));
     const topHours = topLabels(rows.map((s) => formatHourBucket(s.hourBucket)));
     const adaptiveScore = rows[0]?.patternMeta?.adaptiveScore ?? 0;
+    const robustness = computeRobustnessScore(rows, { patternName, patternVersion: "all" });
     const dominantRegime = topLabels(rows.map((s) => s.marketRegime), 1)[0] || "unclear";
-    const summary = { patternName, ...metrics, topAssets, topHours, callCount, putCount, frequency, adaptiveScore, dominantRegime };
+    const summary = {
+      patternName,
+      ...metrics,
+      topAssets,
+      topHours,
+      callCount,
+      putCount,
+      frequency,
+      adaptiveScore,
+      dominantRegime,
+      robustnessScore: robustness.robustnessScore,
+      robustnessBadge: robustness.badge,
+      stressSensitivity: robustness.stressSummary.sensitivity,
+      monteCarloDispersion: robustness.monteCarloSummary.dispersion,
+    };
     return { ...summary, insight: buildPatternInsight(summary) };
   });
 }
@@ -72,10 +88,22 @@ export function computePatternRanking(signals) {
     const lowSamplePenalty = metrics.reviewed < 8 ? (8 - metrics.reviewed) * 2.2 : 0;
     const consistencyBonus = metrics.reviewed >= 12 && metrics.winrate >= 55 ? 4 : 0;
     const adaptiveScore = rows[0]?.patternMeta?.adaptiveScore ?? 0;
-    const score = Number((metrics.winrate * reviewedWeight - pendingPenalty - lowSamplePenalty + consistencyBonus + adaptiveScore * 0.25).toFixed(2));
+    const robustness = computeRobustnessScore(rows, { patternName, patternVersion: "all" });
+    const score = Number((metrics.winrate * reviewedWeight - pendingPenalty - lowSamplePenalty + consistencyBonus + adaptiveScore * 0.2 + robustness.robustnessScore * 0.2).toFixed(2));
     const sampleQuality = metrics.reviewed >= 25 ? "High" : metrics.reviewed >= 12 ? "Medium" : "Low";
     const confidenceBadge = metrics.reviewed >= 25 ? "Stable" : metrics.reviewed >= 12 ? "Developing" : metrics.reviewed >= 6 ? "Early" : "Exploratory";
-    return { patternName, ...metrics, sampleQuality, score, confidenceBadge, adaptiveScore };
+    return {
+      patternName,
+      ...metrics,
+      sampleQuality,
+      score,
+      confidenceBadge,
+      adaptiveScore,
+      robustnessScore: robustness.robustnessScore,
+      robustnessBadge: robustness.badge,
+      overfitRisk: robustness.overfit.overfitRisk,
+      robustnessInsight: buildRobustnessInsight(robustness),
+    };
   });
   return ranked.sort((a, b) => b.score - a.score).map((item, index) => ({ ...item, rank: index + 1 }));
 }

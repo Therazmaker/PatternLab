@@ -154,6 +154,7 @@ export function computePatternVersionComparison(signals = []) {
       maxLosingStreak: drawdown,
       consistency,
       sampleSizeScore,
+      robustnessScore: rows[0]?.patternMeta?.robustness?.robustnessScore ?? null,
     };
   }).sort((a, b) => b.winrate - a.winrate);
 }

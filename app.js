@@ -17,6 +17,10 @@ import { applyReview } from "./modules/review.js";
 import { computeStats } from "./modules/stats.js";
 import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, computePatternRanking, withCompareFilters } from "./modules/analytics.js";
 import { computeConfidenceEvolution, computePatternVersionComparison } from "./modules/v4.js";
+import { computeOverfitRisk } from "./modules/overfit.js";
+import { runStressTests } from "./modules/stresstest.js";
+import { computeMonteCarloSummary, runMonteCarlo } from "./modules/montecarlo.js";
+import { buildRobustnessInsight, computeRobustnessScore } from "./modules/robustness.js";
 import { filterNotes, loadNotes, saveNotes, upsertNote } from "./modules/journal.js";
 import { enrichSignals } from "./modules/intelligence.js";
 import {
@@ -55,6 +59,10 @@ import {
   renderReviewQueue,
   renderStatsOverview,
   renderSuggestions,
+  renderMonteCarlo,
+  renderOverfitCheck,
+  renderRobustnessScore,
+  renderStressTests,
 } from "./modules/ui.js";
 
 const els = {
@@ -69,6 +77,7 @@ const els = {
   comparePatterns: document.getElementById("compare-patterns"), compareAsset: document.getElementById("compare-asset"), compareDirection: document.getElementById("compare-direction"), compareTimeframe: document.getElementById("compare-timeframe"), compareRangeMode: document.getElementById("compare-range-mode"), compareRangeValue: document.getElementById("compare-range-value"), compareResults: document.getElementById("compare-results"),
   versionsWrap: document.getElementById("versions-wrap"), confidencePattern: document.getElementById("confidence-pattern"), confidenceWindow: document.getElementById("confidence-window"), confidenceWrap: document.getElementById("confidence-wrap"),
   radarAsset: document.getElementById("radar-asset"), radarDirection: document.getElementById("radar-direction"), radarPattern: document.getElementById("radar-pattern"), radarTimeframe: document.getElementById("radar-timeframe"), radarMode: document.getElementById("radar-range-mode"), radarRangeValue: document.getElementById("radar-range-value"), radarResults: document.getElementById("radar-results"),
+  robustnessPattern: document.getElementById("robustness-pattern"), robustnessVersion: document.getElementById("robustness-version"), robustnessWindow: document.getElementById("robustness-window"), mcMethod: document.getElementById("mc-method"), mcSimulations: document.getElementById("mc-simulations"), runMonteCarloBtn: document.getElementById("btn-run-montecarlo"), robustnessStatus: document.getElementById("robustness-status"), overfitWrap: document.getElementById("overfit-wrap"), stressWrap: document.getElementById("stress-wrap"), montecarloWrap: document.getElementById("montecarlo-wrap"), robustnessWrap: document.getElementById("robustness-wrap"),
   noteId: document.getElementById("note-id"), noteTitle: document.getElementById("note-title"), noteContent: document.getElementById("note-content"), noteTags: document.getElementById("note-tags"), notePattern: document.getElementById("note-pattern"), noteAsset: document.getElementById("note-asset"), noteSignal: document.getElementById("note-signal"), noteForm: document.getElementById("journal-form"), noteResetBtn: document.getElementById("btn-note-reset"),
   noteSearch: document.getElementById("note-search"), noteFilterTag: document.getElementById("note-filter-tag"), noteFilterPattern: document.getElementById("note-filter-pattern"), noteFilterAsset: document.getElementById("note-filter-asset"), notesList: document.getElementById("notes-list"),
   reviewQueue: document.getElementById("review-queue"),
@@ -95,6 +104,8 @@ let hypotheses = [];
 let suggestions = [];
 let botCompilerState = loadBotCompilerState();
 let botCompareTargetVersion = "";
+
+let robustnessState = { overfit: null, stress: null, monteCarlo: { simulations: 0, insight: "Ejecuta simulación para ver resultados." }, summary: null };
 
 function persist() { saveSignals(state.signals); }
 function persistNotes() { saveNotes(notes); }
@@ -126,9 +137,26 @@ function findSignalSample(patternName, version) {
 
 function recalcSignals(rawSignals) {
   lastRanking = computePatternRanking(rawSignals);
-  const enriched = enrichSignals(rawSignals, lastRanking).map((signal, index, arr) => ({
+  const enrichedBase = enrichSignals(rawSignals, lastRanking);
+  const patternRobustness = new Map();
+  [...new Set(enrichedBase.map((row) => row.patternName))].forEach((patternName) => {
+    const rows = enrichedBase.filter((row) => row.patternName === patternName);
+    patternRobustness.set(patternName, computeRobustnessScore(rows, { patternName, patternVersion: "all" }));
+  });
+
+  const enriched = enrichedBase.map((signal, index, arr) => ({
     ...signal,
     forwardBucket: index < Math.floor(arr.length * forwardConfig.ratio) ? "training" : "forward",
+    patternMeta: {
+      ...(signal.patternMeta || {}),
+      robustness: {
+        robustnessScore: patternRobustness.get(signal.patternName)?.robustnessScore ?? null,
+        overfitRisk: patternRobustness.get(signal.patternName)?.overfit?.overfitRisk ?? "low",
+        stressSummary: patternRobustness.get(signal.patternName)?.stressSummary ?? null,
+        monteCarloSummary: patternRobustness.get(signal.patternName)?.monteCarloSummary ?? null,
+        updatedAt: new Date().toISOString(),
+      },
+    },
   }));
   setSignals(dedupeSignals(enriched));
 }
@@ -147,6 +175,7 @@ function refreshSharedOptions() {
   renderFilterOptions(els.compareTimeframe, timeframes, "Todos los TF");
   renderFilterOptions(els.radarAsset, assets, "Todos los activos");
   renderFilterOptions(els.radarPattern, patterns, "Todos los patrones");
+  renderFilterOptions(els.robustnessPattern, patterns, "Selecciona patrón");
   renderFilterOptions(els.radarTimeframe, timeframes, "Todos los TF");
   renderFilterOptions(els.notePattern, patterns, "-");
   renderFilterOptions(els.noteAsset, assets, "-");
@@ -159,6 +188,14 @@ function refreshSharedOptions() {
   els.comparePatterns.innerHTML = patterns.map((p) => `<option value="${p}">${p}</option>`).join("");
   [...els.comparePatterns.options].forEach((o) => { o.selected = current.includes(o.value); });
   els.noteSignal.innerHTML = `<option value="">-</option>${state.signals.slice(-200).reverse().map((s) => `<option value="${s.id}">${s.id}</option>`).join("")}`;
+
+  const robustnessPattern = els.robustnessPattern.value;
+  if (robustnessPattern) {
+    const versions = [...new Set(state.signals.filter((row) => row.patternName === robustnessPattern).map((row) => row.patternVersion || "v1"))].sort();
+    els.robustnessVersion.innerHTML = `<option value="all">Todas las versiones</option>${versions.map((version) => `<option value="${version}">${version}</option>`).join("")}`;
+  } else {
+    els.robustnessVersion.innerHTML = '<option value="all">Todas las versiones</option>';
+  }
 
   const selectedPattern = els.botPattern.value;
   if (selectedPattern) {
@@ -213,9 +250,60 @@ function refreshRadar() {
   rows = radarFilters.rangeMode === "24h"
     ? rows.filter((s) => new Date(s.timestamp).getTime() >= Date.now() - 24 * 60 * 60 * 1000)
     : rows.slice(0, radarFilters.rangeValue || 20);
-  rows.sort((a, b) => b.radarScore - a.radarScore);
+  rows.sort((a, b) => (b.radarScore + ((b.patternMeta?.robustness?.robustnessScore || 0) * 0.12)) - (a.radarScore + ((a.patternMeta?.robustness?.robustnessScore || 0) * 0.12)));
   renderRadarCards(els.radarResults, rows);
 }
+function getRobustnessRows() {
+  let rows = [...state.signals];
+  const patternName = els.robustnessPattern.value;
+  const version = els.robustnessVersion.value;
+  const windowMode = els.robustnessWindow.value;
+  if (patternName) rows = rows.filter((row) => row.patternName === patternName);
+  if (version && version !== "all") rows = rows.filter((row) => (row.patternVersion || "v1") === version);
+  rows = rows.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  if (windowMode === "recent") {
+    const size = Math.max(8, Math.floor(rows.length * 0.4));
+    rows = rows.slice(-size);
+  }
+  if (windowMode === "forward") rows = rows.filter((row) => row.forwardBucket === "forward");
+  return rows;
+}
+
+function refreshRobustnessLab() {
+  const rows = getRobustnessRows();
+  if (!els.robustnessPattern.value) {
+    renderOverfitCheck(els.overfitWrap, null);
+    renderStressTests(els.stressWrap, null);
+    renderMonteCarlo(els.montecarloWrap, robustnessState.monteCarlo);
+    renderRobustnessScore(els.robustnessWrap, null, "");
+    return;
+  }
+  const context = { patternName: els.robustnessPattern.value, patternVersion: els.robustnessVersion.value || "all" };
+  robustnessState.overfit = computeOverfitRisk(rows, context);
+  robustnessState.stress = runStressTests(rows, { topN: 2 });
+  robustnessState.summary = computeRobustnessScore(rows, context);
+
+  renderOverfitCheck(els.overfitWrap, robustnessState.overfit);
+  renderStressTests(els.stressWrap, robustnessState.stress);
+  renderMonteCarlo(els.montecarloWrap, robustnessState.monteCarlo);
+  renderRobustnessScore(els.robustnessWrap, robustnessState.summary, buildRobustnessInsight(robustnessState.summary));
+}
+
+async function runMonteCarloFromUI() {
+  els.robustnessStatus.textContent = "Running Monte Carlo in chunks...";
+  const rows = getRobustnessRows();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const result = runMonteCarlo(rows, {
+    simulations: Number(els.mcSimulations.value) || 100,
+    method: els.mcMethod.value,
+  });
+  robustnessState.monteCarlo = computeMonteCarloSummary(result);
+  els.robustnessStatus.textContent = result.ok
+    ? `Monte Carlo completed (${robustnessState.monteCarlo.simulations} sims).`
+    : result.reason;
+  renderMonteCarlo(els.montecarloWrap, robustnessState.monteCarlo);
+}
+
 
 function refreshNotes() {
   renderNotes(els.notesList, filterNotes(notes, noteFilters), editNote, removeNote);
@@ -278,6 +366,7 @@ function rerender() {
   refreshNotes();
   refreshV5();
   refreshBotGenerator();
+  refreshRobustnessLab();
 }
 
 function onHypothesisDecision(id, decision) {
@@ -571,6 +660,15 @@ function setupEvents() {
       refreshRadar();
     });
   });
+
+  [els.robustnessPattern, els.robustnessVersion, els.robustnessWindow].forEach((el) => {
+    el?.addEventListener("input", () => {
+      if (el === els.robustnessPattern) refreshSharedOptions();
+      refreshRobustnessLab();
+    });
+  });
+
+  els.runMonteCarloBtn?.addEventListener("click", runMonteCarloFromUI);
 
   els.confidencePattern.addEventListener("change", refreshConfidenceEvolution);
   els.confidenceWindow.addEventListener("change", refreshConfidenceEvolution);
