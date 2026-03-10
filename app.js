@@ -4,7 +4,9 @@ import {
   loadLastImportReport,
   loadMetaFeedback,
   loadSignals,
+  loadBotCompilerState,
   saveLastImportReport,
+  saveBotCompilerState,
   saveMetaFeedback,
   saveSignals,
 } from "./modules/storage.js";
@@ -26,6 +28,14 @@ import {
   rankSuggestions,
   updateMetaFeedback,
 } from "./modules/v5.js";
+import {
+  BOT_DEMO_PATTERNS,
+  buildPatternDefinition,
+  buildPinePrompt,
+  clonePatternVersion,
+  comparePatternVersions,
+  generateJSONSchema,
+} from "./modules/botGenerator.js";
 import {
   renderAssetTable,
   renderClusterDetails,
@@ -66,6 +76,10 @@ const els = {
   errorClustersWrap: document.getElementById("error-clusters-wrap"), errorClusterDetails: document.getElementById("error-cluster-details"),
   hypothesisWrap: document.getElementById("hypothesis-wrap"),
   suggestionsWrap: document.getElementById("suggestions-wrap"),
+  botPattern: document.getElementById("bot-pattern"), botVersion: document.getElementById("bot-version"), botDefinitionEditor: document.getElementById("bot-definition-editor"), botVersionNotes: document.getElementById("bot-version-notes"),
+  botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
+  botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
+  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30 };
@@ -79,9 +93,36 @@ let forwardValidation = null;
 let errorClusters = [];
 let hypotheses = [];
 let suggestions = [];
+let botCompilerState = loadBotCompilerState();
+let botCompareTargetVersion = "";
 
 function persist() { saveSignals(state.signals); }
 function persistNotes() { saveNotes(notes); }
+function persistBotCompiler() { saveBotCompilerState(botCompilerState); }
+
+function getPatternVersions(patternName) {
+  return botCompilerState.patternMeta?.[patternName]?.versions || [];
+}
+
+function setPatternVersions(patternName, versions) {
+  if (!botCompilerState.patternMeta[patternName]) botCompilerState.patternMeta[patternName] = { versions: [] };
+  botCompilerState.patternMeta[patternName].versions = versions;
+  persistBotCompiler();
+}
+
+function parseEditorJson(text, fallback = null) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
+function findSignalSample(patternName, version) {
+  return state.signals.find((row) => row.patternName === patternName && (row.patternVersion || "v1") === version)
+    || state.signals.find((row) => row.patternName === patternName)
+    || {};
+}
 
 function recalcSignals(rawSignals) {
   lastRanking = computePatternRanking(rawSignals);
@@ -112,11 +153,22 @@ function refreshSharedOptions() {
   renderFilterOptions(els.noteFilterPattern, patterns, "Todos los patrones");
   renderFilterOptions(els.noteFilterAsset, assets, "Todos los assets");
   renderFilterOptions(els.confidencePattern, patterns, "Selecciona patrón");
+  renderFilterOptions(els.botPattern, [...new Set([...patterns, ...BOT_DEMO_PATTERNS.map((entry) => entry.name)])].sort(), "Selecciona patrón");
 
   const current = [...els.comparePatterns.selectedOptions].map((o) => o.value);
   els.comparePatterns.innerHTML = patterns.map((p) => `<option value="${p}">${p}</option>`).join("");
   [...els.comparePatterns.options].forEach((o) => { o.selected = current.includes(o.value); });
   els.noteSignal.innerHTML = `<option value="">-</option>${state.signals.slice(-200).reverse().map((s) => `<option value="${s.id}">${s.id}</option>`).join("")}`;
+
+  const selectedPattern = els.botPattern.value;
+  if (selectedPattern) {
+    const versions = [...new Set([
+      ...state.signals.filter((row) => row.patternName === selectedPattern).map((row) => row.patternVersion || "v1"),
+      ...getPatternVersions(selectedPattern).map((row) => row.version),
+      ...BOT_DEMO_PATTERNS.filter((entry) => entry.name === selectedPattern).map((entry) => entry.version),
+    ])].sort();
+    renderFilterOptions(els.botVersion, versions, "Selecciona versión");
+  }
 }
 
 function refreshStats() {
@@ -183,6 +235,35 @@ function refreshV5() {
   renderSuggestions(els.suggestionsWrap, suggestions, onSuggestionDecision);
 }
 
+function renderBotIntegrationHints() {
+  const hints = [];
+  const selectedPattern = els.botPattern.value;
+  const selectedVersion = els.botVersion.value;
+
+  if (selectedPattern) {
+    const relatedSuggestions = suggestions.filter((item) => item.reason?.toLowerCase().includes(selectedPattern.toLowerCase())).slice(0, 2);
+    relatedSuggestions.forEach((item) => hints.push(`Suggestion: ${item.title}`));
+  }
+
+  const middayCluster = errorClusters.find((cluster) => cluster.id === "cluster_midday");
+  if (middayCluster) hints.push("Considera generar nueva versión filtrando horario 13-15.");
+
+  const rankingRow = lastRanking.find((row) => row.patternName === selectedPattern);
+  if (rankingRow) hints.push(`Ranking score ${rankingRow.score} · adaptive ${rankingRow.adaptiveScore}.`);
+
+  const radarTop = [...state.signals].sort((a, b) => b.radarScore - a.radarScore).slice(0, 1)[0];
+  if (radarTop) hints.push(`Radar top reciente: ${radarTop.patternName} ${radarTop.asset} (score ${radarTop.radarScore}).`);
+
+  if (!hints.length) hints.push("Importa o revisa señales para habilitar hints de integración.");
+  if (selectedPattern && selectedVersion) hints.unshift(`Compiling ${selectedPattern} ${selectedVersion}.`);
+
+  els.botIntegrationHints.innerHTML = hints.map((text) => `<div class="panel-soft">${text}</div>`).join("");
+}
+
+function refreshBotGenerator() {
+  renderBotIntegrationHints();
+}
+
 function rerender() {
   renderPreview(els.preview, state.importPreview);
   renderImportReport(els.importReport, loadLastImportReport());
@@ -196,6 +277,7 @@ function rerender() {
   refreshConfidenceEvolution();
   refreshNotes();
   refreshV5();
+  refreshBotGenerator();
 }
 
 function onHypothesisDecision(id, decision) {
@@ -307,6 +389,139 @@ function resetNoteForm() { els.noteId.value = ""; els.noteForm.reset(); }
 function editNote(note) { els.noteId.value = note.id; els.noteTitle.value = note.title; els.noteContent.value = note.content; els.noteTags.value = note.tags.join(", "); els.notePattern.value = note.links.patternName; els.noteAsset.value = note.links.asset; els.noteSignal.value = note.links.signalId; }
 function removeNote(noteId) { notes = notes.filter((n) => n.id !== noteId); persistNotes(); refreshNotes(); }
 
+function handleBotPatternChange() {
+  refreshSharedOptions();
+  const versions = getPatternVersions(els.botPattern.value);
+  if (versions.length) {
+    const active = versions[versions.length - 1];
+    els.botVersion.value = active.version;
+    els.botDefinitionEditor.value = JSON.stringify(active.definition, null, 2);
+    els.botVersionNotes.value = active.notes || "";
+  }
+  refreshBotGenerator();
+}
+
+function handleBotVersionChange() {
+  const versions = getPatternVersions(els.botPattern.value);
+  const current = versions.find((row) => row.version === els.botVersion.value);
+  if (current) {
+    els.botDefinitionEditor.value = JSON.stringify(current.definition, null, 2);
+    els.botVersionNotes.value = current.notes || "";
+  }
+  refreshBotGenerator();
+}
+
+function handleBuildPatternDefinition() {
+  const patternName = els.botPattern.value;
+  const patternVersion = els.botVersion.value || "v1";
+  if (!patternName) return;
+  const existing = getPatternVersions(patternName).find((row) => row.version === patternVersion);
+  const baseDefinition = buildPatternDefinition(state.signals, { patternName, patternVersion, ...(existing?.definition || {}) });
+  els.botDefinitionEditor.value = JSON.stringify(baseDefinition, null, 2);
+  els.botOutputStatus.textContent = `Definition generated for ${patternName} ${patternVersion}.`;
+}
+
+function handleSavePatternVersion() {
+  const patternName = els.botPattern.value;
+  if (!patternName) return;
+  const definition = parseEditorJson(els.botDefinitionEditor.value);
+  if (!definition) {
+    els.botOutputStatus.textContent = "Definition JSON inválido.";
+    return;
+  }
+  const versions = getPatternVersions(patternName);
+  const nextVersion = definition.version || els.botVersion.value || `v${versions.length + 1}`;
+  const existingIndex = versions.findIndex((row) => row.version === nextVersion);
+  const current = existingIndex >= 0 ? versions[existingIndex] : null;
+  const entry = {
+    version: nextVersion,
+    createdAt: current?.createdAt || new Date().toISOString(),
+    notes: els.botVersionNotes.value.trim(),
+    definition: { ...definition, name: definition.name || patternName, version: nextVersion },
+    generatedPromptHistory: current?.generatedPromptHistory || [],
+  };
+  const merged = existingIndex >= 0 ? versions.map((row, index) => (index === existingIndex ? entry : row)) : [...versions, entry];
+  setPatternVersions(patternName, merged);
+  els.botVersion.value = nextVersion;
+  els.botOutputStatus.textContent = `Saved ${patternName} ${nextVersion}.`;
+  refreshSharedOptions();
+}
+
+function handleClonePatternVersion() {
+  const patternName = els.botPattern.value;
+  if (!patternName) return;
+  const versions = getPatternVersions(patternName);
+  const source = versions.find((row) => row.version === els.botVersion.value) || versions[versions.length - 1];
+  if (!source) return;
+  const cloned = clonePatternVersion(source);
+  setPatternVersions(patternName, [...versions, cloned]);
+  els.botVersion.value = cloned.version;
+  els.botDefinitionEditor.value = JSON.stringify(cloned.definition, null, 2);
+  els.botVersionNotes.value = cloned.notes;
+  els.botOutputStatus.textContent = `Cloned to ${cloned.version}.`;
+  refreshSharedOptions();
+}
+
+function handleComparePatternVersions() {
+  const patternName = els.botPattern.value;
+  const versions = getPatternVersions(patternName);
+  if (versions.length < 2) {
+    els.botVersionCompare.innerHTML = '<p class="muted">Se necesitan al menos dos versiones guardadas.</p>';
+    return;
+  }
+  const current = versions.find((row) => row.version === els.botVersion.value) || versions[versions.length - 1];
+  const fallback = versions.find((row) => row.version !== current.version) || versions[0];
+  const target = versions.find((row) => row.version === botCompareTargetVersion) || fallback;
+  botCompareTargetVersion = target.version;
+  const delta = comparePatternVersions(target, current);
+  els.botVersionCompare.innerHTML = `<p><strong>${delta.from}</strong> → <strong>${delta.to}</strong></p>
+    <ul class="mini-list">
+      <li><span>Direction changed</span><strong>${delta.changedDirection ? "yes" : "no"}</strong></li>
+      <li><span>Conditions changed</span><strong>${delta.changedConditions ? "yes" : "no"}</strong></li>
+      <li><span>Filters changed</span><strong>${delta.changedFilters ? "yes" : "no"}</strong></li>
+      <li><span>Execution changed</span><strong>${delta.changedExecution ? "yes" : "no"}</strong></li>
+      <li><span>Notes delta</span><strong>${delta.notesDelta || "-"}</strong></li>
+    </ul>`;
+}
+
+function handleGenerateSchema() {
+  const definition = parseEditorJson(els.botDefinitionEditor.value);
+  if (!definition) return;
+  const schema = generateJSONSchema(definition, findSignalSample(els.botPattern.value, els.botVersion.value));
+  els.botSchemaEditor.value = JSON.stringify(schema, null, 2);
+  els.botOutputStatus.textContent = "JSON Schema generated.";
+}
+
+function handleGeneratePrompt() {
+  const definition = parseEditorJson(els.botDefinitionEditor.value);
+  const schema = parseEditorJson(els.botSchemaEditor.value);
+  if (!definition || !schema) {
+    els.botOutputStatus.textContent = "Definition/Schema JSON inválido.";
+    return;
+  }
+  const prompt = buildPinePrompt(definition, schema);
+  els.botPromptEditor.value = prompt;
+
+  const patternName = els.botPattern.value;
+  const version = definition.version || els.botVersion.value;
+  if (patternName && version) {
+    const versions = getPatternVersions(patternName);
+    const next = versions.map((row) => {
+      if (row.version !== version) return row;
+      const history = [{ createdAt: new Date().toISOString(), prompt }, ...(row.generatedPromptHistory || [])].slice(0, 10);
+      return { ...row, generatedPromptHistory: history };
+    });
+    setPatternVersions(patternName, next);
+  }
+  els.botOutputStatus.textContent = "Pine prompt generated.";
+}
+
+async function copyText(value, okMessage) {
+  if (!value) return;
+  await navigator.clipboard.writeText(value);
+  els.botOutputStatus.textContent = okMessage;
+}
+
 function setupTabs() {
   els.tabs.forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -370,14 +585,41 @@ function setupEvents() {
   els.noteFilterTag.addEventListener("change", (e) => { noteFilters.tag = e.target.value; refreshNotes(); });
   els.noteFilterPattern.addEventListener("change", (e) => { noteFilters.patternName = e.target.value; refreshNotes(); });
   els.noteFilterAsset.addEventListener("change", (e) => { noteFilters.asset = e.target.value; refreshNotes(); });
+
+  els.botPattern?.addEventListener("change", handleBotPatternChange);
+  els.botVersion?.addEventListener("change", handleBotVersionChange);
+  els.botBuildDefinitionBtn?.addEventListener("click", handleBuildPatternDefinition);
+  els.botSaveVersionBtn?.addEventListener("click", handleSavePatternVersion);
+  els.botCloneVersionBtn?.addEventListener("click", handleClonePatternVersion);
+  els.botCompareVersionsBtn?.addEventListener("click", handleComparePatternVersions);
+  els.botGenerateSchemaBtn?.addEventListener("click", handleGenerateSchema);
+  els.botGeneratePromptBtn?.addEventListener("click", handleGeneratePrompt);
+  els.botCopySchemaBtn?.addEventListener("click", () => copyText(els.botSchemaEditor.value, "Schema copied."));
+  els.botCopyPromptBtn?.addEventListener("click", () => copyText(els.botPromptEditor.value, "Prompt copied."));
 }
 
 function init() {
   replaceSignals(loadSignals());
   notes = loadNotes();
+  if (!Object.keys(botCompilerState.patternMeta || {}).length) {
+    BOT_DEMO_PATTERNS.forEach((entry) => {
+      const definition = buildPatternDefinition(state.signals, { patternName: entry.name, patternVersion: entry.version });
+      botCompilerState.patternMeta[entry.name] = {
+        versions: [{ version: entry.version, definition, createdAt: new Date().toISOString(), notes: "Demo pattern", generatedPromptHistory: [] }],
+      };
+    });
+    persistBotCompiler();
+  }
   setupTabs();
   setupEvents();
   rerender();
+
+  if (!els.botPattern.value && BOT_DEMO_PATTERNS.length) {
+    els.botPattern.value = BOT_DEMO_PATTERNS[0].name;
+    handleBotPatternChange();
+    handleBuildPatternDefinition();
+    handleGenerateSchema();
+  }
 }
 
 init();
