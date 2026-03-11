@@ -1,13 +1,27 @@
 import { formatDate } from "./utils.js";
+import { filterSignalsBySr, normalizeSrContext } from "./sr.js";
 
 function renderTagBadges(tags = []) {
   if (!tags.length) return '<span class="muted">-</span>';
   return tags.map((tag) => `<span class="badge tag">${tag}</span>`).join(" ");
 }
 
+function renderSrBadges(signal) {
+  const sr = normalizeSrContext(signal.srContext);
+  const badges = [];
+  if (sr.nearSupport) badges.push('<span class="badge sr-support">Near Support</span>');
+  if (sr.nearResistance) badges.push('<span class="badge sr-resistance">Near Resistance</span>');
+  return badges.length ? badges.join(" ") : '<span class="muted">-</span>';
+}
+
 export function getFilteredSignals(signals, filters) {
   const term = filters.search.trim().toLowerCase();
-  return signals.filter((s) => {
+  const srFiltered = filterSignalsBySr(signals, {
+    nearSupport: filters.nearSupport,
+    nearResistance: filters.nearResistance,
+  });
+
+  return srFiltered.filter((s) => {
     if (filters.asset && s.asset !== filters.asset) return false;
     if (filters.direction && s.direction !== filters.direction) return false;
     if (filters.patternName && s.patternName !== filters.patternName) return false;
@@ -24,7 +38,7 @@ export function getFilteredSignals(signals, filters) {
 export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
   tbody.innerHTML = "";
   if (!signals.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="muted">No hay señales para mostrar.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="muted">No hay señales para mostrar.</td></tr>';
     return;
   }
 
@@ -40,6 +54,7 @@ export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
       <td>${signal.patternVersion || "v1"}</td>
       <td>${formatDate(signal.timestamp)}</td>
       <td><span class="badge ${statusClass}">${signal.outcome.status}</span></td>
+      <td>${renderSrBadges(signal)}</td>
       <td><span class="badge">${signal.marketRegime || "unclear"}</span></td>
       <td>
         <div class="context-mini">

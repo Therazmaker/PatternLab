@@ -7,6 +7,8 @@ export const state = {
     status: "",
     timeframe: "",
     search: "",
+    nearSupport: "",
+    nearResistance: "",
   },
   importPreview: null,
   activeSignalId: null,

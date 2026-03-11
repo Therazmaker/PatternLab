@@ -1,5 +1,6 @@
 import { calcWinrate, formatHourBucket } from "./utils.js";
 import { buildRobustnessInsight, computeRobustnessScore } from "./robustness.js";
+import { filterSignalsBySr } from "./sr.js";
 
 function byCountDesc(a, b) {
   return b[1] - a[1];
@@ -20,7 +21,7 @@ function baseMetrics(signals) {
 }
 
 export function withCompareFilters(signals, filters) {
-  let rows = [...signals];
+  let rows = filterSignalsBySr([...signals], { nearSupport: filters.nearSupport, nearResistance: filters.nearResistance });
   if (filters.asset) rows = rows.filter((s) => s.asset === filters.asset);
   if (filters.direction) rows = rows.filter((s) => s.direction === filters.direction);
   if (filters.timeframe) rows = rows.filter((s) => s.timeframe === filters.timeframe);

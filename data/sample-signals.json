@@ -13,6 +13,11 @@
       },
       "outcome": {
         "status": "win"
+      },
+      "srContext": {
+        "nearSupport": true,
+        "nearResistance": false,
+        "srComment": "Rebote en zona de soporte manual TV"
       }
     },
     {
@@ -31,6 +36,11 @@
       },
       "reviewMeta": {
         "executionError": true
+      },
+      "srContext": {
+        "nearSupport": false,
+        "nearResistance": true,
+        "srComment": "Resistencia marcada manualmente"
       }
     },
     {
@@ -46,6 +56,11 @@
       },
       "outcome": {
         "status": "win"
+      },
+      "srContext": {
+        "nearSupport": true,
+        "nearResistance": false,
+        "srComment": ""
       }
     },
     {
@@ -79,6 +94,11 @@
       },
       "reviewMeta": {
         "lateEntry": true
+      },
+      "srContext": {
+        "nearSupport": false,
+        "nearResistance": true,
+        "srComment": ""
       }
     },
     {
@@ -94,6 +114,11 @@
       },
       "outcome": {
         "status": "loss"
+      },
+      "srContext": {
+        "nearSupport": false,
+        "nearResistance": true,
+        "srComment": ""
       }
     },
     {
@@ -127,6 +152,11 @@
       },
       "outcome": {
         "status": "win"
+      },
+      "srContext": {
+        "nearSupport": true,
+        "nearResistance": false,
+        "srComment": ""
       }
     },
     {
@@ -155,6 +185,11 @@
       },
       "outcome": {
         "status": "loss"
+      },
+      "srContext": {
+        "nearSupport": true,
+        "nearResistance": true,
+        "srComment": "Entre niveles"
       }
     },
     {
@@ -169,6 +204,11 @@
       },
       "outcome": {
         "status": "win"
+      },
+      "srContext": {
+        "nearSupport": true,
+        "nearResistance": false,
+        "srComment": ""
       }
     },
     {
@@ -217,6 +257,11 @@
       },
       "reviewMeta": {
         "executionError": true
+      },
+      "srContext": {
+        "nearSupport": false,
+        "nearResistance": true,
+        "srComment": ""
       }
     },
     {
@@ -245,6 +290,11 @@
       },
       "outcome": {
         "status": "win"
+      },
+      "srContext": {
+        "nearSupport": true,
+        "nearResistance": false,
+        "srComment": ""
       }
     },
     {
@@ -259,6 +309,11 @@
       },
       "outcome": {
         "status": "pending"
+      },
+      "srContext": {
+        "nearSupport": true,
+        "nearResistance": true,
+        "srComment": "Entre niveles"
       }
     },
     {
@@ -287,6 +342,11 @@
       },
       "outcome": {
         "status": "loss"
+      },
+      "srContext": {
+        "nearSupport": false,
+        "nearResistance": true,
+        "srComment": ""
       }
     },
     {
