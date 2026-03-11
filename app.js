@@ -18,6 +18,18 @@ import { buildSrContextFromQuickAdd, buildSrInsights, computeSrStats, normalizeS
 import { computeStats } from "./modules/stats.js";
 import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, computePatternRanking, withCompareFilters } from "./modules/analytics.js";
 import { computeConfidenceEvolution, computePatternVersionComparison } from "./modules/v4.js";
+import {
+  archivePatternVersion,
+  ensurePatternVersionExists,
+  getQuickAddVersionOptions,
+  loadActivePatternVersionId,
+  loadPatternVersionsRegistry,
+  rebuildPatternVersionsFromSignals,
+  saveActivePatternVersionId,
+  savePatternVersionsRegistry,
+  setActivePatternVersion,
+  updatePatternVersionNotes,
+} from "./modules/patternVersions.js";
 import { computeOverfitRisk } from "./modules/overfit.js";
 import { runStressTests } from "./modules/stresstest.js";
 import { computeMonteCarloSummary, runMonteCarlo } from "./modules/montecarlo.js";
@@ -68,7 +80,7 @@ import {
 } from "./modules/ui.js";
 
 const els = {
-  quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"),
+  quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"),
   jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
   includeDuplicates: document.getElementById("import-allow-duplicates"), importReport: document.getElementById("import-report"),
   feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), filterNearSupport: document.getElementById("filter-near-support"), filterNearResistance: document.getElementById("filter-near-resistance"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
@@ -107,12 +119,40 @@ let hypotheses = [];
 let suggestions = [];
 let botCompilerState = loadBotCompilerState();
 let botCompareTargetVersion = "";
+let patternVersionsRegistry = [];
+let activePatternVersionId = "";
+let patternVersionCreateMessage = "";
 
 let robustnessState = { overfit: null, stress: null, monteCarlo: { simulations: 0, insight: "Ejecuta simulación para ver resultados." }, summary: null };
 
 function persist() { saveSignals(state.signals); }
 function persistNotes() { saveNotes(notes); }
 function persistBotCompiler() { saveBotCompilerState(botCompilerState); }
+function persistPatternVersions() { savePatternVersionsRegistry(patternVersionsRegistry); }
+
+function syncPatternVersionsWithSignals(signals) {
+  patternVersionsRegistry = rebuildPatternVersionsFromSignals(signals, patternVersionsRegistry);
+  persistPatternVersions();
+  if (!activePatternVersionId || !patternVersionsRegistry.some((entry) => entry.id === activePatternVersionId && !entry.isArchived)) {
+    const fallback = patternVersionsRegistry.find((entry) => !entry.isArchived);
+    activePatternVersionId = fallback?.id || "";
+    saveActivePatternVersionId(activePatternVersionId);
+  }
+}
+
+function refreshQuickAddVersionOptions() {
+  if (!els.quickAddPattern || !els.quickAddVersion) return;
+  const patternName = els.quickAddPattern.value;
+  const versions = patternName ? getQuickAddVersionOptions(patternVersionsRegistry, patternName) : [];
+  renderFilterOptions(els.quickAddVersion, versions, versions.length ? "Selecciona versión" : "Sin versiones");
+
+  const activeForPattern = patternVersionsRegistry.find((entry) => entry.id === activePatternVersionId && entry.patternName === patternName && !entry.isArchived);
+  if (activeForPattern && versions.includes(activeForPattern.version)) {
+    els.quickAddVersion.value = activeForPattern.version;
+  } else if (versions.length) {
+    els.quickAddVersion.value = versions[versions.length - 1];
+  }
+}
 
 function getPatternVersions(patternName) {
   return botCompilerState.patternMeta?.[patternName]?.versions || [];
@@ -168,7 +208,10 @@ function replaceSignals(signals) { recalcSignals(signals); }
 
 function refreshSharedOptions() {
   const assets = [...new Set(state.signals.map((s) => s.asset))].sort();
-  const patterns = [...new Set(state.signals.map((s) => s.patternName))].sort();
+  const patterns = [...new Set([
+    ...state.signals.map((s) => s.patternName),
+    ...patternVersionsRegistry.filter((entry) => !entry.isArchived).map((entry) => entry.patternName),
+  ])].sort();
   const timeframes = [...new Set(state.signals.map((s) => s.timeframe))].sort();
 
   renderFilterOptions(els.filterAsset, assets, "Todos los activos");
@@ -194,11 +237,20 @@ function refreshSharedOptions() {
 
   const robustnessPattern = els.robustnessPattern.value;
   if (robustnessPattern) {
-    const versions = [...new Set(state.signals.filter((row) => row.patternName === robustnessPattern).map((row) => row.patternVersion || "v1"))].sort();
+    const versions = [...new Set([
+      ...state.signals.filter((row) => row.patternName === robustnessPattern).map((row) => row.patternVersion || "v1"),
+      ...getQuickAddVersionOptions(patternVersionsRegistry, robustnessPattern),
+    ])].sort();
     els.robustnessVersion.innerHTML = `<option value="all">Todas las versiones</option>${versions.map((version) => `<option value="${version}">${version}</option>`).join("")}`;
   } else {
     els.robustnessVersion.innerHTML = '<option value="all">Todas las versiones</option>';
   }
+
+  renderFilterOptions(els.quickAddPattern, patterns, "Selecciona patrón");
+  if (!els.quickAddPattern.value && patterns.length) {
+    els.quickAddPattern.value = patterns[0];
+  }
+  refreshQuickAddVersionOptions();
 
   const selectedPattern = els.botPattern.value;
   if (selectedPattern) {
@@ -237,7 +289,15 @@ function refreshCompare() {
   renderCompareCards(els.compareResults, computePatternCompare(withCompareFilters(state.signals, compareFilters), selectedPatterns));
 }
 
-function refreshVersions() { renderPatternVersionsTable(els.versionsWrap, computePatternVersionComparison(state.signals)); }
+function refreshVersions() {
+  renderPatternVersionsTable(els.versionsWrap, computePatternVersionComparison(state.signals, patternVersionsRegistry, activePatternVersionId), {
+    createMessage: patternVersionCreateMessage,
+    onCreate: handleCreatePatternVersion,
+    onEditNotes: handleEditPatternVersionNotes,
+    onArchive: handleArchivePatternVersion,
+    onActivate: handleActivatePatternVersion,
+  }, [...new Set(patternVersionsRegistry.map((entry) => entry.patternName))].sort());
+}
 
 function refreshConfidenceEvolution() {
   const pattern = els.confidencePattern.value;
@@ -436,8 +496,8 @@ function buildSignalFromQuickInput(parsed) {
   return {
     asset,
     timeframe,
-    patternName: "RSI EMA Reclaim",
-    patternVersion: "v1-debug",
+    patternName: els.quickAddPattern?.value || "RSI EMA Reclaim",
+    patternVersion: els.quickAddVersion?.value || "v1",
     direction: parsed.direction,
     timestamp: Date.now(),
     srContext,
@@ -457,7 +517,12 @@ function setQuickAddFeedback(message, isError = false) {
 function importSignalsFromPreview(preview, importedMessage) {
   if (!preview?.ok) return false;
   const selectedRows = els.includeDuplicates.checked ? preview.valid : preview.uniqueValid;
+  selectedRows.forEach((row) => {
+    const result = ensurePatternVersionExists(patternVersionsRegistry, row.patternName, row.patternVersion);
+    patternVersionsRegistry = result.entries;
+  });
   replaceSignals([...state.signals, ...selectedRows]);
+  syncPatternVersionsWithSignals([...state.signals]);
   persist();
   saveLastImportReport({
     createdAt: new Date().toISOString(),
@@ -477,7 +542,74 @@ function handleImport() {
   rerender();
 }
 
+function handleCreatePatternVersion({ patternName, version, notes }) {
+  const cleanPatternName = String(patternName || "").trim();
+  const cleanVersion = String(version || "").trim();
+  if (!cleanPatternName) {
+    patternVersionCreateMessage = "Pattern Name es obligatorio.";
+    rerender();
+    return;
+  }
+  if (!cleanVersion) {
+    patternVersionCreateMessage = "Version no puede estar vacía.";
+    rerender();
+    return;
+  }
+  const result = ensurePatternVersionExists(patternVersionsRegistry, cleanPatternName, cleanVersion, notes);
+  if (!result.created) {
+    patternVersionCreateMessage = "Ya existe esa combinación pattern + version.";
+    rerender();
+    return;
+  }
+  patternVersionsRegistry = result.entries;
+  persistPatternVersions();
+  activePatternVersionId = result.entry.id;
+  saveActivePatternVersionId(activePatternVersionId);
+  patternVersionCreateMessage = `Versión creada: ${result.entry.displayName}`;
+  refreshSharedOptions();
+  rerender();
+}
+
+function handleEditPatternVersionNotes(versionId) {
+  const current = patternVersionsRegistry.find((entry) => entry.id === versionId);
+  if (!current) return;
+  const nextNotes = window.prompt(`Editar notes para ${current.displayName}`, current.notes || "");
+  if (nextNotes === null) return;
+  patternVersionsRegistry = updatePatternVersionNotes(patternVersionsRegistry, versionId, nextNotes);
+  persistPatternVersions();
+  rerender();
+}
+
+function handleArchivePatternVersion(versionId, shouldArchive) {
+  patternVersionsRegistry = archivePatternVersion(patternVersionsRegistry, versionId, shouldArchive);
+  persistPatternVersions();
+  if (activePatternVersionId === versionId && shouldArchive) {
+    const fallback = patternVersionsRegistry.find((entry) => !entry.isArchived);
+    activePatternVersionId = fallback?.id || "";
+    saveActivePatternVersionId(activePatternVersionId);
+  }
+  refreshSharedOptions();
+  rerender();
+}
+
+function handleActivatePatternVersion(versionId) {
+  activePatternVersionId = setActivePatternVersion(patternVersionsRegistry, versionId);
+  saveActivePatternVersionId(activePatternVersionId);
+  const active = patternVersionsRegistry.find((entry) => entry.id === activePatternVersionId);
+  if (active && els.quickAddPattern && els.quickAddVersion) {
+    els.quickAddPattern.value = active.patternName;
+    refreshQuickAddVersionOptions();
+    els.quickAddVersion.value = active.version;
+  }
+  rerender();
+}
+
 function handleQuickAdd() {
+  if (!els.quickAddPattern?.value || !els.quickAddVersion?.value) {
+    setQuickAddFeedback("Selecciona pattern y versión antes de guardar.", true);
+    return;
+  }
+
   const parsed = parseQuickSignal(els.quickAddInput?.value);
   if (!parsed.ok) {
     setQuickAddFeedback(parsed.error, true);
@@ -569,6 +701,7 @@ function handleDatasetImport(file) {
       const parsed = JSON.parse(String(reader.result));
       if (!Array.isArray(parsed)) throw new Error("El dataset debe ser un array de señales.");
       replaceSignals(parsed.map(migrateStoredSignal));
+      syncPatternVersionsWithSignals(state.signals);
       persist();
       setImportPreview({ ok: true, message: `Dataset cargado: ${parsed.length} señales`, total: parsed.length, valid: parsed, uniqueValid: parsed, duplicates: [], invalid: [], missingCritical: [], assets: [], patterns: [] });
     } catch (error) {
@@ -738,6 +871,7 @@ function setupTabs() {
 
 function setupEvents() {
   els.validateBtn.addEventListener("click", handleValidate);
+  els.quickAddPattern?.addEventListener("change", refreshQuickAddVersionOptions);
   els.quickAddBtn?.addEventListener("click", handleQuickAdd);
   els.quickAddInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -824,6 +958,18 @@ function setupEvents() {
 
 function init() {
   replaceSignals(loadSignals());
+  patternVersionsRegistry = loadPatternVersionsRegistry();
+  patternVersionsRegistry = rebuildPatternVersionsFromSignals(state.signals, patternVersionsRegistry);
+  if (!patternVersionsRegistry.length) {
+    const demo = ensurePatternVersionExists(patternVersionsRegistry, "RSI EMA Reclaim", "v2", "Manual S/R experiment");
+    patternVersionsRegistry = demo.entries;
+  }
+  persistPatternVersions();
+  activePatternVersionId = loadActivePatternVersionId();
+  if (!activePatternVersionId || !patternVersionsRegistry.some((entry) => entry.id === activePatternVersionId && !entry.isArchived)) {
+    activePatternVersionId = patternVersionsRegistry.find((entry) => !entry.isArchived)?.id || "";
+    saveActivePatternVersionId(activePatternVersionId);
+  }
   notes = loadNotes();
   if (!Object.keys(botCompilerState.patternMeta || {}).length) {
     BOT_DEMO_PATTERNS.forEach((entry) => {
@@ -837,6 +983,14 @@ function init() {
   setupTabs();
   setupEvents();
   rerender();
+  if (activePatternVersionId) {
+    const active = patternVersionsRegistry.find((entry) => entry.id === activePatternVersionId);
+    if (active) {
+      els.quickAddPattern.value = active.patternName;
+      refreshQuickAddVersionOptions();
+      els.quickAddVersion.value = active.version;
+    }
+  }
 
   if (!els.botPattern.value && BOT_DEMO_PATTERNS.length) {
     els.botPattern.value = BOT_DEMO_PATTERNS[0].name;

@@ -128,7 +128,7 @@ export function computePatternMeta(signals = []) {
   return map;
 }
 
-export function computePatternVersionComparison(signals = []) {
+export function computePatternVersionComparison(signals = [], registry = [], activeVersionId = "") {
   const grouped = new Map();
   signals.forEach((signal) => {
     const key = `${signal.patternName}__${signal.patternVersion || "v1"}`;
@@ -136,27 +136,62 @@ export function computePatternVersionComparison(signals = []) {
     grouped.get(key).rows.push(signal);
   });
 
-  return [...grouped.values()].map(({ patternName, patternVersion, rows }) => {
+  const registryRows = registry.map((entry) => ({
+    patternName: entry.patternName,
+    patternVersion: entry.version,
+    versionId: entry.id,
+    notes: entry.notes || "",
+    createdAt: entry.createdAt || null,
+    isArchived: Boolean(entry.isArchived),
+    rows: grouped.get(`${entry.patternName}__${entry.version}`)?.rows || [],
+  }));
+
+  const merged = [...registryRows];
+  [...grouped.values()].forEach(({ patternName, patternVersion, rows }) => {
+    if (merged.some((row) => row.patternName === patternName && row.patternVersion === patternVersion)) return;
+    merged.push({
+      patternName,
+      patternVersion,
+      versionId: `${patternName}__${patternVersion}`,
+      notes: "",
+      createdAt: null,
+      isArchived: false,
+      rows,
+    });
+  });
+
+  return merged.map(({ patternName, patternVersion, versionId, notes, createdAt, isArchived, rows }) => {
     const reviewed = reviewedRows(rows);
     const wins = reviewed.filter((s) => s.outcome.status === "win").length;
     const losses = reviewed.filter((s) => s.outcome.status === "loss").length;
     const drawdown = computeDrawdown(reviewed.map((s) => s.outcome.status));
-    const consistency = computeStability(rows);
-    const sampleSizeScore = Math.round(clamp((reviewed.length / 30) * 100, 0, 100));
+    const consistency = rows.length ? computeStability(rows) : null;
+    const sampleSizeScore = rows.length ? Math.round(clamp((reviewed.length / 30) * 100, 0, 100)) : null;
     return {
       patternName,
       patternVersion,
+      versionId,
+      notes,
+      createdAt,
+      isArchived,
+      isActive: versionId === activeVersionId,
+      hasData: rows.length > 0,
       total: rows.length,
       reviewed: reviewed.length,
       wins,
       losses,
-      winrate: calcWinrate(wins, losses),
-      maxLosingStreak: drawdown,
+      winrate: reviewed.length ? calcWinrate(wins, losses) : null,
+      statusLabel: rows.length ? "With data" : "No data yet",
+      maxLosingStreak: rows.length ? drawdown : null,
       consistency,
       sampleSizeScore,
       robustnessScore: rows[0]?.patternMeta?.robustness?.robustnessScore ?? null,
     };
-  }).sort((a, b) => b.winrate - a.winrate);
+  }).sort((a, b) => {
+    if (a.isArchived !== b.isArchived) return Number(a.isArchived) - Number(b.isArchived);
+    if ((b.createdAt || 0) !== (a.createdAt || 0)) return (b.createdAt || 0) - (a.createdAt || 0);
+    return `${a.patternName} ${a.patternVersion}`.localeCompare(`${b.patternName} ${b.patternVersion}`);
+  });
 }
 
 export function computeConfidenceEvolution(signals = [], patternName, windowSize = 20) {

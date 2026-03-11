@@ -44,6 +44,10 @@
         <h2>Importador JSON</h2>
         <div class="quick-add-block">
           <h3>Quick Add Signal</h3>
+          <div class="quick-add-meta-row">
+            <select id="quick-add-pattern"><option value="">Selecciona patrón</option></select>
+            <select id="quick-add-version"><option value="">Selecciona versión</option></select>
+          </div>
           <div class="quick-add-row">
             <input id="quick-add-input" placeholder="CALL RSI=69.5" />
             <button id="btn-quick-add" class="primary">Guardar señal</button>
@@ -150,7 +154,7 @@
         <div id="radar-results" class="radar-grid"></div>
       </section>
 
-      <section class="panel tab-panel" data-panel="versions"><h2>Pattern Versions</h2><div id="versions-wrap" class="table-wrap"></div></section>
+      <section class="panel tab-panel" data-panel="versions"><h2>Pattern Versions</h2><div id="versions-wrap"></div></section>
 
       <section class="panel tab-panel" data-panel="confidence">
         <h2>Confidence Evolution</h2>

@@ -133,3 +133,18 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .tiny { font-size: .78rem; margin: .35rem 0 0; }
 .sr-support { color: #63d297; }
 .sr-resistance { color: #ff9f94; }
+
+.quick-add-meta-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: .45rem;
+  margin-bottom: .45rem;
+}
+.versions-form-wrap { margin-bottom: .7rem; }
+.versions-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: .5rem;
+  align-items: end;
+}
+.version-row-active { background: rgba(79, 141, 246, 0.12); }
