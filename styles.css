@@ -188,3 +188,10 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
   min-width: 92px;
   padding: .35rem .45rem;
 }
+
+.settings-card { margin-bottom: .7rem; }
+button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
+.settings-status.ok { color: var(--win); }
+.settings-status.warn { color: var(--skip); }
+.settings-status.error { color: var(--loss); }
+.danger-zone { border-color: #69313a; }
