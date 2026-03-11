@@ -153,3 +153,17 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .badge.v3-excursion { background: rgba(168,85,247,.2); color: #d8b4fe; }
 .badge.v3-session { background: rgba(34,197,94,.18); color: #86efac; }
 #session-canvas svg { display:block; min-width: 900px; }
+
+.session-analysis-toggles {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.session-replay-controls { margin-top: -.2rem; margin-bottom: .7rem; }
+.session-row-selected { background: rgba(79, 141, 246, 0.14); }
+.badge.session-state.call { color: #58d09b; border-color: #58d09b; }
+.badge.session-state.put { color: #ff857a; border-color: #ff857a; }
+.badge.session-state.near-call { color: #8fd6b8; border-color: #406e5a; }
+.badge.session-state.near-put { color: #e8a39d; border-color: #6b3f3a; }
+.badge.session-state.none { color: #94a3b8; border-color: #475569; }
+.session-analysis-header { display:flex; justify-content:space-between; align-items:center; gap:.6rem; }
+.session-analysis-tags { display:flex; gap:.45rem; flex-wrap: wrap; margin-bottom: .55rem; }
+.session-metrics { display:flex; flex-wrap:wrap; gap:.4rem; margin:.6rem 0; }

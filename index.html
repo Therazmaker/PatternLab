@@ -300,10 +300,19 @@
         <h2>Session Candles</h2>
         <div class="filters"><input id="session-date" type="date" /><input id="session-asset" placeholder="Asset (opcional)" /><input id="session-tf" placeholder="TF (opcional)" /><input id="session-notes" placeholder="Notas" /><button id="btn-new-session" class="primary">New Session</button><button id="btn-close-session" class="ghost">Close Session</button></div>
         <div id="session-active-header" class="panel-soft"></div>
+        <div class="filters session-analysis-toggles">
+          <label class="inline-toggle"><input id="session-toggle-overlay" type="checkbox" checked /> Show analytical overlay</label>
+          <label class="inline-toggle"><input id="session-toggle-narratives" type="checkbox" checked /> Show narratives</label>
+          <label class="inline-toggle"><input id="session-toggle-near" type="checkbox" checked /> Show near states</label>
+          <label class="inline-toggle"><input id="session-toggle-metrics" type="checkbox" checked /> Show metrics</label>
+          <label class="inline-toggle"><input id="session-toggle-replay" type="checkbox" /> Replay mode</label>
+        </div>
         <div class="filters"><input id="session-candle-time" placeholder="Time label" /><input id="session-candle-open" type="number" step="0.00001" placeholder="Open" /><input id="session-candle-high" type="number" step="0.00001" placeholder="High" /><input id="session-candle-low" type="number" step="0.00001" placeholder="Low" /><input id="session-candle-close" type="number" step="0.00001" placeholder="Close" /><button id="btn-add-candle" class="primary">Add Candle</button><button id="btn-clear-candle" class="ghost">Clear</button><button id="btn-duplicate-open" class="ghost">Duplicate previous close as open</button></div>
+        <div class="button-row compact session-replay-controls"><button id="btn-session-prev" class="ghost">Previous Candle</button><button id="btn-session-next" class="ghost">Next Candle</button><button id="btn-session-play" class="ghost">Play Session</button><button id="btn-session-pause" class="ghost">Pause</button></div>
         <div id="session-canvas" class="panel-soft" style="overflow-x:auto;"></div>
+        <div id="session-analysis-panel" class="panel-soft"></div>
         <div id="session-summary" class="panel-soft"></div>
-        <div class="table-wrap"><table><thead><tr><th>index</th><th>time</th><th>open</th><th>high</th><th>low</th><th>close</th><th>color</th></tr></thead><tbody id="session-candles-body"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>index</th><th>time</th><th>open</th><th>high</th><th>low</th><th>close</th><th>color</th><th>analytical read</th><th>recorded signal</th></tr></thead><tbody id="session-candles-body"></tbody></table></div>
         <h3>Past Sessions</h3><div id="past-sessions" class="stack"></div>
       </section>
     </main>
