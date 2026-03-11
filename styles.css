@@ -148,3 +148,8 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
   align-items: end;
 }
 .version-row-active { background: rgba(79, 141, 246, 0.12); }
+
+.badge.v3-ohlc { background: rgba(59,130,246,.2); color: #93c5fd; }
+.badge.v3-excursion { background: rgba(168,85,247,.2); color: #d8b4fe; }
+.badge.v3-session { background: rgba(34,197,94,.18); color: #86efac; }
+#session-canvas svg { display:block; min-width: 900px; }

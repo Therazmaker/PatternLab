@@ -1,5 +1,6 @@
 import { hourFromTimestamp, makeSignalId, toISODate } from "./utils.js";
 import { normalizeSrContext } from "./sr.js";
+import { normalizeCandleData, normalizeExcursion, normalizeSessionRef, normalizeV3Meta } from "./v3.js";
 
 const fieldMap = {
   asset: ["asset", "symbol", "pair"],
@@ -89,6 +90,10 @@ export function normalizeSignal(input) {
       hypothesisHistory: Array.isArray(input.patternMeta?.hypothesisHistory) ? input.patternMeta.hypothesisHistory : [],
       errorClusters: Array.isArray(input.patternMeta?.errorClusters) ? input.patternMeta.errorClusters : [],
     },
+    candleData: normalizeCandleData(input.candleData),
+    excursion: normalizeExcursion(input.excursion),
+    sessionRef: normalizeSessionRef(input.sessionRef),
+    v3Meta: normalizeV3Meta(input.v3Meta),
   };
 
   normalized.id = normalized.id || makeSignalId(normalized);
@@ -138,6 +143,10 @@ export function migrateStoredSignal(signal) {
     comment: base.outcome?.comment || "",
     reviewedBy: base.outcome?.reviewedBy || "manual",
   };
+  base.candleData = normalizeCandleData(base.candleData);
+  base.excursion = normalizeExcursion(base.excursion);
+  base.sessionRef = normalizeSessionRef(base.sessionRef);
+  base.v3Meta = normalizeV3Meta(base.v3Meta);
   base.id = base.id || makeSignalId(base);
   return base;
 }

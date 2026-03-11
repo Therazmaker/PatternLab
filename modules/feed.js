@@ -6,6 +6,27 @@ function renderTagBadges(tags = []) {
   return tags.map((tag) => `<span class="badge tag">${tag}</span>`).join(" ");
 }
 
+function hasOHLCComplete(signal) {
+  const c = signal?.candleData || {};
+  return [c.open, c.high, c.low, c.close].every((value) => typeof value === "number");
+}
+
+function hasExcursion(signal) {
+  return typeof signal?.excursion?.mfe === "number" || typeof signal?.excursion?.mae === "number";
+}
+
+function hasSession(signal) {
+  return Boolean(signal?.sessionRef?.sessionId);
+}
+
+function renderV3Badges(signal) {
+  const badges = [];
+  if (hasOHLCComplete(signal)) badges.push('<span class="badge v3-ohlc">OHLC complete</span>');
+  if (hasExcursion(signal)) badges.push('<span class="badge v3-excursion">Excursion ready</span>');
+  if (hasSession(signal)) badges.push('<span class="badge v3-session">Attached to session</span>');
+  return badges.join(" ");
+}
+
 function renderSrBadges(signal) {
   const sr = normalizeSrContext(signal.srContext);
   const badges = [];
@@ -27,6 +48,14 @@ export function getFilteredSignals(signals, filters) {
     if (filters.patternName && s.patternName !== filters.patternName) return false;
     if (filters.status && s.outcome.status !== filters.status) return false;
     if (filters.timeframe && s.timeframe !== filters.timeframe) return false;
+    if (filters.hasOHLC === "only" && !hasOHLCComplete(s)) return false;
+    if (filters.hasOHLC === "exclude" && hasOHLCComplete(s)) return false;
+    if (filters.hasExcursion === "only" && !hasExcursion(s)) return false;
+    if (filters.hasExcursion === "exclude" && hasExcursion(s)) return false;
+    if (filters.hasSession === "only" && !hasSession(s)) return false;
+    if (filters.hasSession === "exclude" && hasSession(s)) return false;
+    if (filters.mfeMin !== "" && !(Number(s?.excursion?.mfe) >= Number(filters.mfeMin))) return false;
+    if (filters.maeMax !== "" && !(Number(s?.excursion?.mae) <= Number(filters.maeMax))) return false;
     if (term) {
       const hay = [s.asset, s.patternName, s.direction, s.timeframe, s.notes, ...(s.autoTags || [])].join(" ").toLowerCase();
       if (!hay.includes(term)) return false;
@@ -63,7 +92,7 @@ export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
           <small>${signal.contextLabel || "-"}</small>
         </div>
       </td>
-      <td>${renderTagBadges(signal.autoTags)}</td>
+      <td>${renderTagBadges(signal.autoTags)} ${renderV3Badges(signal)}</td>
       <td class="quick-actions">
         <button data-quick="win" data-id="${signal.id}" class="ghost" title="Marcar win">Win</button>
         <button data-quick="loss" data-id="${signal.id}" class="ghost" title="Marcar loss">Loss</button>
