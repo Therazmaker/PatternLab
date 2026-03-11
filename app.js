@@ -1,17 +1,32 @@
 import { state, setActiveSessionId, setFilter, setImportPreview, setSessions, setSignals } from "./modules/state.js";
 import {
+  clearLegacyStorage,
+  createBackupNow,
+  downloadBackup,
+  downloadFullMemory,
   exportDataset,
   exportSignals,
+  getStorageStatus,
+  importMemory,
+  initializeStorage,
+  loadActivePatternVersionId,
   loadLastImportReport,
   loadMetaFeedback,
+  loadNotes,
+  loadPatternVersionsRegistry,
   loadSessions,
   loadSignals,
   loadBotCompilerState,
+  restoreBackup,
+  saveActivePatternVersionId,
   saveLastImportReport,
   saveBotCompilerState,
   saveMetaFeedback,
+  saveNotes,
+  savePatternVersionsRegistry,
   saveSessions,
   saveSignals,
+  validateMemoryPayload,
 } from "./modules/storage.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
@@ -28,11 +43,7 @@ import {
   archivePatternVersion,
   ensurePatternVersionExists,
   getQuickAddVersionOptions,
-  loadActivePatternVersionId,
-  loadPatternVersionsRegistry,
   rebuildPatternVersionsFromSignals,
-  saveActivePatternVersionId,
-  savePatternVersionsRegistry,
   setActivePatternVersion,
   updatePatternVersionNotes,
 } from "./modules/patternVersions.js";
@@ -40,7 +51,7 @@ import { computeOverfitRisk } from "./modules/overfit.js";
 import { runStressTests } from "./modules/stresstest.js";
 import { computeMonteCarloSummary, runMonteCarlo } from "./modules/montecarlo.js";
 import { buildRobustnessInsight, computeRobustnessScore } from "./modules/robustness.js";
-import { filterNotes, loadNotes, saveNotes, upsertNote } from "./modules/journal.js";
+import { filterNotes, upsertNote } from "./modules/journal.js";
 import { enrichSignals } from "./modules/intelligence.js";
 import {
   applyMetaFeedbackBias,
@@ -106,6 +117,7 @@ const els = {
   errorClustersWrap: document.getElementById("error-clusters-wrap"), errorClusterDetails: document.getElementById("error-cluster-details"),
   hypothesisWrap: document.getElementById("hypothesis-wrap"),
   suggestionsWrap: document.getElementById("suggestions-wrap"),
+  settingsStorageSummary: document.getElementById("settings-storage-summary"), settingsStorageStatus: document.getElementById("settings-storage-status"), settingsStorageBackend: document.getElementById("settings-storage-backend"), settingsMigrationStatus: document.getElementById("settings-migration-status"), settingsLastBackup: document.getElementById("settings-last-backup"), settingsExportMemoryBtn: document.getElementById("btn-export-memory"), settingsImportFile: document.getElementById("settings-import-file"), settingsImportMode: document.getElementById("settings-import-mode"), settingsImportPreview: document.getElementById("settings-import-preview"), settingsImportMemoryBtn: document.getElementById("btn-import-memory"), settingsBackupNowBtn: document.getElementById("btn-backup-now"), settingsDownloadBackupBtn: document.getElementById("btn-download-backup"), settingsRestoreBackupBtn: document.getElementById("btn-restore-backup"), settingsValidateMemoryBtn: document.getElementById("btn-validate-memory"), settingsClearLegacyBtn: document.getElementById("btn-clear-legacy-storage"), settingsStatus: document.getElementById("settings-status"),
   botPattern: document.getElementById("bot-pattern"), botVersion: document.getElementById("bot-version"), botDefinitionEditor: document.getElementById("bot-definition-editor"), botVersionNotes: document.getElementById("bot-version-notes"),
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
@@ -118,12 +130,12 @@ const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
 const forwardConfig = { splitMode: "ratio", ratio: 0.7, splitDate: "" };
 let notes = [];
 let lastRanking = [];
-let metaFeedback = loadMetaFeedback();
+let metaFeedback = { usefulHypothesisTypes: [], weakHypothesisTypes: [], dismissedHypothesisTypes: [], acceptedSuggestionTypes: [], ignoredSuggestionTypes: [], history: [] };
 let forwardValidation = null;
 let errorClusters = [];
 let hypotheses = [];
 let suggestions = [];
-let botCompilerState = loadBotCompilerState();
+let botCompilerState = { patternMeta: {} };
 let botCompareTargetVersion = "";
 let patternVersionsRegistry = [];
 let activePatternVersionId = "";
@@ -138,14 +150,41 @@ const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v1";
 let sessionAnalysisPrefs = { showOverlay: true, showNarratives: true, showNear: true, showMetrics: true, replayMode: false };
 
 let robustnessState = { overfit: null, stress: null, monteCarlo: { simulations: 0, insight: "Ejecuta simulación para ver resultados." }, summary: null };
+let pendingMemoryImport = null;
+let storageStatus = null;
+
+function setSettingsStatus(message, kind = "muted") {
+  if (!els.settingsStatus) return;
+  els.settingsStatus.className = `settings-status ${kind}`;
+  els.settingsStatus.textContent = message || "";
+}
+
+function refreshStorageStatusUI() {
+  storageStatus = getStorageStatus();
+  if (!els.settingsStorageSummary || !storageStatus) return;
+  const { counts, estimatedBytes, backend, migrationStatus, lastBackupAt } = storageStatus;
+  els.settingsStorageBackend.textContent = backend === "indexedDB" ? "IndexedDB" : "localStorage (fallback)";
+  els.settingsMigrationStatus.textContent = migrationStatus?.status || "pending";
+  els.settingsLastBackup.textContent = lastBackupAt ? new Date(lastBackupAt).toLocaleString() : "Sin backup";
+  els.settingsStorageSummary.innerHTML = `
+    <li><span>Señales</span><strong>${counts.signals}</strong></li>
+    <li><span>Sesiones</span><strong>${counts.sessions}</strong></li>
+    <li><span>Pattern Versions</span><strong>${counts.patternVersions}</strong></li>
+    <li><span>Reviews</span><strong>${counts.reviews}</strong></li>
+    <li><span>Tamaño estimado</span><strong>${Math.round(estimatedBytes / 1024)} KB</strong></li>
+  `;
+  els.settingsStorageStatus.textContent = backend === "indexedDB"
+    ? "Storage ready: IndexedDB principal activo."
+    : "IndexedDB no disponible, usando fallback localStorage.";
+}
 
 function persist() {
-  saveSignals(state.signals);
-  saveSessions(state.sessions);
+  Promise.all([saveSignals(state.signals), saveSessions(state.sessions)])
+    .catch((error) => console.error("[Storage] persist() failed", error));
 }
-function persistNotes() { saveNotes(notes); }
-function persistBotCompiler() { saveBotCompilerState(botCompilerState); }
-function persistPatternVersions() { savePatternVersionsRegistry(patternVersionsRegistry); }
+function persistNotes() { saveNotes(notes).catch((error) => console.error("[Storage] saveNotes failed", error)); }
+function persistBotCompiler() { saveBotCompilerState(botCompilerState).catch((error) => console.error("[Storage] saveBotCompiler failed", error)); }
+function persistPatternVersions() { savePatternVersionsRegistry(patternVersionsRegistry).catch((error) => console.error("[Storage] savePatternVersions failed", error)); }
 
 function syncPatternVersionsWithSignals(signals) {
   patternVersionsRegistry = rebuildPatternVersionsFromSignals(signals, patternVersionsRegistry);
@@ -908,6 +947,7 @@ function rerender() {
   refreshBotGenerator();
   refreshRobustnessLab();
   refreshSessionCandlesTab();
+  refreshStorageStatusUI();
 }
 
 function onHypothesisDecision(id, decision) {
@@ -927,6 +967,60 @@ function onSuggestionDecision(id, decision) {
 }
 
 function handleValidate() { setImportPreview(buildImportPreview(els.jsonInput.value.trim(), state.signals)); rerender(); }
+
+
+async function handleExportMemory() {
+  downloadFullMemory();
+  setSettingsStatus("Exportación completa descargada.", "ok");
+}
+
+async function handleValidateMemoryFile() {
+  const file = els.settingsImportFile?.files?.[0];
+  if (!file) {
+    setSettingsStatus("Selecciona un archivo JSON primero.", "warn");
+    return;
+  }
+  const raw = await file.text();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    setSettingsStatus("JSON inválido.", "error");
+    return;
+  }
+  const result = validateMemoryPayload(parsed);
+  if (!result.ok) {
+    pendingMemoryImport = null;
+    els.settingsImportPreview.textContent = result.error;
+    setSettingsStatus("Import validation failed", "error");
+    return;
+  }
+  pendingMemoryImport = parsed;
+  els.settingsImportPreview.textContent = `Archivo válido. Señales: ${result.summary.signals} · Sesiones: ${result.summary.sessions} · Versions: ${result.summary.patternVersions}`;
+  setSettingsStatus("Archivo validado correctamente.", "ok");
+}
+
+async function handleImportMemory() {
+  if (!pendingMemoryImport) {
+    setSettingsStatus("Primero valida un archivo de memoria.", "warn");
+    return;
+  }
+  if (!window.confirm("Vas a importar memoria completa. Se creará un backup automático antes del reemplazo. ¿Continuar?")) return;
+  const mode = els.settingsImportMode?.value || "replace";
+  try {
+    await importMemory(pendingMemoryImport, mode);
+    replaceSignals(loadSignals());
+    replaceSessions(loadSessions(normalizeSession));
+    patternVersionsRegistry = loadPatternVersionsRegistry();
+    activePatternVersionId = loadActivePatternVersionId();
+    notes = loadNotes();
+    rerender();
+    setSettingsStatus("Importación completada con éxito.", "ok");
+  } catch (error) {
+    setSettingsStatus(`Error al importar: ${error.message}`, "error");
+  }
+}
+
 
 
 function getSessionByLocalHour(hour = new Date().getHours()) {
@@ -1439,6 +1533,46 @@ function setupEvents() {
   els.reviewPrevBtn.addEventListener("click", () => moveReview(-1));
   els.exportBtn.addEventListener("click", () => exportDataset({ signals: state.signals, sessions: state.sessions }));
   els.datasetFile.addEventListener("change", (e) => handleDatasetImport(e.target.files[0]));
+  els.settingsExportMemoryBtn?.addEventListener("click", handleExportMemory);
+  els.settingsValidateMemoryBtn?.addEventListener("click", handleValidateMemoryFile);
+  els.settingsImportMemoryBtn?.addEventListener("click", handleImportMemory);
+  els.settingsBackupNowBtn?.addEventListener("click", async () => {
+    await createBackupNow();
+    refreshStorageStatusUI();
+    setSettingsStatus("Backup creado.", "ok");
+  });
+  els.settingsDownloadBackupBtn?.addEventListener("click", () => {
+    try {
+      downloadBackup();
+      setSettingsStatus("Backup descargado.", "ok");
+    } catch (error) {
+      setSettingsStatus(error.message, "warn");
+    }
+  });
+  els.settingsRestoreBackupBtn?.addEventListener("click", async () => {
+    if (!window.confirm("¿Restaurar último backup? Esta acción reemplaza la memoria actual.")) return;
+    try {
+      await restoreBackup();
+      replaceSignals(loadSignals());
+      replaceSessions(loadSessions(normalizeSession));
+      patternVersionsRegistry = loadPatternVersionsRegistry();
+      activePatternVersionId = loadActivePatternVersionId();
+      notes = loadNotes();
+      rerender();
+      setSettingsStatus("Backup restaurado.", "ok");
+    } catch (error) {
+      setSettingsStatus(error.message, "error");
+    }
+  });
+  els.settingsClearLegacyBtn?.addEventListener("click", async () => {
+    if (!window.confirm("Esto limpiará localStorage legado. Solo continuar si la migración ya está validada. ¿Confirmar?")) return;
+    try {
+      await clearLegacyStorage();
+      setSettingsStatus("localStorage legado limpiado.", "ok");
+    } catch (error) {
+      setSettingsStatus(error.message, "error");
+    }
+  });
 
   [els.comparePatterns, els.compareAsset, els.compareDirection, els.compareTimeframe, els.compareRangeMode, els.compareRangeValue, els.compareNearSupport, els.compareNearResistance].forEach((el) => {
     el.addEventListener("input", () => {
@@ -1625,9 +1759,12 @@ function setupEvents() {
   });
 }
 
-function init() {
+async function init() {
+  await initializeStorage();
   replaceSignals(loadSignals());
   replaceSessions(loadSessions(normalizeSession));
+  metaFeedback = loadMetaFeedback();
+  botCompilerState = loadBotCompilerState();
   const activeSession = state.sessions.find((session) => session.status === "active");
   setActiveSessionId(activeSession?.id || null);
   patternVersionsRegistry = loadPatternVersionsRegistry();

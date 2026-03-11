@@ -38,6 +38,7 @@
       <button class="tab-btn" data-tab="bot-generator">Bot Generator</button>
       <button class="tab-btn" data-tab="robustness">Robustness Lab</button>
       <button class="tab-btn" data-tab="session-candles">Session Candles</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
 
     <main class="layout">
@@ -316,6 +317,46 @@
         <div class="table-wrap"><table><thead><tr><th>index</th><th>time</th><th>open</th><th>high</th><th>low</th><th>close</th><th>color</th><th>analytical read</th><th>recorded signal</th><th>actions</th></tr></thead><tbody id="session-candles-body"></tbody></table></div>
         <h3>Past Sessions</h3><div id="past-sessions" class="stack"></div>
       </section>
+
+      <section class="panel tab-panel" data-panel="settings">
+        <h2>Settings</h2>
+        <article class="panel-soft settings-card">
+          <h3>Storage Status</h3>
+          <p id="settings-storage-status" class="muted">Verificando storage...</p>
+          <ul id="settings-storage-summary" class="mini-list"></ul>
+          <p class="muted tiny">Backend: <strong id="settings-storage-backend">-</strong> · Migration: <strong id="settings-migration-status">-</strong> · Último backup: <strong id="settings-last-backup">-</strong></p>
+        </article>
+
+        <article class="panel-soft settings-card">
+          <h3>Export / Import</h3>
+          <div class="button-row compact"><button id="btn-export-memory" class="primary">Export Full Memory</button></div>
+          <div class="button-row compact">
+            <input id="settings-import-file" type="file" accept="application/json" />
+            <select id="settings-import-mode"><option value="replace">Replace existing memory</option><option value="merge">Merge safely (beta)</option></select>
+            <button id="btn-validate-memory" class="ghost">Validate Memory File</button>
+            <button id="btn-import-memory" class="primary">Import Memory</button>
+          </div>
+          <p id="settings-import-preview" class="muted tiny">Sin archivo validado.</p>
+        </article>
+
+        <article class="panel-soft settings-card">
+          <h3>Backup & Restore</h3>
+          <div class="button-row compact">
+            <button id="btn-backup-now" class="ghost">Create Backup Now</button>
+            <button id="btn-download-backup" class="ghost">Download Backup</button>
+            <button id="btn-restore-backup" class="ghost">Restore Backup</button>
+          </div>
+        </article>
+
+        <article class="panel-soft settings-card danger-zone">
+          <h3>Danger Zone</h3>
+          <button id="btn-clear-legacy-storage" class="danger">Clear legacy localStorage</button>
+          <p class="muted tiny">Solo después de validar migración exitosa.</p>
+        </article>
+
+        <p id="settings-status" class="settings-status muted"></p>
+      </section>
+
     </main>
 
     <dialog id="review-modal">
