@@ -996,15 +996,22 @@ function importSignalsFromPreview(preview, importedMessage) {
   });
   replaceSignals([...state.signals, ...selectedRows]);
   syncPatternVersionsWithSignals([...state.signals]);
-  persist();
-  saveLastImportReport({
-    createdAt: new Date().toISOString(),
-    total: preview.total,
-    valid: preview.valid.length,
-    invalid: preview.invalid.length,
-    duplicates: preview.duplicates.length,
-    imported: selectedRows.length,
-  });
+  try {
+    persist();
+    saveLastImportReport({
+      createdAt: new Date().toISOString(),
+      total: preview.total,
+      valid: preview.valid.length,
+      invalid: preview.invalid.length,
+      duplicates: preview.duplicates.length,
+      imported: selectedRows.length,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "No se pudo guardar en almacenamiento local.";
+    setQuickAddFeedback(message, true);
+    setImportPreview({ ...preview, message, ok: false });
+    return false;
+  }
   setImportPreview({ ...preview, message: importedMessage || `Importadas ${selectedRows.length} señales.` });
   return true;
 }
