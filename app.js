@@ -109,7 +109,7 @@ const els = {
   botPattern: document.getElementById("bot-pattern"), botVersion: document.getElementById("bot-version"), botDefinitionEditor: document.getElementById("bot-definition-editor"), botVersionNotes: document.getElementById("bot-version-notes"),
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
-  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
+  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -131,6 +131,8 @@ let patternVersionCreateMessage = "";
 let sessionHistoryId = "";
 let selectedSessionCandleIndex = null;
 let sessionReplayTimer = null;
+let editingSessionCandleIndex = null;
+let sessionCandleDraft = null;
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v1";
 let sessionAnalysisPrefs = { showOverlay: true, showNarratives: true, showNear: true, showMetrics: true, replayMode: false };
@@ -272,6 +274,66 @@ function getSessionRecordedSignal(session, candleIndex) {
   return state.signals.find((signal) => signal.sessionRef?.sessionId === session.id && signal.sessionRef?.candleIndex === candleIndex) || null;
 }
 
+function setSessionCandleStatus(message = "", tone = "muted") {
+  if (!els.sessionCandleStatus) return;
+  els.sessionCandleStatus.textContent = message;
+  els.sessionCandleStatus.className = `quick-add-feedback ${tone}`;
+}
+
+function clearSessionCandleEdit() {
+  editingSessionCandleIndex = null;
+  sessionCandleDraft = null;
+}
+
+function normalizeRecordedSignalSelection(value) {
+  const selected = String(value || "none").toLowerCase();
+  if (["call", "put"].includes(selected)) return selected.toUpperCase();
+  return null;
+}
+
+function removeSignalSessionReference(signal) {
+  const next = { ...signal, sessionRef: normalizeSessionRef({ sessionId: null, candleIndex: null }) };
+  return next;
+}
+
+function reindexSessionSignals(sessionId, removedIndex) {
+  let touched = false;
+  const nextSignals = state.signals.map((signal) => {
+    if (signal.sessionRef?.sessionId !== sessionId || !Number.isInteger(signal.sessionRef?.candleIndex)) return signal;
+    if (signal.sessionRef.candleIndex === removedIndex) {
+      touched = true;
+      return removeSignalSessionReference(signal);
+    }
+    if (signal.sessionRef.candleIndex > removedIndex) {
+      touched = true;
+      return { ...signal, sessionRef: normalizeSessionRef({ ...signal.sessionRef, candleIndex: signal.sessionRef.candleIndex - 1 }) };
+    }
+    return signal;
+  });
+  if (touched) replaceSignals(nextSignals);
+  return touched;
+}
+
+function syncRecordedSignalForCandle(session, candleIndex, value) {
+  if (!session || !Number.isInteger(candleIndex)) return false;
+  const existing = getSessionRecordedSignal(session, candleIndex);
+  const nextDirection = normalizeRecordedSignalSelection(value);
+  if (!existing && !nextDirection) return false;
+  if (!existing && nextDirection) {
+    setSessionCandleStatus("No linked signal found for this candle. Recorded signal badge remains informational.", "warning");
+    return false;
+  }
+  if (existing && !nextDirection) {
+    if (!window.confirm(`This will unlink signal ${existing.id} from candle #${candleIndex}. Continue?`)) return false;
+    replaceSignals(state.signals.map((signal) => signal.id === existing.id ? removeSignalSessionReference(signal) : signal));
+    return true;
+  }
+  if (existing.direction === nextDirection) return false;
+  if (!window.confirm(`Signal ${existing.id} direction will change from ${existing.direction} to ${nextDirection}. Continue?`)) return false;
+  replaceSignals(state.signals.map((signal) => signal.id === existing.id ? { ...signal, direction: nextDirection } : signal));
+  return true;
+}
+
 function stopSessionReplay() {
   if (sessionReplayTimer) {
     window.clearInterval(sessionReplayTimer);
@@ -407,7 +469,7 @@ function drawSessionCandles(session, explanations = []) {
 function renderSessionTable(session, explanations = []) {
   if (!els.sessionCandlesBody) return;
   if (!session || !session.candles.length) {
-    els.sessionCandlesBody.innerHTML = '<tr><td colspan="9" class="muted">Sin velas.</td></tr>';
+    els.sessionCandlesBody.innerHTML = '<tr><td colspan="10" class="muted">Sin velas.</td></tr>';
     return;
   }
   els.sessionCandlesBody.innerHTML = session.candles.map((c) => {
@@ -415,14 +477,111 @@ function renderSessionTable(session, explanations = []) {
     const stateValue = explanation?.signalState || "none";
     const analytical = signalBadgeLabel(stateValue);
     const recorded = getSessionRecordedSignal(session, c.index);
-    const recordedLabel = recorded ? `Recorded Signal (${recorded.direction})` : "No Recorded Signal";
     const selectedClass = selectedSessionCandleIndex === c.index ? 'session-row-selected' : '';
-    return `<tr data-table-candle="${c.index}" class="${selectedClass}"><td>${c.index}</td><td>${c.timeLabel || "-"}</td><td>${c.open ?? "-"}</td><td>${c.high ?? "-"}</td><td>${c.low ?? "-"}</td><td>${c.close ?? "-"}</td><td>${c.colorHint || deriveCandleColor(c) || "-"}</td><td><span class="badge session-state ${stateValue}">${analytical}</span></td><td>${recordedLabel}</td></tr>`;
+    const isEditing = editingSessionCandleIndex === c.index;
+    if (isEditing) {
+      const draft = sessionCandleDraft || {};
+      const selectedRecorded = draft.recordedSignal || "none";
+      return `<tr data-table-candle="${c.index}" class="${selectedClass} session-row-editing"><td>${c.index}</td><td><input data-edit-field="timeLabel" value="${draft.timeLabel || ""}" placeholder="Time" /></td><td><input data-edit-field="open" type="number" step="0.00001" value="${draft.open ?? ""}" /></td><td><input data-edit-field="high" type="number" step="0.00001" value="${draft.high ?? ""}" /></td><td><input data-edit-field="low" type="number" step="0.00001" value="${draft.low ?? ""}" /></td><td><input data-edit-field="close" type="number" step="0.00001" value="${draft.close ?? ""}" /></td><td>${deriveCandleColor(draft) || c.colorHint || "-"}</td><td><span class="badge session-state ${stateValue}">${analytical}</span></td><td><select data-edit-field="recordedSignal"><option value="none" ${selectedRecorded === "none" ? "selected" : ""}>None / No Recorded Signal</option><option value="call" ${selectedRecorded === "call" ? "selected" : ""}>CALL</option><option value="put" ${selectedRecorded === "put" ? "selected" : ""}>PUT</option></select></td><td><div class="button-row compact"><button class="primary" data-candle-action="save" data-candle-index="${c.index}">Save</button><button class="ghost" data-candle-action="cancel" data-candle-index="${c.index}">Cancel</button></div></td></tr>`;
+    }
+    const recordedLabel = recorded ? `Recorded Signal (${recorded.direction})` : "No Recorded Signal";
+    return `<tr data-table-candle="${c.index}" class="${selectedClass}"><td>${c.index}</td><td>${c.timeLabel || "-"}</td><td>${c.open ?? "-"}</td><td>${c.high ?? "-"}</td><td>${c.low ?? "-"}</td><td>${c.close ?? "-"}</td><td>${c.colorHint || deriveCandleColor(c) || "-"}</td><td><span class="badge session-state ${stateValue}">${analytical}</span></td><td>${recordedLabel}</td><td><div class="button-row compact"><button class="ghost" data-candle-action="edit" data-candle-index="${c.index}">Edit</button><button class="ghost" data-candle-action="delete" data-candle-index="${c.index}">Delete</button></div></td></tr>`;
   }).join("");
+
   els.sessionCandlesBody.querySelectorAll('[data-table-candle]').forEach((row) => {
-    row.addEventListener('click', () => {
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('[data-candle-action]') || event.target.closest('[data-edit-field]')) return;
       selectedSessionCandleIndex = Number(row.getAttribute('data-table-candle'));
       refreshSessionCandlesTab();
+    });
+  });
+
+  els.sessionCandlesBody.querySelectorAll('[data-edit-field]').forEach((input) => {
+    input.addEventListener('input', (event) => {
+      if (!sessionCandleDraft) return;
+      const field = event.target.getAttribute('data-edit-field');
+      const value = event.target.value;
+      if (["open", "high", "low", "close"].includes(field)) {
+        sessionCandleDraft[field] = normalizeOHLCInput(value);
+      } else if (field === "recordedSignal") {
+        sessionCandleDraft.recordedSignal = String(value || "none").toLowerCase();
+      } else {
+        sessionCandleDraft[field] = value;
+      }
+    });
+  });
+
+  els.sessionCandlesBody.querySelectorAll('[data-candle-action]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const action = btn.getAttribute('data-candle-action');
+      const candleIndex = Number(btn.getAttribute('data-candle-index'));
+      const target = session.candles.find((candle) => candle.index === candleIndex);
+      if (!target) return;
+      if (action === 'edit') {
+        editingSessionCandleIndex = candleIndex;
+        const recorded = getSessionRecordedSignal(session, candleIndex);
+        sessionCandleDraft = {
+          timeLabel: target.timeLabel || "",
+          open: target.open,
+          high: target.high,
+          low: target.low,
+          close: target.close,
+          recordedSignal: recorded ? String(recorded.direction || "none").toLowerCase() : "none",
+        };
+        setSessionCandleStatus("Editing candle...", "muted");
+        refreshSessionCandlesTab();
+        return;
+      }
+      if (action === 'cancel') {
+        clearSessionCandleEdit();
+        setSessionCandleStatus("Edition canceled.", "muted");
+        refreshSessionCandlesTab();
+        return;
+      }
+      if (action === 'save') {
+        const check = validateOHLCConsistency(sessionCandleDraft || {});
+        const hasMissing = [sessionCandleDraft?.open, sessionCandleDraft?.high, sessionCandleDraft?.low, sessionCandleDraft?.close].some((value) => value === null);
+        if (!check.valid) {
+          setSessionCandleStatus(check.message, "error");
+          return;
+        }
+        if (hasMissing) {
+          setSessionCandleStatus("Warning: OHLC incomplete. Candle will be saved with partial data.", "warning");
+        }
+        const updatedCandle = {
+          ...target,
+          timeLabel: sessionCandleDraft?.timeLabel ? String(sessionCandleDraft.timeLabel) : null,
+          open: sessionCandleDraft?.open ?? null,
+          high: sessionCandleDraft?.high ?? null,
+          low: sessionCandleDraft?.low ?? null,
+          close: sessionCandleDraft?.close ?? null,
+        };
+        updatedCandle.colorHint = deriveCandleColor(updatedCandle);
+        const updatedSignals = syncRecordedSignalForCandle(session, candleIndex, sessionCandleDraft?.recordedSignal || "none");
+        replaceSessions(state.sessions.map((row) => row.id === session.id ? normalizeSession({ ...row, candles: row.candles.map((candle) => candle.index === candleIndex ? updatedCandle : candle) }) : row));
+        clearSessionCandleEdit();
+        persist();
+        setSessionCandleStatus(updatedSignals ? "Candle updated and linked signal adjusted." : "Candle updated.", "success");
+        refreshSessionCandlesTab();
+        return;
+      }
+      if (action === 'delete') {
+        const linked = getSessionRecordedSignal(session, candleIndex);
+        const warning = linked
+          ? `Candle #${candleIndex} has linked signal ${linked.id}. Deleting it will unlink and reindex later links. Continue?`
+          : `Delete candle #${candleIndex}?`;
+        if (!window.confirm(warning)) return;
+        const remaining = session.candles
+          .filter((candle) => candle.index !== candleIndex)
+          .map((candle, idx) => ({ ...candle, index: idx + 1 }));
+        const adjustedSignals = reindexSessionSignals(session.id, candleIndex);
+        replaceSessions(state.sessions.map((row) => row.id === session.id ? normalizeSession({ ...row, candles: remaining }) : row));
+        clearSessionCandleEdit();
+        persist();
+        setSessionCandleStatus(adjustedSignals ? "Candle deleted. Linked signal references were adjusted safely." : "Candle deleted.", adjustedSignals ? "warning" : "success");
+        if (selectedSessionCandleIndex === candleIndex) selectedSessionCandleIndex = remaining[remaining.length - 1]?.index || null;
+        refreshSessionCandlesTab();
+      }
     });
   });
 }

@@ -167,3 +167,14 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .session-analysis-header { display:flex; justify-content:space-between; align-items:center; gap:.6rem; }
 .session-analysis-tags { display:flex; gap:.45rem; flex-wrap: wrap; margin-bottom: .55rem; }
 .session-metrics { display:flex; flex-wrap:wrap; gap:.4rem; margin:.6rem 0; }
+
+#session-candle-status { margin-bottom: .55rem; }
+.quick-add-feedback.success { color: var(--win); }
+.quick-add-feedback.warning { color: var(--skip); }
+.quick-add-feedback.error { color: var(--loss); }
+.session-row-editing td { background: rgba(79, 141, 246, 0.08); }
+.session-row-editing input,
+.session-row-editing select {
+  min-width: 92px;
+  padding: .35rem .45rem;
+}
