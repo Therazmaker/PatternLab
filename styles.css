@@ -166,7 +166,17 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .badge.session-state.none { color: #94a3b8; border-color: #475569; }
 .session-analysis-header { display:flex; justify-content:space-between; align-items:center; gap:.6rem; }
 .session-analysis-tags { display:flex; gap:.45rem; flex-wrap: wrap; margin-bottom: .55rem; }
+.session-analysis-block { margin-bottom: .55rem; }
+.session-analysis-block h4 { margin-bottom: .2rem; }
+.session-analysis-block p { margin: 0; }
 .session-metrics { display:flex; flex-wrap:wrap; gap:.4rem; margin:.6rem 0; }
+.session-narrative {
+  white-space: pre-line;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  border-radius: 8px;
+  padding: .55rem .65rem;
+}
 
 #session-candle-status { margin-bottom: .55rem; }
 .quick-add-feedback.success { color: var(--win); }
