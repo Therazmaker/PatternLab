@@ -162,20 +162,90 @@ export function renderNotes(container, notes, onEdit, onDelete) {
   });
 }
 
-export function renderPatternVersionsTable(container, rows) {
-  container.innerHTML = renderTable(rows, [
-    { key: "patternName", label: "Pattern" },
-    { key: "patternVersion", label: "Version" },
-    { key: "total", label: "Total" },
-    { key: "reviewed", label: "Reviewed" },
-    { key: "wins", label: "Wins" },
-    { key: "losses", label: "Losses" },
-    { key: "winrate", label: "Winrate", format: (v) => `${v}%` },
-    { key: "maxLosingStreak", label: "Max losing streak" },
-    { key: "consistency", label: "Consistency", format: (v) => `${v}%` },
-    { key: "sampleSizeScore", label: "Sample size score", format: (v) => `${v}%` },
-    { key: "robustnessScore", label: "Robustness" },
-  ]);
+export function renderPatternVersionsTable(container, rows, handlers = {}, patternOptions = []) {
+  const {
+    onCreate = null,
+    onEditNotes = null,
+    onArchive = null,
+    onActivate = null,
+    createMessage = "",
+  } = handlers;
+
+  const patternDatalistId = "pattern-version-pattern-options";
+  const createForm = `
+    <article class="panel-soft versions-form-wrap">
+      <h3>Nueva versión</h3>
+      <form id="pattern-version-form" class="versions-form">
+        <input id="pv-pattern-name" list="${patternDatalistId}" placeholder="Pattern Name" required />
+        <datalist id="${patternDatalistId}">${patternOptions.map((name) => `<option value="${name}"></option>`).join("")}</datalist>
+        <input id="pv-version" placeholder="Version (ej: v2)" required />
+        <input id="pv-notes" placeholder="Notes (opcional)" />
+        <button type="submit" class="primary">Crear versión</button>
+      </form>
+      <p id="pv-create-feedback" class="muted tiny">${createMessage || ""}</p>
+    </article>
+  `;
+
+  const table = rows.length ? `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Pattern</th><th>Version</th><th>Notes</th><th>Created At</th><th>Total señales</th><th>Reviewed</th><th>Wins</th><th>Losses</th><th>Winrate</th><th>Robustness</th><th>Estado</th><th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `<tr class="${row.isActive ? "version-row-active" : ""}">
+            <td>${row.patternName}</td>
+            <td>${row.patternVersion} ${row.isActive ? '<span class="badge">Active</span>' : ""} ${row.isArchived ? '<span class="badge">Archived</span>' : ""}</td>
+            <td>${row.notes || '<span class="muted">-</span>'}</td>
+            <td>${row.createdAt ? new Date(row.createdAt).toLocaleString() : '<span class="muted">-</span>'}</td>
+            <td>${row.total}</td>
+            <td>${row.reviewed}</td>
+            <td>${row.wins}</td>
+            <td>${row.losses}</td>
+            <td>${row.winrate === null ? '<span class="muted">—</span>' : `${row.winrate}%`}</td>
+            <td>${row.robustnessScore ?? '<span class="muted">-</span>'}</td>
+            <td><span class="badge">${row.statusLabel}</span></td>
+            <td>
+              <div class="button-row compact">
+                <button type="button" class="ghost" data-action="edit-notes" data-id="${row.versionId}">Editar notes</button>
+                <button type="button" class="ghost" data-action="archive" data-id="${row.versionId}" data-archived="${row.isArchived ? "1" : "0"}">${row.isArchived ? "Desarchivar" : "Archivar"}</button>
+                <button type="button" class="ghost" data-action="activate" data-id="${row.versionId}" ${row.isArchived ? "disabled" : ""}>Activar</button>
+              </div>
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  ` : '<p class="muted">No hay versiones registradas.</p>';
+
+  container.innerHTML = `${createForm}${table}`;
+
+  const form = container.querySelector("#pattern-version-form");
+  if (form && onCreate) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const patternName = container.querySelector("#pv-pattern-name")?.value || "";
+      const version = container.querySelector("#pv-version")?.value || "";
+      const notes = container.querySelector("#pv-notes")?.value || "";
+      onCreate({ patternName, version, notes });
+    });
+  }
+
+  container.querySelectorAll("[data-action='edit-notes']").forEach((button) => {
+    button.addEventListener("click", () => onEditNotes?.(button.getAttribute("data-id") || ""));
+  });
+  container.querySelectorAll("[data-action='archive']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.getAttribute("data-id") || "";
+      const isArchived = button.getAttribute("data-archived") === "1";
+      onArchive?.(id, !isArchived);
+    });
+  });
+  container.querySelectorAll("[data-action='activate']").forEach((button) => {
+    button.addEventListener("click", () => onActivate?.(button.getAttribute("data-id") || ""));
+  });
 }
 
 export function renderConfidenceEvolution(container, evolution, windowSize = 20) {
