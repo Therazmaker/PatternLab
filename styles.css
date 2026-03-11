@@ -120,3 +120,16 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .quick-add-feedback.error {
   color: var(--loss);
 }
+
+.quick-add-sr-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: .45rem;
+  align-items: center;
+  margin-top: .45rem;
+}
+.quick-add-sr-row input[type="text"],
+.quick-add-sr-row input:not([type="checkbox"]) { min-width: 180px; }
+.tiny { font-size: .78rem; margin: .35rem 0 0; }
+.sr-support { color: #63d297; }
+.sr-resistance { color: #ff9f94; }

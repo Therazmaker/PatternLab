@@ -402,3 +402,43 @@ export function renderRobustnessScore(container, summary, insight) {
     <p class="muted">Fórmula transparente (componentes): muestra ${Math.round(summary.formula.sampleQuality)}, estabilidad ${summary.formula.stability}, adaptive ${summary.formula.adaptiveScore}, forward ${summary.formula.forwardStability}, dispersión inversa ${summary.formula.dispersionScore}, stress resistance ${summary.formula.stressResistance}, penalización dependencia ${summary.formula.dependencyPenalty}.</p>
   `;
 }
+
+export function renderSrContextAnalysis(container, srStats, insights = []) {
+  if (!container) return;
+  if (!srStats) {
+    container.innerHTML = '<p class="muted">Sin datos de S/R todavía.</p>';
+    return;
+  }
+
+  const rows = [
+    { label: "Baseline pattern", ...srStats.baseline, delta: 0 },
+    { label: "Near Support", ...srStats.nearSupport, delta: Number((srStats.nearSupport.winrate - srStats.baseline.winrate).toFixed(2)) },
+    { label: "Near Resistance", ...srStats.nearResistance, delta: Number((srStats.nearResistance.winrate - srStats.baseline.winrate).toFixed(2)) },
+    { label: "Support only", ...srStats.supportOnly, delta: Number((srStats.supportOnly.winrate - srStats.baseline.winrate).toFixed(2)) },
+    { label: "Resistance only", ...srStats.resistanceOnly, delta: Number((srStats.resistanceOnly.winrate - srStats.baseline.winrate).toFixed(2)) },
+    { label: "Both", ...srStats.both, delta: Number((srStats.both.winrate - srStats.baseline.winrate).toFixed(2)) },
+    { label: "Neither", ...srStats.neither, delta: Number((srStats.neither.winrate - srStats.baseline.winrate).toFixed(2)) },
+  ];
+
+  const table = renderTable(rows, [
+    { key: "label", label: "Segment" },
+    { key: "total", label: "Total" },
+    { key: "reviewed", label: "Reviewed" },
+    { key: "wins", label: "Wins" },
+    { key: "losses", label: "Losses" },
+    { key: "winrate", label: "Winrate", format: (v) => `${v}%` },
+    { key: "delta", label: "vs baseline", format: (v) => `${v > 0 ? "+" : ""}${v}pp` },
+  ]);
+
+  const insightHtml = insights.length
+    ? `<ul class="mini-list">${insights.map((text) => `<li><span>${text}</span></li>`).join("")}</ul>`
+    : '<p class="muted">Sin insights por ahora.</p>';
+
+  container.innerHTML = `
+    <p class="muted">Comparación prudente de contexto manual Soporte/Resistencia.</p>
+    <div class="table-wrap">${table}</div>
+    <h4>Lectura prudente</h4>
+    ${insightHtml}
+    <p class="muted">Guía: para CALL suele interesar Near Support; para PUT suele interesar Near Resistance (no bloqueante).</p>
+  `;
+}

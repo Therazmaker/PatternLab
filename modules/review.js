@@ -1,3 +1,5 @@
+import { updateSignalSrContext } from "./sr.js";
+
 export function applyReview(signal, payload) {
   const updated = structuredClone(signal);
   const status = payload.status;
@@ -17,5 +19,5 @@ export function applyReview(signal, payload) {
     updatedAt: updated.outcome.reviewedAt,
   };
 
-  return updated;
+  return updateSignalSrContext(updated, payload.srContext);
 }

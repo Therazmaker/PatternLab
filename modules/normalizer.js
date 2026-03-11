@@ -1,4 +1,5 @@
 import { hourFromTimestamp, makeSignalId, toISODate } from "./utils.js";
+import { normalizeSrContext } from "./sr.js";
 
 const fieldMap = {
   asset: ["asset", "symbol", "pair"],
@@ -62,6 +63,7 @@ export function normalizeSignal(input) {
     context: base.context && typeof base.context === "object" ? base.context : {},
     features: base.features && typeof base.features === "object" ? base.features : {},
     notes: base.notes ? String(base.notes) : "",
+    srContext: normalizeSrContext(input.srContext),
     contextScore: typeof input.contextScore === "number" ? input.contextScore : null,
     outcome: {
       status: input?.outcome?.status || "pending",
@@ -118,6 +120,7 @@ export function migrateStoredSignal(signal) {
     reviewer: base.reviewMeta?.reviewer || "manual",
     updatedAt: base.reviewMeta?.updatedAt || null,
   };
+  base.srContext = normalizeSrContext(base.srContext);
   base.forwardBucket = base.forwardBucket || null;
   base.patternMeta = {
     adaptiveScore: typeof base.patternMeta?.adaptiveScore === "number" ? base.patternMeta.adaptiveScore : null,

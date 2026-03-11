@@ -48,6 +48,12 @@
             <input id="quick-add-input" placeholder="CALL RSI=69.5" />
             <button id="btn-quick-add" class="primary">Guardar señal</button>
           </div>
+          <div class="quick-add-sr-row">
+            <label class="inline-toggle"><input id="quick-add-near-support" type="checkbox" /> Near Support</label>
+            <label class="inline-toggle"><input id="quick-add-near-resistance" type="checkbox" /> Near Resistance</label>
+            <input id="quick-add-sr-comment" placeholder="SR note (opcional)" maxlength="180" />
+          </div>
+          <p class="muted tiny">Guía: CALL suele alinearse con soporte y PUT con resistencia (no bloqueante).</p>
           <div id="quick-add-feedback" class="quick-add-feedback muted"></div>
         </div>
         <p class="muted">Pega una señal, un array de señales o un objeto con <code>signals</code>.</p>
@@ -79,11 +85,13 @@
           <select id="filter-pattern"><option value="">Todos los patrones</option></select>
           <select id="filter-timeframe"><option value="">Todos los TF</option></select>
           <select id="filter-status"><option value="">Todos los estados</option><option value="pending">pending</option><option value="win">win</option><option value="loss">loss</option><option value="skip">skip</option></select>
+          <select id="filter-near-support"><option value="">Support: todos</option><option value="only">Solo nearSupport</option><option value="exclude">Excluir nearSupport</option></select>
+          <select id="filter-near-resistance"><option value="">Resistance: todos</option><option value="only">Solo nearResistance</option><option value="exclude">Excluir nearResistance</option></select>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th><th>Version</th><th>Timestamp</th><th>Status</th><th>Regime</th><th>Context</th><th>Auto-tags</th><th>Quick review</th><th></th></tr>
+              <tr><th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th><th>Version</th><th>Timestamp</th><th>Status</th><th>S/R</th><th>Regime</th><th>Context</th><th>Auto-tags</th><th>Quick review</th><th></th></tr>
             </thead>
             <tbody id="feed-body"></tbody>
           </table>
@@ -109,6 +117,8 @@
         <div id="hour-wrap" class="table-wrap"></div>
         <h3>Análisis por activo</h3>
         <div id="asset-wrap" class="table-wrap"></div>
+        <h3>S/R Context Analysis</h3>
+        <div id="sr-analysis-wrap" class="table-wrap"></div>
       </section>
 
       <section class="panel tab-panel" data-panel="compare">
@@ -120,6 +130,8 @@
           <select id="compare-timeframe"><option value="">Todos los TF</option></select>
           <select id="compare-range-mode"><option value="all">Todo</option><option value="lastN">Últimas N señales</option><option value="days">Últimos X días</option></select>
           <input id="compare-range-value" type="number" min="1" value="30" placeholder="N / días" />
+          <select id="compare-near-support"><option value="">Support: todos</option><option value="only">Solo nearSupport</option><option value="exclude">Excluir nearSupport</option></select>
+          <select id="compare-near-resistance"><option value="">Resistance: todos</option><option value="only">Solo nearResistance</option><option value="exclude">Excluir nearResistance</option></select>
         </div>
         <div id="compare-results"></div>
       </section>
@@ -285,6 +297,9 @@
         <label>Etiquetas manuales<input id="review-labels" /></label>
         <label class="inline-toggle"><input id="review-execution-error" type="checkbox" /> execution error</label>
         <label class="inline-toggle"><input id="review-late-entry" type="checkbox" /> late entry</label>
+        <label class="inline-toggle"><input id="review-near-support" type="checkbox" /> Near Support</label>
+        <label class="inline-toggle"><input id="review-near-resistance" type="checkbox" /> Near Resistance</label>
+        <label>SR Comment<textarea id="review-sr-comment" rows="2" maxlength="180"></textarea></label>
         <div class="button-row compact"><button type="button" id="btn-review-prev" class="ghost">Previous</button><button type="button" id="btn-review-next" class="ghost">Next</button><button type="button" id="btn-save-review" class="primary">Guardar revisión</button></div>
       </form>
     </dialog>

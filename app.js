@@ -14,6 +14,7 @@ import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
 import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modules/feed.js";
 import { applyReview } from "./modules/review.js";
+import { buildSrContextFromQuickAdd, buildSrInsights, computeSrStats, normalizeSrContext } from "./modules/sr.js";
 import { computeStats } from "./modules/stats.js";
 import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, computePatternRanking, withCompareFilters } from "./modules/analytics.js";
 import { computeConfidenceEvolution, computePatternVersionComparison } from "./modules/v4.js";
@@ -58,6 +59,7 @@ import {
   renderRankingTable,
   renderReviewQueue,
   renderStatsOverview,
+  renderSrContextAnalysis,
   renderSuggestions,
   renderMonteCarlo,
   renderOverfitCheck,
@@ -66,16 +68,16 @@ import {
 } from "./modules/ui.js";
 
 const els = {
-  quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"),
+  quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"),
   jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
   includeDuplicates: document.getElementById("import-allow-duplicates"), importReport: document.getElementById("import-report"),
-  feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
-  modal: document.getElementById("review-modal"), reviewDetails: document.getElementById("review-details"), reviewStatus: document.getElementById("review-status"), reviewComment: document.getElementById("review-comment"), reviewExpiryClose: document.getElementById("review-expiry-close"), reviewLabels: document.getElementById("review-labels"), reviewExecutionError: document.getElementById("review-execution-error"), reviewLateEntry: document.getElementById("review-late-entry"), saveReviewBtn: document.getElementById("btn-save-review"), reviewNextBtn: document.getElementById("btn-review-next"), reviewPrevBtn: document.getElementById("btn-review-prev"),
-  statsOverview: document.getElementById("stats-overview"), topAssets: document.getElementById("top-assets"), topPatterns: document.getElementById("top-patterns"), directionDist: document.getElementById("direction-dist"),
+  feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), filterNearSupport: document.getElementById("filter-near-support"), filterNearResistance: document.getElementById("filter-near-resistance"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
+  modal: document.getElementById("review-modal"), reviewDetails: document.getElementById("review-details"), reviewStatus: document.getElementById("review-status"), reviewComment: document.getElementById("review-comment"), reviewExpiryClose: document.getElementById("review-expiry-close"), reviewLabels: document.getElementById("review-labels"), reviewExecutionError: document.getElementById("review-execution-error"), reviewLateEntry: document.getElementById("review-late-entry"), reviewNearSupport: document.getElementById("review-near-support"), reviewNearResistance: document.getElementById("review-near-resistance"), reviewSrComment: document.getElementById("review-sr-comment"), saveReviewBtn: document.getElementById("btn-save-review"), reviewNextBtn: document.getElementById("btn-review-next"), reviewPrevBtn: document.getElementById("btn-review-prev"),
+  statsOverview: document.getElementById("stats-overview"), topAssets: document.getElementById("top-assets"), topPatterns: document.getElementById("top-patterns"), directionDist: document.getElementById("direction-dist"), srAnalysisWrap: document.getElementById("sr-analysis-wrap"),
   rankingWrap: document.getElementById("ranking-wrap"), hourWrap: document.getElementById("hour-wrap"), assetWrap: document.getElementById("asset-wrap"),
   kpiTotal: document.getElementById("kpi-total"), kpiPending: document.getElementById("kpi-pending"), kpiWins: document.getElementById("kpi-wins"), kpiLosses: document.getElementById("kpi-losses"), kpiWinrate: document.getElementById("kpi-winrate"),
   tabs: [...document.querySelectorAll(".tab-btn")], panels: [...document.querySelectorAll(".tab-panel")],
-  comparePatterns: document.getElementById("compare-patterns"), compareAsset: document.getElementById("compare-asset"), compareDirection: document.getElementById("compare-direction"), compareTimeframe: document.getElementById("compare-timeframe"), compareRangeMode: document.getElementById("compare-range-mode"), compareRangeValue: document.getElementById("compare-range-value"), compareResults: document.getElementById("compare-results"),
+  comparePatterns: document.getElementById("compare-patterns"), compareAsset: document.getElementById("compare-asset"), compareDirection: document.getElementById("compare-direction"), compareTimeframe: document.getElementById("compare-timeframe"), compareRangeMode: document.getElementById("compare-range-mode"), compareRangeValue: document.getElementById("compare-range-value"), compareNearSupport: document.getElementById("compare-near-support"), compareNearResistance: document.getElementById("compare-near-resistance"), compareResults: document.getElementById("compare-results"),
   versionsWrap: document.getElementById("versions-wrap"), confidencePattern: document.getElementById("confidence-pattern"), confidenceWindow: document.getElementById("confidence-window"), confidenceWrap: document.getElementById("confidence-wrap"),
   radarAsset: document.getElementById("radar-asset"), radarDirection: document.getElementById("radar-direction"), radarPattern: document.getElementById("radar-pattern"), radarTimeframe: document.getElementById("radar-timeframe"), radarMode: document.getElementById("radar-range-mode"), radarRangeValue: document.getElementById("radar-range-value"), radarResults: document.getElementById("radar-results"),
   robustnessPattern: document.getElementById("robustness-pattern"), robustnessVersion: document.getElementById("robustness-version"), robustnessWindow: document.getElementById("robustness-window"), mcMethod: document.getElementById("mc-method"), mcSimulations: document.getElementById("mc-simulations"), runMonteCarloBtn: document.getElementById("btn-run-montecarlo"), robustnessStatus: document.getElementById("robustness-status"), overfitWrap: document.getElementById("overfit-wrap"), stressWrap: document.getElementById("stress-wrap"), montecarloWrap: document.getElementById("montecarlo-wrap"), robustnessWrap: document.getElementById("robustness-wrap"),
@@ -92,7 +94,7 @@ const els = {
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"),
 };
 
-const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30 };
+const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
 const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
 const forwardConfig = { splitMode: "ratio", ratio: 0.7, splitDate: "" };
@@ -218,6 +220,8 @@ function refreshStats() {
   renderRankingTable(els.rankingWrap, lastRanking);
   renderHourTable(els.hourWrap, computeHourAnalysis(state.signals));
   renderAssetTable(els.assetWrap, computeAssetAnalysis(state.signals));
+  const srStats = computeSrStats(state.signals);
+  renderSrContextAnalysis(els.srAnalysisWrap, srStats, buildSrInsights(srStats));
   els.kpiTotal.textContent = stats.total;
   els.kpiPending.textContent = stats.pending;
   els.kpiWins.textContent = stats.wins;
@@ -424,6 +428,11 @@ function getActiveAssetAndTimeframe() {
 
 function buildSignalFromQuickInput(parsed) {
   const { asset, timeframe } = getActiveAssetAndTimeframe();
+  const srContext = buildSrContextFromQuickAdd({
+    nearSupport: Boolean(els.quickAddNearSupport?.checked),
+    nearResistance: Boolean(els.quickAddNearResistance?.checked),
+    srComment: els.quickAddSrComment?.value || "",
+  });
   return {
     asset,
     timeframe,
@@ -431,6 +440,7 @@ function buildSignalFromQuickInput(parsed) {
     patternVersion: "v1-debug",
     direction: parsed.direction,
     timestamp: Date.now(),
+    srContext,
     context: {
       rsi: parsed.rsi,
       session: getSessionByLocalHour(),
@@ -486,6 +496,9 @@ function handleQuickAdd() {
 
   importSignalsFromPreview(preview, "Señal guardada");
   els.quickAddInput.value = "";
+  if (els.quickAddNearSupport) els.quickAddNearSupport.checked = false;
+  if (els.quickAddNearResistance) els.quickAddNearResistance.checked = false;
+  if (els.quickAddSrComment) els.quickAddSrComment.value = "";
   setQuickAddFeedback("Señal guardada");
   els.quickAddInput.focus();
   rerender();
@@ -502,6 +515,10 @@ function openReview(signalId) {
   els.reviewLabels.value = signal.reviewMeta?.labels?.join(", ") || "";
   els.reviewExecutionError.checked = Boolean(signal.reviewMeta?.executionError);
   els.reviewLateEntry.checked = Boolean(signal.reviewMeta?.lateEntry);
+  const srContext = normalizeSrContext(signal.srContext);
+  els.reviewNearSupport.checked = srContext.nearSupport;
+  els.reviewNearResistance.checked = srContext.nearResistance;
+  els.reviewSrComment.value = srContext.srComment;
   els.modal.showModal();
 }
 
@@ -514,6 +531,11 @@ function saveReviewChanges() {
     labels: els.reviewLabels.value.split(",").map((s) => s.trim()).filter(Boolean),
     executionError: els.reviewExecutionError.checked,
     lateEntry: els.reviewLateEntry.checked,
+    srContext: {
+      nearSupport: els.reviewNearSupport.checked,
+      nearResistance: els.reviewNearResistance.checked,
+      srComment: els.reviewSrComment.value.trim(),
+    },
   };
   replaceSignals(state.signals.map((s) => (s.id === state.activeSignalId ? applyReview(s, payload) : s)));
   persist();
@@ -528,7 +550,7 @@ function moveReview(direction) {
 }
 
 function quickReview(signalId, status) {
-  replaceSignals(state.signals.map((s) => (s.id === signalId ? applyReview(s, { status, comment: s.outcome.comment || "", expiryClose: s.outcome.expiryClose, labels: s.reviewMeta?.labels || [], executionError: s.reviewMeta?.executionError, lateEntry: s.reviewMeta?.lateEntry }) : s)));
+  replaceSignals(state.signals.map((s) => (s.id === signalId ? applyReview(s, { status, comment: s.outcome.comment || "", expiryClose: s.outcome.expiryClose, labels: s.reviewMeta?.labels || [], executionError: s.reviewMeta?.executionError, lateEntry: s.reviewMeta?.lateEntry, srContext: s.srContext || {} }) : s)));
   persist();
   rerender();
 }
@@ -732,19 +754,23 @@ function setupEvents() {
   els.filterPattern.addEventListener("change", (e) => { setFilter("patternName", e.target.value); refreshFeed(); });
   els.filterStatus.addEventListener("change", (e) => { setFilter("status", e.target.value); refreshFeed(); });
   els.filterTimeframe.addEventListener("change", (e) => { setFilter("timeframe", e.target.value); refreshFeed(); });
+  els.filterNearSupport.addEventListener("change", (e) => { setFilter("nearSupport", e.target.value); refreshFeed(); });
+  els.filterNearResistance.addEventListener("change", (e) => { setFilter("nearResistance", e.target.value); refreshFeed(); });
   els.saveReviewBtn.addEventListener("click", saveReviewChanges);
   els.reviewNextBtn.addEventListener("click", () => moveReview(1));
   els.reviewPrevBtn.addEventListener("click", () => moveReview(-1));
   els.exportBtn.addEventListener("click", () => exportSignals(state.signals));
   els.datasetFile.addEventListener("change", (e) => handleDatasetImport(e.target.files[0]));
 
-  [els.comparePatterns, els.compareAsset, els.compareDirection, els.compareTimeframe, els.compareRangeMode, els.compareRangeValue].forEach((el) => {
+  [els.comparePatterns, els.compareAsset, els.compareDirection, els.compareTimeframe, els.compareRangeMode, els.compareRangeValue, els.compareNearSupport, els.compareNearResistance].forEach((el) => {
     el.addEventListener("input", () => {
       compareFilters.asset = els.compareAsset.value;
       compareFilters.direction = els.compareDirection.value;
       compareFilters.timeframe = els.compareTimeframe.value;
       compareFilters.rangeMode = els.compareRangeMode.value;
       compareFilters.rangeValue = Number(els.compareRangeValue.value) || 0;
+      compareFilters.nearSupport = els.compareNearSupport.value;
+      compareFilters.nearResistance = els.compareNearResistance.value;
       refreshCompare();
     });
   });
