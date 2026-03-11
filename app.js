@@ -19,6 +19,7 @@ import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modul
 import { applyReview } from "./modules/review.js";
 import { buildSrContextFromQuickAdd, buildSrInsights, computeSrStats, normalizeSrContext } from "./modules/sr.js";
 import { computeSessionStats, deriveCandleColor, normalizeSession } from "./modules/sessions.js";
+import { buildSessionCandleExplanations, getDefaultSessionAnalysisConfig } from "./modules/sessionAnalysis.js";
 import { computeExcursionFromSignal, deriveColorHint, formatExcursion, normalizeCandleData, normalizeExcursion, normalizeOHLCInput, normalizeSessionRef, normalizeV3Meta, validateOHLCConsistency } from "./modules/v3.js";
 import { computeStats } from "./modules/stats.js";
 import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, computePatternRanking, withCompareFilters } from "./modules/analytics.js";
@@ -108,7 +109,7 @@ const els = {
   botPattern: document.getElementById("bot-pattern"), botVersion: document.getElementById("bot-version"), botDefinitionEditor: document.getElementById("bot-definition-editor"), botVersionNotes: document.getElementById("bot-version-notes"),
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
-  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionSummary: document.getElementById("session-summary"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"),
+  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -128,6 +129,11 @@ let patternVersionsRegistry = [];
 let activePatternVersionId = "";
 let patternVersionCreateMessage = "";
 let sessionHistoryId = "";
+let selectedSessionCandleIndex = null;
+let sessionReplayTimer = null;
+const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
+const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v1";
+let sessionAnalysisPrefs = { showOverlay: true, showNarratives: true, showNear: true, showMetrics: true, replayMode: false };
 
 let robustnessState = { overfit: null, stress: null, monteCarlo: { simulations: 0, insight: "Ejecuta simulación para ver resultados." }, summary: null };
 
@@ -231,6 +237,110 @@ function replaceSessions(nextSessions) {
   }
 }
 
+function loadSessionAnalysisPrefs() {
+  try {
+    const raw = localStorage.getItem(SESSION_PREFS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    sessionAnalysisPrefs = {
+      ...sessionAnalysisPrefs,
+      showOverlay: parsed?.showOverlay !== false,
+      showNarratives: parsed?.showNarratives !== false,
+      showNear: parsed?.showNear !== false,
+      showMetrics: parsed?.showMetrics !== false,
+      replayMode: Boolean(parsed?.replayMode),
+    };
+  } catch {
+    sessionAnalysisPrefs = { ...sessionAnalysisPrefs };
+  }
+}
+
+function saveSessionAnalysisPrefs() {
+  localStorage.setItem(SESSION_PREFS_KEY, JSON.stringify(sessionAnalysisPrefs));
+}
+
+function syncSessionAnalysisToggleUI() {
+  if (els.sessionToggleOverlay) els.sessionToggleOverlay.checked = sessionAnalysisPrefs.showOverlay;
+  if (els.sessionToggleNarratives) els.sessionToggleNarratives.checked = sessionAnalysisPrefs.showNarratives;
+  if (els.sessionToggleNear) els.sessionToggleNear.checked = sessionAnalysisPrefs.showNear;
+  if (els.sessionToggleMetrics) els.sessionToggleMetrics.checked = sessionAnalysisPrefs.showMetrics;
+  if (els.sessionToggleReplay) els.sessionToggleReplay.checked = sessionAnalysisPrefs.replayMode;
+}
+
+function getSessionRecordedSignal(session, candleIndex) {
+  if (!session || !Number.isInteger(candleIndex)) return null;
+  return state.signals.find((signal) => signal.sessionRef?.sessionId === session.id && signal.sessionRef?.candleIndex === candleIndex) || null;
+}
+
+function stopSessionReplay() {
+  if (sessionReplayTimer) {
+    window.clearInterval(sessionReplayTimer);
+    sessionReplayTimer = null;
+  }
+}
+
+function getSelectedExplanation(session, explanations = []) {
+  if (!session?.candles?.length || !explanations.length) return null;
+  const fallback = explanations[explanations.length - 1] || null;
+  if (!selectedSessionCandleIndex) return fallback;
+  return explanations.find((item) => item.candleIndex === selectedSessionCandleIndex) || fallback;
+}
+
+function signalBadgeLabel(stateValue) {
+  if (stateValue === "call") return "CALL";
+  if (stateValue === "put") return "PUT";
+  if (stateValue === "near-call") return "NEAR CALL";
+  if (stateValue === "near-put") return "NEAR PUT";
+  return "NO SIGNAL";
+}
+
+function renderSessionAnalysisPanel(session, explanations = []) {
+  if (!els.sessionAnalysisPanel) return;
+  if (!session || !session.candles.length || !explanations.length) {
+    els.sessionAnalysisPanel.innerHTML = '<p class="muted">Select a candle to see the analytical read.</p>';
+    return;
+  }
+  const explanation = getSelectedExplanation(session, explanations);
+  if (!explanation) {
+    els.sessionAnalysisPanel.innerHTML = '<p class="muted">No analysis available.</p>';
+    return;
+  }
+  const recorded = getSessionRecordedSignal(session, explanation.candleIndex);
+  const timeLabel = session.candles.find((c) => c.index === explanation.candleIndex)?.timeLabel || "-";
+  const metrics = explanation.metrics || {};
+  const metricPills = [
+    `RSI: ${typeof metrics.rsi === "number" ? metrics.rsi.toFixed(2) : "-"}`,
+    `RSI EMA: ${typeof metrics.rsiEma === "number" ? metrics.rsiEma.toFixed(2) : "-"}`,
+    `Δ RSI-EMA: ${typeof metrics.rsiMinusEma === "number" ? metrics.rsiMinusEma.toFixed(2) : "-"}`,
+    `Slope: ${typeof metrics.slopeHint === "number" ? metrics.slopeHint.toFixed(2) : "-"}`,
+    `Direction: ${metrics.reclaimDirection || "-"}`,
+  ];
+  const readLabel = signalBadgeLabel(explanation.signalState);
+  els.sessionAnalysisPanel.innerHTML = `
+    <div class="session-analysis-header">
+      <h3>Candle #${explanation.candleIndex} · ${timeLabel}</h3>
+      <span class="badge session-state ${explanation.signalState || "none"}">${readLabel}</span>
+    </div>
+    <p>${explanation.summary}</p>
+    <div class="session-analysis-tags">
+      <span class="badge">Analytical Read</span>
+      <span class="badge ${recorded ? "v3-session" : ""}">${recorded ? `Recorded Signal: ${recorded.direction}` : "No Recorded Signal"}</span>
+    </div>
+    <div class="split">
+      <div>
+        <h4>Conditions met</h4>
+        <ul class="mini-list">${(explanation.passedConditions || []).length ? explanation.passedConditions.map((item) => `<li><span>${item}</span><strong>✓</strong></li>`).join("") : '<li><span class="muted">No confirmed conditions</span></li>'}</ul>
+      </div>
+      <div>
+        <h4>Conditions pending</h4>
+        <ul class="mini-list">${(explanation.failedConditions || []).length ? explanation.failedConditions.map((item) => `<li><span>${item}</span><strong>·</strong></li>`).join("") : '<li><span class="muted">No pending conditions</span></li>'}</ul>
+      </div>
+    </div>
+    ${sessionAnalysisPrefs.showMetrics ? `<div class="session-metrics">${metricPills.map((item) => `<span class="badge">${item}</span>`).join("")}</div>` : ""}
+    ${sessionAnalysisPrefs.showNarratives ? `<p class="muted">${explanation.narrative || ""}</p>` : ""}
+  `;
+}
+
 function renderSessionHeader() {
   if (!els.sessionActiveHeader) return;
   const active = getActiveSession();
@@ -241,7 +351,7 @@ function renderSessionHeader() {
   els.sessionActiveHeader.innerHTML = `<div class="note-head"><h3>${active.date}</h3><span class="badge">${active.status}</span></div><p class="muted">${active.asset || "-"} · ${active.tf || "-"} · started ${new Date(active.startedAt).toLocaleString()}</p>`;
 }
 
-function drawSessionCandles(session) {
+function drawSessionCandles(session, explanations = []) {
   if (!els.sessionSvg) return;
   if (!session || !session.candles.length) {
     els.sessionSvg.innerHTML = '<div class="muted">Agrega velas para visualizarlas.</div>';
@@ -256,6 +366,13 @@ function drawSessionCandles(session) {
   const width = Math.max(900, candles.length * 34);
   const height = 280;
   const y = (price) => 18 + ((max - price) / range) * (height - 36);
+  const markerColor = (stateValue) => {
+    if (stateValue === "call") return "#58d09b";
+    if (stateValue === "put") return "#ff857a";
+    if (stateValue === "near-call") return "#2f7f61";
+    if (stateValue === "near-put") return "#8b5550";
+    return "#64748b";
+  };
   const bodies = candles.map((candle, i) => {
     if ([candle.open, candle.high, candle.low, candle.close].some((v) => typeof v !== "number")) return "";
     const x = 18 + i * 34;
@@ -267,18 +384,47 @@ function drawSessionCandles(session) {
     const fill = color === "green" ? "#22c55e" : color === "red" ? "#ef4444" : "#a1a1aa";
     const bodyTop = Math.min(openY, closeY);
     const bodyH = Math.max(Math.abs(closeY - openY), 2);
-    return `<g><line x1="${x + 8}" x2="${x + 8}" y1="${highY}" y2="${lowY}" stroke="${fill}" /><rect x="${x + 2}" y="${bodyTop}" width="12" height="${bodyH}" fill="${fill}" rx="2"><title>#${candle.index} O:${candle.open} H:${candle.high} L:${candle.low} C:${candle.close}</title></rect></g>`;
+    const explanation = explanations.find((item) => item.candleIndex === candle.index);
+    const stateValue = explanation?.signalState || "none";
+    const showMarker = sessionAnalysisPrefs.showOverlay && (sessionAnalysisPrefs.showNear || !String(stateValue).startsWith("near"));
+    const marker = showMarker && stateValue !== "none" ? `<circle cx="${x + 8}" cy="${lowY + 8}" r="3.5" fill="${markerColor(stateValue)}" />` : "";
+    const selectedStroke = selectedSessionCandleIndex === candle.index ? '#93c5fd' : 'transparent';
+    return `<g data-candle-index="${candle.index}"><line x1="${x + 8}" x2="${x + 8}" y1="${highY}" y2="${lowY}" stroke="${fill}" /><rect x="${x + 2}" y="${bodyTop}" width="12" height="${bodyH}" fill="${fill}" stroke="${selectedStroke}" stroke-width="1.5" rx="2"><title>#${candle.index} O:${candle.open} H:${candle.high} L:${candle.low} C:${candle.close}${explanation ? ` | ${signalBadgeLabel(explanation.signalState)}` : ""}</title></rect>${marker}</g>`;
   }).join("");
   els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${bodies}</svg>`;
+  els.sessionSvg.querySelectorAll('[data-candle-index]').forEach((node) => {
+    node.addEventListener('mouseenter', () => {
+      selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
+      renderSessionAnalysisPanel(session, explanations);
+    });
+    node.addEventListener('click', () => {
+      selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
+      refreshSessionCandlesTab();
+    });
+  });
 }
 
-function renderSessionTable(session) {
+function renderSessionTable(session, explanations = []) {
   if (!els.sessionCandlesBody) return;
   if (!session || !session.candles.length) {
-    els.sessionCandlesBody.innerHTML = '<tr><td colspan="7" class="muted">Sin velas.</td></tr>';
+    els.sessionCandlesBody.innerHTML = '<tr><td colspan="9" class="muted">Sin velas.</td></tr>';
     return;
   }
-  els.sessionCandlesBody.innerHTML = session.candles.map((c) => `<tr><td>${c.index}</td><td>${c.timeLabel || "-"}</td><td>${c.open ?? "-"}</td><td>${c.high ?? "-"}</td><td>${c.low ?? "-"}</td><td>${c.close ?? "-"}</td><td>${c.colorHint || deriveCandleColor(c) || "-"}</td></tr>`).join("");
+  els.sessionCandlesBody.innerHTML = session.candles.map((c) => {
+    const explanation = explanations.find((item) => item.candleIndex === c.index);
+    const stateValue = explanation?.signalState || "none";
+    const analytical = signalBadgeLabel(stateValue);
+    const recorded = getSessionRecordedSignal(session, c.index);
+    const recordedLabel = recorded ? `Recorded Signal (${recorded.direction})` : "No Recorded Signal";
+    const selectedClass = selectedSessionCandleIndex === c.index ? 'session-row-selected' : '';
+    return `<tr data-table-candle="${c.index}" class="${selectedClass}"><td>${c.index}</td><td>${c.timeLabel || "-"}</td><td>${c.open ?? "-"}</td><td>${c.high ?? "-"}</td><td>${c.low ?? "-"}</td><td>${c.close ?? "-"}</td><td>${c.colorHint || deriveCandleColor(c) || "-"}</td><td><span class="badge session-state ${stateValue}">${analytical}</span></td><td>${recordedLabel}</td></tr>`;
+  }).join("");
+  els.sessionCandlesBody.querySelectorAll('[data-table-candle]').forEach((row) => {
+    row.addEventListener('click', () => {
+      selectedSessionCandleIndex = Number(row.getAttribute('data-table-candle'));
+      refreshSessionCandlesTab();
+    });
+  });
 }
 
 function renderSessionSummary(session) {
@@ -310,11 +456,19 @@ function renderPastSessions() {
 function refreshSessionCandlesTab() {
   const active = getActiveSession();
   const viewed = state.sessions.find((s) => s.id === sessionHistoryId) || active;
+  const explanations = viewed ? buildSessionCandleExplanations(viewed.candles, sessionAnalysisConfig) : [];
+  if (viewed?.candles?.length && !selectedSessionCandleIndex) selectedSessionCandleIndex = viewed.candles[viewed.candles.length - 1].index;
+  if (!viewed?.candles?.some((c) => c.index === selectedSessionCandleIndex)) selectedSessionCandleIndex = viewed?.candles?.[viewed.candles.length - 1]?.index || null;
   renderSessionHeader();
-  drawSessionCandles(viewed);
-  renderSessionTable(viewed);
+  drawSessionCandles(viewed, explanations);
+  renderSessionTable(viewed, explanations);
+  renderSessionAnalysisPanel(viewed, explanations);
   renderSessionSummary(viewed);
   renderPastSessions();
+  if (els.sessionPrevBtn) els.sessionPrevBtn.disabled = !viewed?.candles?.length;
+  if (els.sessionNextBtn) els.sessionNextBtn.disabled = !viewed?.candles?.length;
+  if (els.sessionPlayBtn) els.sessionPlayBtn.disabled = !viewed?.candles?.length || !sessionAnalysisPrefs.replayMode;
+  if (els.sessionPauseBtn) els.sessionPauseBtn.disabled = !sessionReplayTimer;
 }
 
 function refreshSharedOptions() {
@@ -1213,6 +1367,71 @@ function setupEvents() {
     persist();
     refreshSessionCandlesTab();
   });
+
+  els.sessionToggleOverlay?.addEventListener("change", () => {
+    sessionAnalysisPrefs.showOverlay = Boolean(els.sessionToggleOverlay.checked);
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionToggleNarratives?.addEventListener("change", () => {
+    sessionAnalysisPrefs.showNarratives = Boolean(els.sessionToggleNarratives.checked);
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionToggleNear?.addEventListener("change", () => {
+    sessionAnalysisPrefs.showNear = Boolean(els.sessionToggleNear.checked);
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionToggleMetrics?.addEventListener("change", () => {
+    sessionAnalysisPrefs.showMetrics = Boolean(els.sessionToggleMetrics.checked);
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionToggleReplay?.addEventListener("change", () => {
+    sessionAnalysisPrefs.replayMode = Boolean(els.sessionToggleReplay.checked);
+    if (!sessionAnalysisPrefs.replayMode) stopSessionReplay();
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionPrevBtn?.addEventListener("click", () => {
+    const viewed = state.sessions.find((row) => row.id === sessionHistoryId) || getActiveSession();
+    if (!viewed?.candles?.length) return;
+    const current = selectedSessionCandleIndex || viewed.candles[viewed.candles.length - 1].index;
+    const idx = viewed.candles.findIndex((c) => c.index === current);
+    const target = viewed.candles[Math.max(0, idx - 1)] || viewed.candles[0];
+    selectedSessionCandleIndex = target.index;
+    refreshSessionCandlesTab();
+  });
+  els.sessionNextBtn?.addEventListener("click", () => {
+    const viewed = state.sessions.find((row) => row.id === sessionHistoryId) || getActiveSession();
+    if (!viewed?.candles?.length) return;
+    const current = selectedSessionCandleIndex || viewed.candles[0].index;
+    const idx = viewed.candles.findIndex((c) => c.index === current);
+    const target = viewed.candles[Math.min(viewed.candles.length - 1, idx + 1)] || viewed.candles[viewed.candles.length - 1];
+    selectedSessionCandleIndex = target.index;
+    refreshSessionCandlesTab();
+  });
+  els.sessionPlayBtn?.addEventListener("click", () => {
+    const viewed = state.sessions.find((row) => row.id === sessionHistoryId) || getActiveSession();
+    if (!viewed?.candles?.length || !sessionAnalysisPrefs.replayMode) return;
+    stopSessionReplay();
+    let i = Math.max(0, viewed.candles.findIndex((c) => c.index === selectedSessionCandleIndex));
+    sessionReplayTimer = window.setInterval(() => {
+      if (i >= viewed.candles.length) {
+        stopSessionReplay();
+        refreshSessionCandlesTab();
+        return;
+      }
+      selectedSessionCandleIndex = viewed.candles[i].index;
+      i += 1;
+      refreshSessionCandlesTab();
+    }, 800);
+  });
+  els.sessionPauseBtn?.addEventListener("click", () => {
+    stopSessionReplay();
+    refreshSessionCandlesTab();
+  });
 }
 
 function init() {
@@ -1242,6 +1461,8 @@ function init() {
     });
     persistBotCompiler();
   }
+  loadSessionAnalysisPrefs();
+  syncSessionAnalysisToggleUI();
   if (els.sessionDate) els.sessionDate.value = new Date().toISOString().slice(0, 10);
   setupTabs();
   setupEvents();
