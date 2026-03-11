@@ -370,6 +370,7 @@ function renderSessionAnalysisPanel(session, explanations = []) {
   const recorded = getSessionRecordedSignal(session, explanation.candleIndex);
   const timeLabel = session.candles.find((c) => c.index === explanation.candleIndex)?.timeLabel || "-";
   const metrics = explanation.metrics || {};
+  const structure = explanation.structureContext || null;
   const metricPills = [
     `RSI: ${typeof metrics.rsi === "number" ? metrics.rsi.toFixed(2) : "-"}`,
     `RSI EMA: ${typeof metrics.rsiEma === "number" ? metrics.rsiEma.toFixed(2) : "-"}`,
@@ -383,23 +384,39 @@ function renderSessionAnalysisPanel(session, explanations = []) {
       <h3>Candle #${explanation.candleIndex} · ${timeLabel}</h3>
       <span class="badge session-state ${explanation.signalState || "none"}">${readLabel}</span>
     </div>
-    <p>${explanation.summary}</p>
     <div class="session-analysis-tags">
-      <span class="badge">Analytical Read</span>
+      <span class="badge">Analytical Read: ${explanation.structureLabel || "Mixed Structure"}</span>
       <span class="badge ${recorded ? "v3-session" : ""}">${recorded ? `Recorded Signal: ${recorded.direction}` : "No Recorded Signal"}</span>
+      ${structure ? `<span class="badge">Context: ${structure.startCandleIndex}-${structure.endCandleIndex} (${structure.windowSize} velas)</span>` : ""}
+    </div>
+    <div class="session-analysis-block">
+      <h4>Price Structure Read</h4>
+      <p>${explanation.priceStructureRead || "No structural read available."}</p>
+    </div>
+    <div class="session-analysis-block">
+      <h4>Indicator Confirmation</h4>
+      <p>${explanation.indicatorConfirmation || explanation.summary}</p>
+    </div>
+    <div class="session-analysis-block">
+      <h4>Why this matters</h4>
+      <p>${explanation.whyThisMatters || "Context remains mixed; wait for a cleaner sequence."}</p>
+    </div>
+    <div class="session-analysis-block">
+      <h4>What is still missing</h4>
+      <p>${explanation.whatIsMissing || "No additional requirement."}</p>
     </div>
     <div class="split">
       <div>
-        <h4>Conditions met</h4>
+        <h4>Technical checks met</h4>
         <ul class="mini-list">${(explanation.passedConditions || []).length ? explanation.passedConditions.map((item) => `<li><span>${item}</span><strong>✓</strong></li>`).join("") : '<li><span class="muted">No confirmed conditions</span></li>'}</ul>
       </div>
       <div>
-        <h4>Conditions pending</h4>
+        <h4>Technical checks pending</h4>
         <ul class="mini-list">${(explanation.failedConditions || []).length ? explanation.failedConditions.map((item) => `<li><span>${item}</span><strong>·</strong></li>`).join("") : '<li><span class="muted">No pending conditions</span></li>'}</ul>
       </div>
     </div>
     ${sessionAnalysisPrefs.showMetrics ? `<div class="session-metrics">${metricPills.map((item) => `<span class="badge">${item}</span>`).join("")}</div>` : ""}
-    ${sessionAnalysisPrefs.showNarratives ? `<p class="muted">${explanation.narrative || ""}</p>` : ""}
+    ${sessionAnalysisPrefs.showNarratives ? `<pre class="session-narrative muted">${explanation.narrative || ""}</pre>` : ""}
   `;
 }
 
@@ -435,6 +452,14 @@ function drawSessionCandles(session, explanations = []) {
     if (stateValue === "near-put") return "#8b5550";
     return "#64748b";
   };
+  const selectedExplanation = explanations.find((item) => item.candleIndex === selectedSessionCandleIndex) || explanations[explanations.length - 1] || null;
+  const context = selectedExplanation?.structureContext || null;
+  let contextBand = "";
+  if (context) {
+    const startX = 18 + (context.startCandleIndex - 1) * 34;
+    const endX = 18 + context.endCandleIndex * 34 - 14;
+    contextBand = `<rect x="${startX}" y="8" width="${Math.max(10, endX - startX)}" height="${height - 16}" fill="rgba(96,165,250,0.08)" stroke="rgba(147,197,253,0.5)" stroke-dasharray="4 4" rx="6" />`;
+  }
   const bodies = candles.map((candle, i) => {
     if ([candle.open, candle.high, candle.low, candle.close].some((v) => typeof v !== "number")) return "";
     const x = 18 + i * 34;
@@ -453,7 +478,7 @@ function drawSessionCandles(session, explanations = []) {
     const selectedStroke = selectedSessionCandleIndex === candle.index ? '#93c5fd' : 'transparent';
     return `<g data-candle-index="${candle.index}"><line x1="${x + 8}" x2="${x + 8}" y1="${highY}" y2="${lowY}" stroke="${fill}" /><rect x="${x + 2}" y="${bodyTop}" width="12" height="${bodyH}" fill="${fill}" stroke="${selectedStroke}" stroke-width="1.5" rx="2"><title>#${candle.index} O:${candle.open} H:${candle.high} L:${candle.low} C:${candle.close}${explanation ? ` | ${signalBadgeLabel(explanation.signalState)}` : ""}</title></rect>${marker}</g>`;
   }).join("");
-  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${bodies}</svg>`;
+  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${bodies}</svg>`;
   els.sessionSvg.querySelectorAll('[data-candle-index]').forEach((node) => {
     node.addEventListener('mouseenter', () => {
       selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
