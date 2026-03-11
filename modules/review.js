@@ -19,5 +19,10 @@ export function applyReview(signal, payload) {
     updatedAt: updated.outcome.reviewedAt,
   };
 
-  return updateSignalSrContext(updated, payload.srContext);
+  const withSr = updateSignalSrContext(updated, payload.srContext);
+  if (payload.candleData) withSr.candleData = payload.candleData;
+  if (payload.excursion) withSr.excursion = payload.excursion;
+  if (payload.sessionRef) withSr.sessionRef = payload.sessionRef;
+  if (payload.v3Meta) withSr.v3Meta = payload.v3Meta;
+  return withSr;
 }

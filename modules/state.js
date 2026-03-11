@@ -9,7 +9,14 @@ export const state = {
     search: "",
     nearSupport: "",
     nearResistance: "",
+    hasOHLC: "",
+    hasExcursion: "",
+    hasSession: "",
+    mfeMin: "",
+    maeMax: "",
   },
+  sessions: [],
+  activeSessionId: null,
   importPreview: null,
   activeSignalId: null,
 };
@@ -24,4 +31,13 @@ export function setFilter(key, value) {
 
 export function setImportPreview(preview) {
   state.importPreview = preview;
+}
+
+
+export function setSessions(sessions) {
+  state.sessions = sessions;
+}
+
+export function setActiveSessionId(sessionId) {
+  state.activeSessionId = sessionId || null;
 }

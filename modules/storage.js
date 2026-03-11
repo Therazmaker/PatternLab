@@ -4,6 +4,7 @@ const SIGNALS_KEY = "patternlab.signals.v1";
 const LAST_IMPORT_REPORT_KEY = "patternlab.lastImportReport";
 const META_FEEDBACK_KEY = "patternlab.metaFeedback.v1";
 const BOT_COMPILER_KEY = "patternlab.botCompiler.v1";
+const SESSIONS_KEY = "patternlab.sessions.v1";
 
 export function loadSignals() {
   const raw = localStorage.getItem(SIGNALS_KEY);
@@ -101,4 +102,31 @@ export function saveBotCompilerState(value) {
     patternMeta: value?.patternMeta && typeof value.patternMeta === "object" ? value.patternMeta : {},
   };
   localStorage.setItem(BOT_COMPILER_KEY, JSON.stringify(normalized));
+}
+
+
+export function loadSessions(normalizeSession) {
+  const raw = localStorage.getItem(SESSIONS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return typeof normalizeSession === "function" ? parsed.map(normalizeSession) : parsed;
+  } catch {
+    return [];
+  }
+}
+
+export function saveSessions(sessions) {
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(Array.isArray(sessions) ? sessions : []));
+}
+
+export function exportDataset(payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `patternlab-dataset-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
