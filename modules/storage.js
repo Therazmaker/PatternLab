@@ -6,6 +6,18 @@ const META_FEEDBACK_KEY = "patternlab.metaFeedback.v1";
 const BOT_COMPILER_KEY = "patternlab.botCompiler.v1";
 const SESSIONS_KEY = "patternlab.sessions.v1";
 
+function setItemOrThrow(key, value, label) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    const isQuotaError = error?.name === "QuotaExceededError" || error?.code === 22 || error?.code === 1014;
+    if (isQuotaError) {
+      throw new Error(`No se pudo guardar ${label}: almacenamiento local lleno. Exporta y limpia datos antiguos.`);
+    }
+    throw error;
+  }
+}
+
 export function loadSignals() {
   const raw = localStorage.getItem(SIGNALS_KEY);
   if (!raw) return [];
@@ -19,7 +31,7 @@ export function loadSignals() {
 }
 
 export function saveSignals(signals) {
-  localStorage.setItem(SIGNALS_KEY, JSON.stringify(signals));
+  setItemOrThrow(SIGNALS_KEY, JSON.stringify(signals), "las señales");
 }
 
 export function exportSignals(signals) {
@@ -33,7 +45,7 @@ export function exportSignals(signals) {
 }
 
 export function saveLastImportReport(report) {
-  localStorage.setItem(LAST_IMPORT_REPORT_KEY, JSON.stringify(report));
+  setItemOrThrow(LAST_IMPORT_REPORT_KEY, JSON.stringify(report), "el reporte de importación");
 }
 
 export function loadLastImportReport() {
@@ -81,7 +93,7 @@ export function loadMetaFeedback() {
 }
 
 export function saveMetaFeedback(metaFeedback) {
-  localStorage.setItem(META_FEEDBACK_KEY, JSON.stringify(metaFeedback));
+  setItemOrThrow(META_FEEDBACK_KEY, JSON.stringify(metaFeedback), "el feedback meta");
 }
 
 export function loadBotCompilerState() {
@@ -101,7 +113,7 @@ export function saveBotCompilerState(value) {
   const normalized = {
     patternMeta: value?.patternMeta && typeof value.patternMeta === "object" ? value.patternMeta : {},
   };
-  localStorage.setItem(BOT_COMPILER_KEY, JSON.stringify(normalized));
+  setItemOrThrow(BOT_COMPILER_KEY, JSON.stringify(normalized), "la configuración del bot");
 }
 
 
@@ -118,7 +130,7 @@ export function loadSessions(normalizeSession) {
 }
 
 export function saveSessions(sessions) {
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(Array.isArray(sessions) ? sessions : []));
+  setItemOrThrow(SESSIONS_KEY, JSON.stringify(Array.isArray(sessions) ? sessions : []), "las sesiones");
 }
 
 export function exportDataset(payload) {
