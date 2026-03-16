@@ -6,6 +6,27 @@
 
 const YAHOO_BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
 
+function parseTimeframeMs(timeframe = "5m") {
+  if (typeof timeframe !== "string") return 5 * 60 * 1000;
+  const normalized = timeframe.trim().toLowerCase();
+  const match = normalized.match(/^(\d+)(m|h|d|wk|mo)$/);
+  if (!match) return 5 * 60 * 1000;
+  const value = Number(match[1]);
+  const unit = match[2];
+  if (unit === "m") return value * 60 * 1000;
+  if (unit === "h") return value * 60 * 60 * 1000;
+  if (unit === "d") return value * 24 * 60 * 60 * 1000;
+  if (unit === "wk") return value * 7 * 24 * 60 * 60 * 1000;
+  if (unit === "mo") return value * 30 * 24 * 60 * 60 * 1000;
+  return 5 * 60 * 1000;
+}
+
+function getCandleTime(candle) {
+  if (!candle?.timestamp) return null;
+  const time = new Date(candle.timestamp).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
 /**
  * Fetch raw candle data from Yahoo Finance.
  * @param {{ symbol?: string, interval?: string, range?: string }} options
@@ -356,4 +377,113 @@ export function buildSessionSlices(candles, sessionConfig = {}) {
   }
 
   return [...byDate.entries()].map(([date, dateCandles]) => ({ date, candles: dateCandles }));
+}
+
+export function findDuplicateCandles(candles) {
+  if (!Array.isArray(candles) || candles.length === 0) return [];
+  const seen = new Set();
+  const duplicates = [];
+  candles.forEach((candle, index) => {
+    const key = candle?.id || candle?.timestamp;
+    if (!key) return;
+    if (seen.has(key)) {
+      duplicates.push({ index, candle });
+      return;
+    }
+    seen.add(key);
+  });
+  return duplicates;
+}
+
+export function findOutOfOrderCandles(candles) {
+  if (!Array.isArray(candles) || candles.length < 2) return [];
+  const outOfOrder = [];
+  for (let i = 1; i < candles.length; i++) {
+    const prevTime = getCandleTime(candles[i - 1]);
+    const currTime = getCandleTime(candles[i]);
+    if (prevTime === null || currTime === null) continue;
+    if (currTime < prevTime) {
+      outOfOrder.push({ index: i, previous: candles[i - 1], current: candles[i] });
+    }
+  }
+  return outOfOrder;
+}
+
+export function findMissingCandleGaps(candles, timeframe = "5m") {
+  if (!Array.isArray(candles) || candles.length < 2) return [];
+  const stepMs = parseTimeframeMs(timeframe);
+  const sorted = [...candles].sort((a, b) => {
+    const ta = getCandleTime(a) ?? 0;
+    const tb = getCandleTime(b) ?? 0;
+    return ta - tb;
+  });
+
+  const gaps = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const prevTime = getCandleTime(sorted[i - 1]);
+    const currTime = getCandleTime(sorted[i]);
+    if (prevTime === null || currTime === null) continue;
+
+    const diff = currTime - prevTime;
+    if (diff <= stepMs) continue;
+
+    const missingCount = Math.floor(diff / stepMs) - 1;
+    if (missingCount <= 0) continue;
+
+    gaps.push({
+      from: new Date(prevTime).toISOString(),
+      to: new Date(currTime).toISOString(),
+      missingCount,
+    });
+  }
+
+  return gaps;
+}
+
+export function runMarketDataIntegrityCheck(candles, timeframe = "5m") {
+  const safeCandles = Array.isArray(candles) ? candles : [];
+  const duplicates = findDuplicateCandles(safeCandles);
+  const outOfOrder = findOutOfOrderCandles(safeCandles);
+  const gaps = findMissingCandleGaps(safeCandles, timeframe);
+
+  return {
+    total: safeCandles.length,
+    duplicates: duplicates.length,
+    outOfOrder: outOfOrder.length,
+    gaps,
+    isHealthy: duplicates.length === 0 && outOfOrder.length === 0 && gaps.length === 0,
+  };
+}
+
+export function enrichCandle(candle) {
+  if (!candle || typeof candle !== "object") return null;
+  const open = Number(candle.open);
+  const high = Number(candle.high);
+  const low = Number(candle.low);
+  const close = Number(candle.close);
+  if (![open, high, low, close].every(Number.isFinite)) return { ...candle };
+
+  const range = high - low;
+  const bodySize = Math.abs(close - open);
+  const upperWick = high - Math.max(open, close);
+  const lowerWick = Math.min(open, close) - low;
+  const bullish = close > open;
+  const bearish = close < open;
+  const bodyPercentOfRange = range > 0 ? (bodySize / range) * 100 : 0;
+
+  return {
+    ...candle,
+    range,
+    bodySize,
+    upperWick,
+    lowerWick,
+    bullish,
+    bearish,
+    bodyPercentOfRange,
+  };
+}
+
+export function enrichCandles(candles) {
+  if (!Array.isArray(candles)) return [];
+  return candles.map((candle) => enrichCandle(candle));
 }
