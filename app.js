@@ -49,6 +49,13 @@ import {
   summarizeNeuronActivations,
 } from "./modules/neuronEngine.js";
 import { discoverCandidatePatterns } from "./modules/patternDiscovery.js";
+import {
+  buildNeuronCoactivationGraph,
+  getNodeTopConnections,
+  getStrongestEdges,
+  getTopConnectedNeurons,
+  renderNeuronGraph,
+} from "./modules/neuronGraph.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
 import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modules/feed.js";
@@ -143,7 +150,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"),
+  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -180,6 +187,9 @@ let marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yah
 let marketDataDiagnostics = null;
 let neuronActivations = [];
 let neuronSummary = null;
+let neuronGraph = null;
+let selectedGraphNodeId = "";
+let selectedGraphEdgeKey = "";
 let patternDiscoveryResult = null;
 let selectedPatternCandidateId = "";
 
@@ -1865,6 +1875,144 @@ function renderNeuronLatestPreview() {
   `).join("");
 }
 
+function renderNeuronGraphSummary() {
+  if (!els.mdGraphSummary) return;
+  if (!neuronGraph) {
+    els.mdGraphSummary.className = "panel-soft muted tiny";
+    els.mdGraphSummary.textContent = "Neuron graph pendiente.";
+    return;
+  }
+
+  const strongest = getStrongestEdges(neuronGraph, 3);
+  const central = getTopConnectedNeurons(neuronGraph, 3);
+
+  els.mdGraphSummary.className = "panel-soft tiny";
+  els.mdGraphSummary.innerHTML = `
+    <div class="neuron-summary-grid">
+      <span class="item">Nodes shown: <strong>${neuronGraph.nodes.length}</strong></span>
+      <span class="item">Edges shown: <strong>${neuronGraph.edges.length}</strong></span>
+      <span class="item">Strongest: <strong>${strongest.map((e) => `${e.source}↔${e.target} (${e.weight})`).join(" · ") || "-"}</strong></span>
+      <span class="item">Central: <strong>${central.map((n) => `${n.id} (${n.totalConnectionWeight})`).join(" · ") || "-"}</strong></span>
+    </div>
+  `;
+}
+
+function renderNeuronGraphDetails() {
+  if (!els.mdGraphDetails) return;
+
+  if (!neuronGraph) {
+    els.mdGraphDetails.className = "panel-soft muted tiny";
+    els.mdGraphDetails.textContent = "Click a node or edge to inspect details.";
+    return;
+  }
+
+  if (selectedGraphNodeId) {
+    const node = neuronGraph.nodes.find((row) => row.id === selectedGraphNodeId);
+    if (!node) {
+      selectedGraphNodeId = "";
+    } else {
+      const topConnections = getNodeTopConnections(neuronGraph, node.id, 8)
+        .map((entry) => `${entry.neuronId} (${entry.weight})`)
+        .join(" · ");
+      els.mdGraphDetails.className = "panel-soft tiny";
+      els.mdGraphDetails.innerHTML = `
+        <h4>Neuron: ${node.id}</h4>
+        <div class="tiny">Category: <strong>${node.category}</strong></div>
+        <div class="tiny">Activation count: <strong>${node.activationCount}</strong></div>
+        <div class="tiny">Pine compatible: <strong>${node.pineCompatible ? "yes" : "no"}</strong></div>
+        <div class="tiny muted">Top connections: ${topConnections || "-"}</div>
+      `;
+      return;
+    }
+  }
+
+  if (selectedGraphEdgeKey) {
+    const [source, target] = selectedGraphEdgeKey.split("::");
+    const edge = neuronGraph.edges.find((row) => row.source === source && row.target === target);
+    if (edge) {
+      els.mdGraphDetails.className = "panel-soft tiny";
+      els.mdGraphDetails.innerHTML = `
+        <h4>Edge Detail</h4>
+        <div class="tiny">Source: <strong>${edge.source}</strong></div>
+        <div class="tiny">Target: <strong>${edge.target}</strong></div>
+        <div class="tiny">Co-activation count: <strong>${edge.weight}</strong></div>
+      `;
+      return;
+    }
+  }
+
+  els.mdGraphDetails.className = "panel-soft muted tiny";
+  els.mdGraphDetails.textContent = "Click a node or edge to inspect details.";
+}
+
+function renderNeuronGraphPanel() {
+  renderNeuronGraphSummary();
+  renderNeuronGraphDetails();
+
+  if (!els.mdGraphContainer) return;
+  if (!neuronGraph) {
+    els.mdGraphContainer.innerHTML = '<div class="muted tiny">Build neuron graph to visualize co-activations.</div>';
+    return;
+  }
+
+  renderNeuronGraph(els.mdGraphContainer, neuronGraph, {
+    onNodeClick: (node) => {
+      selectedGraphNodeId = node.id;
+      selectedGraphEdgeKey = "";
+      renderNeuronGraphDetails();
+    },
+    onEdgeClick: (edge) => {
+      selectedGraphNodeId = "";
+      selectedGraphEdgeKey = `${edge.source}::${edge.target}`;
+      renderNeuronGraphDetails();
+    },
+  });
+}
+
+function handleBuildNeuronGraph() {
+  if (!marketDataCandles.length) {
+    setMarketDataStatus("Load or import candles before building graph.", "warning");
+    return;
+  }
+
+  if (!neuronActivations.length) {
+    handleComputeNeurons();
+  }
+  if (!neuronActivations.length) {
+    setMarketDataStatus("Neuron activations unavailable.", "error");
+    return;
+  }
+
+  const neuronMatrix = marketDataCandles.map((candle, index) => ({
+    index,
+    timestamp: candle?.timestamp || null,
+    neurons: {},
+  }));
+
+  neuronActivations.forEach((activation) => {
+    if (!activation?.active) return;
+    const row = neuronMatrix[activation.index];
+    if (!row) return;
+    row.neurons[activation.neuronId] = {
+      active: true,
+      category: activation.category,
+      pineCompatible: activation.pineCompatible,
+    };
+  });
+
+  neuronGraph = buildNeuronCoactivationGraph(neuronMatrix, {
+    minNodeActivations: 3,
+    minEdgeWeight: 2,
+    maxNodes: 40,
+    maxEdges: 140,
+  });
+  selectedGraphNodeId = "";
+  selectedGraphEdgeKey = "";
+  renderNeuronGraphPanel();
+  setMarketDataStatus(`Neuron graph built: ${neuronGraph.nodes.length} nodes / ${neuronGraph.edges.length} edges.`, "success");
+}
+
+
 
 function renderPatternDiscoveryPanel() {
   if (!els.mdPatternSummary || !els.mdPatternBody || !els.mdPatternDetails) return;
@@ -1985,6 +2133,7 @@ function refreshMarketDataUI() {
   renderNeuronSummaryPanel();
   renderNeuronLatestPreview();
   renderPatternDiscoveryPanel();
+  renderNeuronGraphPanel();
 
   if (!els.mdPreviewBody) return;
   const preview = marketDataCandles.slice(-20);
@@ -2018,6 +2167,9 @@ async function handleMarketDataFetch() {
     marketDataCandles = mergeCandles(marketDataCandles, candles);
     neuronActivations = [];
     neuronSummary = null;
+    neuronGraph = null;
+    selectedGraphNodeId = "";
+    selectedGraphEdgeKey = "";
     patternDiscoveryResult = null;
     selectedPatternCandidateId = "";
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
@@ -2048,6 +2200,9 @@ async function handleMarketDataSync() {
     const added = marketDataCandles.length - prevCount;
     neuronActivations = [];
     neuronSummary = null;
+    neuronGraph = null;
+    selectedGraphNodeId = "";
+    selectedGraphEdgeKey = "";
     patternDiscoveryResult = null;
     selectedPatternCandidateId = "";
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
@@ -2080,6 +2235,9 @@ function handleComputeNeurons() {
   console.log("[neuronEngine] candles loaded", marketDataCandles.length);
   neuronActivations = calculateNeuronActivations(marketDataCandles);
   neuronSummary = summarizeNeuronActivations(neuronActivations);
+  neuronGraph = null;
+  selectedGraphNodeId = "";
+  selectedGraphEdgeKey = "";
   patternDiscoveryResult = null;
   selectedPatternCandidateId = "";
   console.log("[neuronEngine] activations computed", neuronActivations.length);
@@ -2115,6 +2273,9 @@ async function handleMarketDataClear() {
   marketDataDiagnostics = null;
   neuronActivations = [];
   neuronSummary = null;
+  neuronGraph = null;
+  selectedGraphNodeId = "";
+  selectedGraphEdgeKey = "";
   patternDiscoveryResult = null;
   selectedPatternCandidateId = "";
   await Promise.all([saveMarketData([]), saveMarketDataMeta(marketDataMeta)]);
@@ -2142,6 +2303,9 @@ async function handleMarketDataImport(file) {
     const duplicates = result.valid - newCount;
     neuronActivations = [];
     neuronSummary = null;
+    neuronGraph = null;
+    selectedGraphNodeId = "";
+    selectedGraphEdgeKey = "";
     patternDiscoveryResult = null;
     selectedPatternCandidateId = "";
     console.log("[marketData] candles merged:", marketDataCandles.length);
@@ -2168,6 +2332,7 @@ function setupMarketDataEvents() {
   els.mdExportBtn?.addEventListener("click", handleMarketDataExport);
   els.mdIntegrityBtn?.addEventListener("click", handleMarketDataIntegrityCheck);
   els.mdNeuronBtn?.addEventListener("click", handleComputeNeurons);
+  els.mdBuildGraphBtn?.addEventListener("click", handleBuildNeuronGraph);
   els.mdDiscoverPatternsBtn?.addEventListener("click", handleDiscoverPatterns);
   els.mdClearBtn?.addEventListener("click", handleMarketDataClear);
 }

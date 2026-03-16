@@ -358,6 +358,7 @@
           <button id="btn-md-export" class="ghost">Export candles</button>
           <button id="btn-md-integrity" class="ghost">Run integrity check</button>
           <button id="btn-md-neurons" class="ghost">Compute Neurons</button>
+          <button id="btn-md-build-graph" class="ghost">Build Neuron Graph</button>
           <button id="btn-md-discover-patterns" class="primary">Discover Patterns</button>
           <button id="btn-md-clear" class="danger">Clear candles</button>
         </div>
@@ -375,6 +376,12 @@
           </table>
         </div>
         <div id="md-pattern-details" class="panel-soft muted tiny">Selecciona un candidato para ver explicación y ejemplos.</div>
+        <h3>Neuron Graph</h3>
+        <div id="md-graph-summary" class="panel-soft muted tiny">Neuron graph pendiente.</div>
+        <div class="split">
+          <div id="md-graph-container" class="panel-soft neuron-graph-container"><div class="muted tiny">Build neuron graph to visualize co-activations.</div></div>
+          <aside id="md-graph-details" class="panel-soft muted tiny">Click a node or edge to inspect details.</aside>
+        </div>
         <h3>Neuron activations (latest candle)</h3>
         <div class="table-wrap">
           <table>
