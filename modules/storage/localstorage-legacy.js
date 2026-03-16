@@ -7,6 +7,7 @@ export const LEGACY_KEYS = {
   lastImportReport: "patternlab.lastImportReport",
   metaFeedback: "patternlab.metaFeedback.v1",
   botCompiler: "patternlab.botCompiler.v1",
+  promotedPatterns: "patternlab.promotedPatterns.v1",
 };
 
 function parseJson(raw, fallback) {
@@ -27,6 +28,7 @@ export function readLegacySnapshot() {
     lastImportReport: parseJson(localStorage.getItem(LEGACY_KEYS.lastImportReport), null),
     metaFeedback: parseJson(localStorage.getItem(LEGACY_KEYS.metaFeedback), null),
     botCompiler: parseJson(localStorage.getItem(LEGACY_KEYS.botCompiler), null),
+    promotedPatterns: parseJson(localStorage.getItem(LEGACY_KEYS.promotedPatterns), []),
   };
 }
 
