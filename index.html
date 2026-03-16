@@ -357,10 +357,21 @@
           <input id="md-import-file" type="file" accept="application/json" style="display:none" />
           <button id="btn-md-export" class="ghost">Export candles</button>
           <button id="btn-md-integrity" class="ghost">Run integrity check</button>
+          <button id="btn-md-neurons" class="ghost">Compute Neurons</button>
           <button id="btn-md-clear" class="danger">Clear candles</button>
         </div>
         <p id="md-status" class="quick-add-feedback muted"></p>
         <div id="md-diagnostics" class="panel-soft muted tiny">Integrity check pendiente.</div>
+        <div id="md-neuron-summary" class="panel-soft muted tiny">Neuron summary pendiente.</div>
+        <h3>Neuron activations (latest candle)</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Neuron</th><th>Category</th><th>Active</th><th>Score</th><th>Explanation</th></tr>
+            </thead>
+            <tbody id="md-neuron-preview-body"></tbody>
+          </table>
+        </div>
         <h3>Últimas 20 velas</h3>
         <div class="table-wrap">
           <table>

@@ -42,6 +42,12 @@ import {
   runMarketDataIntegrityCheck,
   enrichCandles,
 } from "./modules/marketData.js";
+import {
+  NEURON_DEFINITIONS,
+  calculateNeuronActivations,
+  getTopNeuronTypes,
+  summarizeNeuronActivations,
+} from "./modules/neuronEngine.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
 import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modules/feed.js";
@@ -136,7 +142,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdPreviewBody: document.getElementById("md-preview-body"),
+  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -171,6 +177,8 @@ let storageStatus = null;
 let marketDataCandles = [];
 let marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
 let marketDataDiagnostics = null;
+let neuronActivations = [];
+let neuronSummary = null;
 
 function setSettingsStatus(message, kind = "muted") {
   if (!els.settingsStatus) return;
@@ -1808,6 +1816,52 @@ function renderMarketDataDiagnostics() {
   `;
 }
 
+function renderNeuronSummaryPanel() {
+  if (!els.mdNeuronSummary) return;
+  if (!neuronSummary) {
+    els.mdNeuronSummary.className = "panel-soft muted tiny";
+    els.mdNeuronSummary.textContent = "Neuron summary pendiente.";
+    return;
+  }
+
+  const top5 = getTopNeuronTypes(neuronSummary, 5);
+  const pineActive = neuronSummary.pineCompatibleCounts?.active || 0;
+
+  els.mdNeuronSummary.className = "panel-soft tiny";
+  els.mdNeuronSummary.innerHTML = `
+    <div class="neuron-summary-grid">
+      <span class="item">Candles: <strong>${neuronSummary.candlesProcessed}</strong></span>
+      <span class="item">Neuron types: <strong>${neuronSummary.neuronTypesEvaluated}</strong></span>
+      <span class="item">Active events: <strong>${neuronSummary.totalActivations}</strong></span>
+      <span class="item">Pine-compatible active: <strong>${pineActive}</strong></span>
+    </div>
+    <div class="tiny muted">Top neurons: ${top5.map((row) => `${row.neuronId} (${row.count})`).join(" · ") || "-"}</div>
+  `;
+}
+
+function renderNeuronLatestPreview() {
+  if (!els.mdNeuronPreviewBody) return;
+  if (!neuronActivations.length || !marketDataCandles.length) {
+    els.mdNeuronPreviewBody.innerHTML = `<tr><td colspan="5" class="muted">No neuron activations yet.</td></tr>`;
+    return;
+  }
+
+  const latestIndex = marketDataCandles.length - 1;
+  const latestRows = neuronActivations
+    .filter((row) => row.index === latestIndex)
+    .sort((a, b) => Number(b.active) - Number(a.active) || b.score - a.score || a.neuronId.localeCompare(b.neuronId));
+
+  els.mdNeuronPreviewBody.innerHTML = latestRows.map((row) => `
+    <tr>
+      <td>${row.neuronId}</td>
+      <td>${row.category}</td>
+      <td>${row.active ? '<span class="badge health-ok">yes</span>' : '<span class="badge health-warn">no</span>'}</td>
+      <td>${row.score.toFixed(1)}</td>
+      <td class="muted tiny">${row.explanation}</td>
+    </tr>
+  `).join("");
+}
+
 function refreshMarketDataUI() {
   const total = marketDataCandles.length;
   const first = getEarliestCandleTimestamp(marketDataCandles);
@@ -1825,6 +1879,8 @@ function refreshMarketDataUI() {
   els.mdStatus.innerHTML = infoLines.join(" &nbsp;·&nbsp; ");
 
   renderMarketDataDiagnostics();
+  renderNeuronSummaryPanel();
+  renderNeuronLatestPreview();
 
   if (!els.mdPreviewBody) return;
   const preview = marketDataCandles.slice(-20);
@@ -1856,6 +1912,8 @@ async function handleMarketDataFetch() {
       return;
     }
     marketDataCandles = mergeCandles(marketDataCandles, candles);
+    neuronActivations = [];
+    neuronSummary = null;
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
     refreshMarketDataUI();
@@ -1882,6 +1940,8 @@ async function handleMarketDataSync() {
     const prevCount = marketDataCandles.length;
     marketDataCandles = mergeCandles(marketDataCandles, candles);
     const added = marketDataCandles.length - prevCount;
+    neuronActivations = [];
+    neuronSummary = null;
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
     refreshMarketDataUI();
@@ -1900,6 +1960,26 @@ function handleMarketDataIntegrityCheck() {
 
   const summary = `Integrity check: ${marketDataDiagnostics.total} candles · ${marketDataDiagnostics.duplicates} duplicates · ${marketDataDiagnostics.outOfOrder} out-of-order · ${marketDataDiagnostics.gaps.length} gaps`;
   setMarketDataStatus(summary, marketDataDiagnostics.isHealthy ? "success" : "warning");
+}
+
+function handleComputeNeurons() {
+  if (!marketDataCandles.length) {
+    setMarketDataStatus("Load or import candles before computing neurons.", "warning");
+    return;
+  }
+
+  console.log("[neuronEngine] neuron engine started");
+  console.log("[neuronEngine] candles loaded", marketDataCandles.length);
+  neuronActivations = calculateNeuronActivations(marketDataCandles);
+  neuronSummary = summarizeNeuronActivations(neuronActivations);
+  console.log("[neuronEngine] activations computed", neuronActivations.length);
+  console.log("[neuronEngine] summary built", neuronSummary);
+
+  refreshMarketDataUI();
+
+  const top = getTopNeuronTypes(neuronSummary, 5);
+  const topText = top.map((row) => `${row.neuronId} (${row.count})`).join(" · ") || "-";
+  setMarketDataStatus(`Neurons computed: ${neuronSummary.totalActivations} active events. Top: ${topText}`, "success");
 }
 
 function handleMarketDataExport() {
@@ -1923,6 +2003,8 @@ async function handleMarketDataClear() {
   marketDataCandles = [];
   marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
   marketDataDiagnostics = null;
+  neuronActivations = [];
+  neuronSummary = null;
   await Promise.all([saveMarketData([]), saveMarketDataMeta(marketDataMeta)]);
   refreshMarketDataUI();
   setMarketDataStatus("Market data borrado.", "muted");
@@ -1946,6 +2028,8 @@ async function handleMarketDataImport(file) {
     marketDataCandles = mergeCandles(marketDataCandles, result.candles);
     const newCount = marketDataCandles.length - prevCount;
     const duplicates = result.valid - newCount;
+    neuronActivations = [];
+    neuronSummary = null;
     console.log("[marketData] candles merged:", marketDataCandles.length);
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles) };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
@@ -1969,6 +2053,7 @@ function setupMarketDataEvents() {
   });
   els.mdExportBtn?.addEventListener("click", handleMarketDataExport);
   els.mdIntegrityBtn?.addEventListener("click", handleMarketDataIntegrityCheck);
+  els.mdNeuronBtn?.addEventListener("click", handleComputeNeurons);
   els.mdClearBtn?.addEventListener("click", handleMarketDataClear);
 }
 
