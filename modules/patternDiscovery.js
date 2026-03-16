@@ -1,3 +1,5 @@
+import { evaluateBinaryOutcome, inferBinaryDirection } from "./neuronEngine.js";
+
 const DEFAULT_DISCOVERY_OPTIONS = {
   maxCombinationSize: 4,
   includeSingleNeuronPatterns: true,
@@ -6,11 +8,9 @@ const DEFAULT_DISCOVERY_OPTIONS = {
   includeContextLocalPush: true,
   maxExamplesPerCandidate: 8,
   minSamples: 5,
-  lookaheadCandles: 6,
-  bullishTargetPct: 0.0015,
-  bearishTargetPct: 0.0015,
-  adverseMovePct: 0.001,
   maxActiveNeuronsPerCandle: 10,
+  expiryCandlesList: [1, 2, 3, 5],
+  binaryNeutralAsLoss: true,
 };
 
 function getMergedOptions(options = {}) {
@@ -139,17 +139,9 @@ function canonicalizePattern(neurons, context = {}) {
 }
 
 export function inferPatternDirection(neuronIds = [], context = {}) {
-  if (context.direction === "bullish" || context.direction === "bearish") return context.direction;
-
-  const ids = neuronIds.map((id) => String(id).toLowerCase());
-  let bullish = 0;
-  let bearish = 0;
-  for (const id of ids) {
-    if (/bull|_up|long_lower_wick|rejection_down|followthrough/.test(id)) bullish += 1;
-    if (/bear|_down|long_upper_wick|rejection_up/.test(id)) bearish += 1;
-  }
-  if (bullish > bearish) return "bullish";
-  if (bearish > bullish) return "bearish";
+  const binaryDirection = inferBinaryDirection(neuronIds, context);
+  if (binaryDirection === "CALL") return "bullish";
+  if (binaryDirection === "PUT") return "bearish";
   return "neutral";
 }
 
@@ -207,70 +199,40 @@ export function buildPatternOccurrences(candles, neuronInput, options = {}) {
 }
 
 function evaluateOccurrenceOutcome(candles, occurrence, options) {
-  const lookahead = Math.max(1, asNumber(options.lookaheadCandles, DEFAULT_DISCOVERY_OPTIONS.lookaheadCandles));
-  const direction = inferPatternDirection(occurrence.neuronIds, occurrence.context);
-  const startCandle = candles[occurrence.index];
-  const entry = asNumber(startCandle?.close, 0);
-  if (!entry || direction === "neutral") {
+  const direction = inferBinaryDirection(occurrence.neuronIds, occurrence.context);
+  const expiryList = Array.isArray(options.expiryCandlesList) ? options.expiryCandlesList : [1, 2, 3, 5];
+  const evaluations = expiryList
+    .map((expiryCandles) => evaluateBinaryOutcome(candles, occurrence.index, direction, expiryCandles, options))
+    .filter((row) => row.status === "evaluated");
+
+  if (!evaluations.length || direction === "NEUTRAL") {
     return {
       direction,
-      maxFavorableMovePct: 0,
-      maxAdverseMovePct: 0,
-      targetHit: false,
-      adverseHit: false,
+      binaryDirection: direction,
+      expiryCandles: expiryList[0] || 1,
+      perExpiry: evaluations,
       outcomeLabel: "neutral",
+      win: false,
+      entryPrice: Number(candles?.[occurrence.index]?.close) || 0,
+      expiryPrice: null,
     };
   }
 
-  const end = Math.min(candles.length - 1, occurrence.index + lookahead);
-  let maxFavorable = 0;
-  let maxAdverse = 0;
-  let targetHit = false;
-  let adverseHit = false;
-  let firstEvent = "none";
-
-  const targetPct = direction === "bullish" ? asNumber(options.bullishTargetPct, 0.0015) : asNumber(options.bearishTargetPct, 0.0015);
-  const adversePct = asNumber(options.adverseMovePct, 0.001);
-
-  for (let i = occurrence.index + 1; i <= end; i += 1) {
-    const candle = candles[i];
-    const high = asNumber(candle?.high, entry);
-    const low = asNumber(candle?.low, entry);
-
-    const favorableMove = direction === "bullish" ? (high - entry) / entry : (entry - low) / entry;
-    const adverseMove = direction === "bullish" ? (entry - low) / entry : (high - entry) / entry;
-
-    if (favorableMove > maxFavorable) maxFavorable = favorableMove;
-    if (adverseMove > maxAdverse) maxAdverse = adverseMove;
-
-    const hitTargetNow = favorableMove >= targetPct;
-    const hitAdverseNow = adverseMove >= adversePct;
-
-    if (hitTargetNow && !targetHit) {
-      targetHit = true;
-      if (firstEvent === "none") firstEvent = "target";
-    }
-    if (hitAdverseNow && !adverseHit) {
-      adverseHit = true;
-      if (firstEvent === "none") firstEvent = "adverse";
-    }
-  }
-
-  let outcomeLabel = "neutral";
-  if (firstEvent === "target") outcomeLabel = "win";
-  else if (firstEvent === "adverse") outcomeLabel = "loss";
-  else if (maxFavorable > maxAdverse) outcomeLabel = "win";
-  else if (maxAdverse > maxFavorable) outcomeLabel = "loss";
+  const preferredExpiry = asNumber(options.expiryCandles, expiryList[0] || 1);
+  const chosen = evaluations.find((row) => row.expiryCandles === preferredExpiry) || evaluations[0];
 
   return {
     direction,
-    maxFavorableMovePct: maxFavorable,
-    maxAdverseMovePct: maxAdverse,
-    targetHit,
-    adverseHit,
-    outcomeLabel,
+    binaryDirection: direction,
+    expiryCandles: chosen.expiryCandles,
+    perExpiry: evaluations,
+    outcomeLabel: chosen.outcomeLabel,
+    win: chosen.win,
+    entryPrice: chosen.entryPrice,
+    expiryPrice: chosen.expiryPrice,
   };
 }
+
 
 export function evaluatePatternOccurrences(candles, occurrences, options = {}) {
   const opts = getMergedOptions(options);
@@ -333,29 +295,42 @@ export function aggregateCandidatePatterns(evaluatedOccurrences, options = {}) {
     if (sampleCount < opts.minSamples) return;
 
     const first = rows[0];
-    const direction = inferPatternDirection(first.neuronIds, first.context);
-    if (direction === "neutral") return;
+    const binaryDirection = inferBinaryDirection(first.neuronIds, first.context);
+    if (binaryDirection === "NEUTRAL") return;
+    const direction = binaryDirection === "CALL" ? "bullish" : "bearish";
 
     let winCount = 0;
     let lossCount = 0;
     let neutralCount = 0;
-    const favorable = [];
-    const adverse = [];
+    const expiryBuckets = new Map();
 
     for (const row of rows) {
       if (row.outcome.outcomeLabel === "win") winCount += 1;
       else if (row.outcome.outcomeLabel === "loss") lossCount += 1;
       else neutralCount += 1;
-      favorable.push(row.outcome.maxFavorableMovePct);
-      adverse.push(row.outcome.maxAdverseMovePct);
+
+      for (const expiryEval of row.outcome.perExpiry || []) {
+        const key = expiryEval.expiryCandles;
+        if (!expiryBuckets.has(key)) expiryBuckets.set(key, { expiryCandles: key, samples: 0, wins: 0, losses: 0, neutrals: 0 });
+        const bucket = expiryBuckets.get(key);
+        bucket.samples += 1;
+        if (expiryEval.outcomeLabel === "win") bucket.wins += 1;
+        else if (expiryEval.outcomeLabel === "loss") bucket.losses += 1;
+        else bucket.neutrals += 1;
+      }
     }
 
-    const avgFavorableMovePct = favorable.reduce((sum, value) => sum + value, 0) / sampleCount;
-    const avgAdverseMovePct = adverse.reduce((sum, value) => sum + value, 0) / sampleCount;
     const winRate = winCount / sampleCount;
     const consistencyScore = 1 - Math.min(1, neutralCount / sampleCount + Math.abs(0.5 - winRate));
     const simplicityScore = Number((1 / Math.max(1, first.neuronIds.length)).toFixed(6));
     const pineCompatible = rows.every((row) => row.pineCompatible);
+    const expiryStats = [...expiryBuckets.values()]
+      .sort((a, b) => a.expiryCandles - b.expiryCandles)
+      .map((bucket) => ({
+        ...bucket,
+        winRate: bucket.samples ? bucket.wins / bucket.samples : 0,
+      }));
+    const bestExpiry = expiryStats.slice().sort((a, b) => b.winRate - a.winRate || b.samples - a.samples)[0] || null;
 
     const candidate = {
       patternId: `pat-${Math.abs(hashCode(patternKey)).toString(36)}`,
@@ -363,14 +338,17 @@ export function aggregateCandidatePatterns(evaluatedOccurrences, options = {}) {
       neurons: first.neuronIds,
       context: first.context,
       direction,
+      binaryDirection,
       sampleCount,
       winCount,
       lossCount,
       neutralCount,
       winRate,
-      avgFavorableMovePct,
-      avgAdverseMovePct,
-      medianFavorableMovePct: median(favorable),
+      avgFavorableMovePct: winRate,
+      avgAdverseMovePct: 1 - winRate,
+      medianFavorableMovePct: median(expiryStats.map((row) => row.winRate)),
+      expiryStats,
+      preferredExpiryCandles: bestExpiry?.expiryCandles ?? null,
       consistencyScore,
       simplicityScore,
       pineCompatible,
@@ -380,8 +358,9 @@ export function aggregateCandidatePatterns(evaluatedOccurrences, options = {}) {
         timestamp: row.timestamp,
         index: row.index,
         outcomeLabel: row.outcome.outcomeLabel,
-        maxFavorableMovePct: row.outcome.maxFavorableMovePct,
-        maxAdverseMovePct: row.outcome.maxAdverseMovePct,
+        expiryCandles: row.outcome.expiryCandles,
+        entryPrice: row.outcome.entryPrice,
+        expiryPrice: row.outcome.expiryPrice,
       })),
     };
 
@@ -427,6 +406,7 @@ export function discoverCandidatePatterns(candles, neuronInput, options = {}) {
       occurrencesBuilt: occurrences.length,
       candidateGroups: groupedOccurrences.size,
       candidatesRanked: ranked.length,
+      mode: "binary_options_fixed_expiry",
     },
   };
 }

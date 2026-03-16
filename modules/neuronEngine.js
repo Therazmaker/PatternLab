@@ -1,3 +1,5 @@
+import { calculateEMA, calculateRSI } from "./indicators.js";
+
 /**
  * modules/neuronEngine.js
  * Deterministic and explainable neuron activations over candle data.
@@ -18,6 +20,13 @@ export const DEFAULT_NEURON_OPTIONS = {
   rejectionBodyPercentMax: 0.35,
   localPushLookback: 3,
   swingWindow: 2,
+  emaFastPeriod: 9,
+  emaSlowPeriod: 21,
+  emaSlopeLookback: 2,
+  rsiPeriod: 14,
+  momentumLookback: 3,
+  pullbackPercent: 0.001,
+  binaryNeutralAsLoss: true,
 };
 
 export function safeNumber(value) {
@@ -175,6 +184,31 @@ function computeSingleCandleContext(candles, index, options) {
   return { current, features, windowFeatures };
 }
 
+
+function getSeriesCache(options) {
+  if (!options.__seriesCache) options.__seriesCache = {};
+  return options.__seriesCache;
+}
+
+function getEmaSeries(candles, options, period, sourceKey = "close") {
+  const cache = getSeriesCache(options);
+  const key = `ema:${period}:${sourceKey}`;
+  if (!cache[key]) cache[key] = calculateEMA(candles, period, sourceKey);
+  return cache[key];
+}
+
+function getRsiSeries(candles, options, period, sourceKey = "close") {
+  const cache = getSeriesCache(options);
+  const key = `rsi:${period}:${sourceKey}`;
+  if (!cache[key]) cache[key] = calculateRSI(candles, period, sourceKey);
+  return cache[key];
+}
+
+function getSeriesValue(series, index) {
+  const value = Array.isArray(series) ? series[index] : null;
+  return Number.isFinite(value) ? value : null;
+}
+
 export const NEURON_DEFINITIONS = [
   {
     id: "bullish_candle",
@@ -306,7 +340,172 @@ export const NEURON_DEFINITIONS = [
     id: "possible_rejection_down", category: "local_structure", description: "Long lower wick with modest body suggests downside rejection.", pineCompatible: true,
     compute: (candles, index, options) => { const { current, features } = computeSingleCandleContext(candles, index, options); const wickThreshold = options.rejectionWickPercentMin ?? DEFAULT_NEURON_OPTIONS.rejectionWickPercentMin; const bodyThreshold = options.rejectionBodyPercentMax ?? DEFAULT_NEURON_OPTIONS.rejectionBodyPercentMax; const active = features.lowerWickPercentOfRange >= wickThreshold && features.bodyPercentOfRange <= bodyThreshold; return buildActivation({ neuronId: "possible_rejection_down", category: "local_structure", timestamp: current?.timestamp, index, active, score: active ? 0.8 : 0, pineCompatible: true, explanation: active ? "Lower wick dominates while body remains contained." : "No clear downside rejection shape.", inputs: { lowerWickPercentOfRange: features.lowerWickPercentOfRange, bodyPercentOfRange: features.bodyPercentOfRange, wickThreshold, bodyThreshold } }); },
   },
+
+  {
+    id: "price_above_ema", category: "binary_ema", description: "Close is above fast EMA for short-horizon CALL bias.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const ema = getSeriesValue(getEmaSeries(candles, options, period), index); const close = safeNumber(current?.close); const active = ema !== null && close > ema; return buildActivation({ neuronId: "price_above_ema", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 1 : 0, pineCompatible: true, explanation: active ? "Close is above fast EMA." : "Close is not above fast EMA.", inputs: { close, ema, period } }); },
+  },
+  {
+    id: "price_below_ema", category: "binary_ema", description: "Close is below fast EMA for short-horizon PUT bias.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const ema = getSeriesValue(getEmaSeries(candles, options, period), index); const close = safeNumber(current?.close); const active = ema !== null && close < ema; return buildActivation({ neuronId: "price_below_ema", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 1 : 0, pineCompatible: true, explanation: active ? "Close is below fast EMA." : "Close is not below fast EMA.", inputs: { close, ema, period } }); },
+  },
+  {
+    id: "ema_fast_above_slow", category: "binary_ema", description: "Fast EMA sits above slow EMA.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const fastPeriod = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const slowPeriod = options.emaSlowPeriod ?? DEFAULT_NEURON_OPTIONS.emaSlowPeriod; const fast = getSeriesValue(getEmaSeries(candles, options, fastPeriod), index); const slow = getSeriesValue(getEmaSeries(candles, options, slowPeriod), index); const active = fast !== null && slow !== null && fast > slow; return buildActivation({ neuronId: "ema_fast_above_slow", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 1 : 0, pineCompatible: true, explanation: active ? "Fast EMA is above slow EMA." : "Fast EMA is not above slow EMA.", inputs: { fast, slow, fastPeriod, slowPeriod } }); },
+  },
+  {
+    id: "ema_fast_below_slow", category: "binary_ema", description: "Fast EMA sits below slow EMA.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const fastPeriod = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const slowPeriod = options.emaSlowPeriod ?? DEFAULT_NEURON_OPTIONS.emaSlowPeriod; const fast = getSeriesValue(getEmaSeries(candles, options, fastPeriod), index); const slow = getSeriesValue(getEmaSeries(candles, options, slowPeriod), index); const active = fast !== null && slow !== null && fast < slow; return buildActivation({ neuronId: "ema_fast_below_slow", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 1 : 0, pineCompatible: true, explanation: active ? "Fast EMA is below slow EMA." : "Fast EMA is not below slow EMA.", inputs: { fast, slow, fastPeriod, slowPeriod } }); },
+  },
+  {
+    id: "ema_slope_up", category: "binary_ema", description: "Fast EMA slope is upward over short lookback.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const lookback = options.emaSlopeLookback ?? DEFAULT_NEURON_OPTIONS.emaSlopeLookback; const series = getEmaSeries(candles, options, period); const now = getSeriesValue(series, index); const then = getSeriesValue(series, index - lookback); const active = now !== null && then !== null && now > then; return buildActivation({ neuronId: "ema_slope_up", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 0.8 : 0, pineCompatible: true, explanation: active ? "Fast EMA slope points up." : "Fast EMA slope is not up.", inputs: { now, then, lookback, period } }); },
+  },
+  {
+    id: "ema_slope_down", category: "binary_ema", description: "Fast EMA slope is downward over short lookback.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const lookback = options.emaSlopeLookback ?? DEFAULT_NEURON_OPTIONS.emaSlopeLookback; const series = getEmaSeries(candles, options, period); const now = getSeriesValue(series, index); const then = getSeriesValue(series, index - lookback); const active = now !== null && then !== null && now < then; return buildActivation({ neuronId: "ema_slope_down", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 0.8 : 0, pineCompatible: true, explanation: active ? "Fast EMA slope points down." : "Fast EMA slope is not down.", inputs: { now, then, lookback, period } }); },
+  },
+  {
+    id: "ema_pullback_above", category: "binary_ema", description: "Price pulled back to EMA while staying in bullish side.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const previous = getPreviousCandle(candles, index); const period = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const pullbackPercent = options.pullbackPercent ?? DEFAULT_NEURON_OPTIONS.pullbackPercent; const ema = getSeriesValue(getEmaSeries(candles, options, period), index); const close = safeNumber(current?.close); const low = safeNumber(current?.low); const prevClose = safeNumber(previous?.close); const active = ema !== null && close > ema && low <= ema && prevClose > ema * (1 + pullbackPercent); return buildActivation({ neuronId: "ema_pullback_above", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 0.85 : 0, pineCompatible: true, explanation: active ? "Bullish pullback into EMA was absorbed." : "No bullish EMA pullback structure.", inputs: { close, low, prevClose, ema, period, pullbackPercent } }); },
+  },
+  {
+    id: "ema_pullback_below", category: "binary_ema", description: "Price pulled back to EMA while staying in bearish side.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const previous = getPreviousCandle(candles, index); const period = options.emaFastPeriod ?? DEFAULT_NEURON_OPTIONS.emaFastPeriod; const pullbackPercent = options.pullbackPercent ?? DEFAULT_NEURON_OPTIONS.pullbackPercent; const ema = getSeriesValue(getEmaSeries(candles, options, period), index); const close = safeNumber(current?.close); const high = safeNumber(current?.high); const prevClose = safeNumber(previous?.close); const active = ema !== null && close < ema && high >= ema && prevClose < ema * (1 - pullbackPercent); return buildActivation({ neuronId: "ema_pullback_below", category: "binary_ema", timestamp: current?.timestamp, index, active, score: active ? 0.85 : 0, pineCompatible: true, explanation: active ? "Bearish pullback into EMA was rejected." : "No bearish EMA pullback structure.", inputs: { close, high, prevClose, ema, period, pullbackPercent } }); },
+  },
+  {
+    id: "rsi_overbought", category: "binary_rsi", description: "RSI is in overbought zone.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const rsi = getSeriesValue(getRsiSeries(candles, options, period), index); const active = rsi !== null && rsi >= 70; return buildActivation({ neuronId: "rsi_overbought", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.75 : 0, pineCompatible: true, explanation: active ? "RSI is overbought (>=70)." : "RSI is not overbought.", inputs: { rsi, period } }); },
+  },
+  {
+    id: "rsi_oversold", category: "binary_rsi", description: "RSI is in oversold zone.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const rsi = getSeriesValue(getRsiSeries(candles, options, period), index); const active = rsi !== null && rsi <= 30; return buildActivation({ neuronId: "rsi_oversold", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.75 : 0, pineCompatible: true, explanation: active ? "RSI is oversold (<=30)." : "RSI is not oversold.", inputs: { rsi, period } }); },
+  },
+  {
+    id: "rsi_rebound_up", category: "binary_rsi", description: "RSI rebounds upward from oversold neighborhood.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const series = getRsiSeries(candles, options, period); const now = getSeriesValue(series, index); const prev = getSeriesValue(series, index - 1); const active = now !== null && prev !== null && prev <= 35 && now > prev; return buildActivation({ neuronId: "rsi_rebound_up", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.85 : 0, pineCompatible: true, explanation: active ? "RSI is rebounding up from weak zone." : "No RSI rebound-up structure.", inputs: { now, prev, period } }); },
+  },
+  {
+    id: "rsi_rebound_down", category: "binary_rsi", description: "RSI rebounds downward from overbought neighborhood.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const series = getRsiSeries(candles, options, period); const now = getSeriesValue(series, index); const prev = getSeriesValue(series, index - 1); const active = now !== null && prev !== null && prev >= 65 && now < prev; return buildActivation({ neuronId: "rsi_rebound_down", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.85 : 0, pineCompatible: true, explanation: active ? "RSI is rebounding down from strong zone." : "No RSI rebound-down structure.", inputs: { now, prev, period } }); },
+  },
+  {
+    id: "rsi_cross_50_up", category: "binary_rsi", description: "RSI crossed upward through 50.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const series = getRsiSeries(candles, options, period); const now = getSeriesValue(series, index); const prev = getSeriesValue(series, index - 1); const active = now !== null && prev !== null && prev <= 50 && now > 50; return buildActivation({ neuronId: "rsi_cross_50_up", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.9 : 0, pineCompatible: true, explanation: active ? "RSI crossed above 50." : "No RSI cross above 50.", inputs: { now, prev, period } }); },
+  },
+  {
+    id: "rsi_cross_50_down", category: "binary_rsi", description: "RSI crossed downward through 50.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const series = getRsiSeries(candles, options, period); const now = getSeriesValue(series, index); const prev = getSeriesValue(series, index - 1); const active = now !== null && prev !== null && prev >= 50 && now < 50; return buildActivation({ neuronId: "rsi_cross_50_down", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.9 : 0, pineCompatible: true, explanation: active ? "RSI crossed below 50." : "No RSI cross below 50.", inputs: { now, prev, period } }); },
+  },
+  {
+    id: "rsi_bullish_zone", category: "binary_rsi", description: "RSI is in bullish control zone (>55).", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const rsi = getSeriesValue(getRsiSeries(candles, options, period), index); const active = rsi !== null && rsi > 55; return buildActivation({ neuronId: "rsi_bullish_zone", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.7 : 0, pineCompatible: true, explanation: active ? "RSI is in bullish zone (>55)." : "RSI is not in bullish zone.", inputs: { rsi, period } }); },
+  },
+  {
+    id: "rsi_bearish_zone", category: "binary_rsi", description: "RSI is in bearish control zone (<45).", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const period = options.rsiPeriod ?? DEFAULT_NEURON_OPTIONS.rsiPeriod; const rsi = getSeriesValue(getRsiSeries(candles, options, period), index); const active = rsi !== null && rsi < 45; return buildActivation({ neuronId: "rsi_bearish_zone", category: "binary_rsi", timestamp: current?.timestamp, index, active, score: active ? 0.7 : 0, pineCompatible: true, explanation: active ? "RSI is in bearish zone (<45)." : "RSI is not in bearish zone.", inputs: { rsi, period } }); },
+  },
+  {
+    id: "short_bullish_pressure", category: "binary_momentum", description: "Recent closes show short-term bullish pressure.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const lookback = options.momentumLookback ?? DEFAULT_NEURON_OPTIONS.momentumLookback; let up = 0; let down = 0; for (let i = Math.max(1, index - lookback + 1); i <= index; i += 1) { const prev = safeNumber(candles[i - 1]?.close); const now = safeNumber(candles[i]?.close); if (now > prev) up += 1; if (now < prev) down += 1; } const active = up > down && up >= Math.ceil(lookback / 2); return buildActivation({ neuronId: "short_bullish_pressure", category: "binary_momentum", timestamp: current?.timestamp, index, active, score: active ? 0.8 : 0, pineCompatible: true, explanation: active ? "Recent closes favor bullish pressure." : "No bullish pressure dominance.", inputs: { lookback, up, down } }); },
+  },
+  {
+    id: "short_bearish_pressure", category: "binary_momentum", description: "Recent closes show short-term bearish pressure.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const lookback = options.momentumLookback ?? DEFAULT_NEURON_OPTIONS.momentumLookback; let up = 0; let down = 0; for (let i = Math.max(1, index - lookback + 1); i <= index; i += 1) { const prev = safeNumber(candles[i - 1]?.close); const now = safeNumber(candles[i]?.close); if (now > prev) up += 1; if (now < prev) down += 1; } const active = down > up && down >= Math.ceil(lookback / 2); return buildActivation({ neuronId: "short_bearish_pressure", category: "binary_momentum", timestamp: current?.timestamp, index, active, score: active ? 0.8 : 0, pineCompatible: true, explanation: active ? "Recent closes favor bearish pressure." : "No bearish pressure dominance.", inputs: { lookback, up, down } }); },
+  },
+  {
+    id: "immediate_followthrough_up", category: "binary_momentum", description: "Current bullish close continues prior bullish close.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const previous = getPreviousCandle(candles, index); const active = Boolean(previous && safeNumber(current?.close) > safeNumber(previous?.close) && safeNumber(current?.close) > safeNumber(current?.open)); return buildActivation({ neuronId: "immediate_followthrough_up", category: "binary_momentum", timestamp: current?.timestamp, index, active, score: active ? 0.9 : 0, pineCompatible: true, explanation: active ? "Immediate bullish followthrough confirmed." : "No immediate bullish followthrough.", inputs: { currentClose: safeNumber(current?.close), previousClose: safeNumber(previous?.close), currentOpen: safeNumber(current?.open) } }); },
+  },
+  {
+    id: "immediate_followthrough_down", category: "binary_momentum", description: "Current bearish close continues prior bearish close.", pineCompatible: true,
+    compute: (candles, index, options) => { const current = candles[index]; const previous = getPreviousCandle(candles, index); const active = Boolean(previous && safeNumber(current?.close) < safeNumber(previous?.close) && safeNumber(current?.close) < safeNumber(current?.open)); return buildActivation({ neuronId: "immediate_followthrough_down", category: "binary_momentum", timestamp: current?.timestamp, index, active, score: active ? 0.9 : 0, pineCompatible: true, explanation: active ? "Immediate bearish followthrough confirmed." : "No immediate bearish followthrough.", inputs: { currentClose: safeNumber(current?.close), previousClose: safeNumber(previous?.close), currentOpen: safeNumber(current?.open) } }); },
+  },
 ];
+
+/**
+ * Binary direction inference for fixed-expiry options.
+ * Keeps weighting explicit so discovered patterns remain explainable and PineScript-translatable.
+ */
+export function inferBinaryDirection(neuronIds = [], context = {}) {
+  const ids = new Set((Array.isArray(neuronIds) ? neuronIds : []).map((id) => String(id)));
+
+  let callScore = 0;
+  let putScore = 0;
+
+  const callWeights = [
+    ["price_above_ema", 1], ["ema_fast_above_slow", 1], ["ema_slope_up", 1], ["ema_pullback_above", 1],
+    ["rsi_oversold", 0.5], ["rsi_rebound_up", 1], ["rsi_cross_50_up", 1], ["rsi_bullish_zone", 0.8],
+    ["short_bullish_pressure", 1], ["immediate_followthrough_up", 1], ["bullish_candle", 0.5], ["session_overlap", 0.3],
+  ];
+  const putWeights = [
+    ["price_below_ema", 1], ["ema_fast_below_slow", 1], ["ema_slope_down", 1], ["ema_pullback_below", 1],
+    ["rsi_overbought", 0.5], ["rsi_rebound_down", 1], ["rsi_cross_50_down", 1], ["rsi_bearish_zone", 0.8],
+    ["short_bearish_pressure", 1], ["immediate_followthrough_down", 1], ["bearish_candle", 0.5], ["session_overlap", 0.3],
+  ];
+
+  for (const [id, weight] of callWeights) if (ids.has(id)) callScore += weight;
+  for (const [id, weight] of putWeights) if (ids.has(id)) putScore += weight;
+
+  if (context?.localPush === "local_push_up") callScore += 0.5;
+  if (context?.localPush === "local_push_down") putScore += 0.5;
+
+  if (callScore > putScore + 0.25) return "CALL";
+  if (putScore > callScore + 0.25) return "PUT";
+  return "NEUTRAL";
+}
+
+/**
+ * Evaluates binary option outcome at fixed expiry horizon.
+ */
+export function evaluateBinaryOutcome(candles, index, direction, expiryCandles, options = {}) {
+  const rows = Array.isArray(candles) ? candles : [];
+  const expiry = Math.max(1, safeNumber(expiryCandles) || 1);
+  const entryCandle = rows[index];
+  const expiryIndex = index + expiry;
+  const expiryCandle = rows[expiryIndex];
+  const neutralAsLoss = options.binaryNeutralAsLoss ?? DEFAULT_NEURON_OPTIONS.binaryNeutralAsLoss;
+
+  if (!entryCandle || !expiryCandle) {
+    return {
+      direction: direction || "NEUTRAL",
+      expiryCandles: expiry,
+      status: "insufficient_data",
+      outcomeLabel: "neutral",
+      win: false,
+      entryPrice: safeNumber(entryCandle?.close),
+      expiryPrice: null,
+      index,
+      expiryIndex,
+    };
+  }
+
+  const entryPrice = safeNumber(entryCandle.close);
+  const expiryPrice = safeNumber(expiryCandle.close);
+
+  let win = false;
+  let outcomeLabel = "neutral";
+
+  if (direction === "CALL") win = expiryPrice > entryPrice;
+  else if (direction === "PUT") win = expiryPrice < entryPrice;
+
+  if (direction === "NEUTRAL") outcomeLabel = "neutral";
+  else if (win) outcomeLabel = "win";
+  else if (expiryPrice === entryPrice && !neutralAsLoss) outcomeLabel = "neutral";
+  else outcomeLabel = "loss";
+
+  return {
+    direction,
+    expiryCandles: expiry,
+    status: "evaluated",
+    outcomeLabel,
+    win,
+    entryPrice,
+    expiryPrice,
+    index,
+    expiryIndex,
+  };
+}
 
 export function calculateNeuronActivations(candles, options = {}) {
   const mergedOptions = { ...DEFAULT_NEURON_OPTIONS, ...(options || {}) };
