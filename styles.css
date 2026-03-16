@@ -246,3 +246,7 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
   line-height: 1.35;
   max-width: 320px;
 }
+
+.seeded-examples-table { min-width: 900px; }
+#seeded-neuron-select { min-height: 210px; }
+

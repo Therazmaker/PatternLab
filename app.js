@@ -17,6 +17,8 @@ import {
   loadNotes,
   loadPatternVersionsRegistry,
   loadPromotedPatterns,
+  loadSeededPatternResults,
+  loadSeededPatterns,
   loadSessions,
   loadSignals,
   loadBotCompilerState,
@@ -30,6 +32,8 @@ import {
   saveNotes,
   savePatternVersionsRegistry,
   savePromotedPatterns,
+  saveSeededPatternResults,
+  saveSeededPatterns,
   saveSessions,
   saveSignals,
   validateMemoryPayload,
@@ -61,6 +65,7 @@ import {
 } from "./modules/neuronGraph.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { buildClusterGraph, getWeightBounds } from "./src/modules/clusterMap/clusterGraphBuilder.js";
+import { buildSeededCandidatePayload, evaluateSeededPattern } from "./modules/seededPatternLab.js";
 import { renderClusterInspector, renderClusterSummary, syncRangeInput } from "./src/modules/clusterMap/clusterUI.js";
 import { renderClusterMap } from "./src/modules/clusterMap/clusterMap.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
@@ -159,6 +164,24 @@ const els = {
   mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
 };
 
+els.seededNeuronSelect = document.getElementById("seeded-neuron-select");
+els.seededDirectionMode = document.getElementById("seeded-direction-mode");
+els.seededSessionFilter = document.getElementById("seeded-session-filter");
+els.seededExpiry1 = document.getElementById("seeded-expiry-1");
+els.seededExpiry2 = document.getElementById("seeded-expiry-2");
+els.seededExpiry3 = document.getElementById("seeded-expiry-3");
+els.seededExpiry5 = document.getElementById("seeded-expiry-5");
+els.seededSelected = document.getElementById("seeded-selected");
+els.seededRunBtn = document.getElementById("btn-seeded-run");
+els.seededSaveBtn = document.getElementById("btn-seeded-save");
+els.seededPromoteBtn = document.getElementById("btn-seeded-promote");
+els.seededExportBtn = document.getElementById("btn-seeded-export");
+els.seededStatus = document.getElementById("seeded-status");
+els.seededSummary = document.getElementById("seeded-summary");
+els.seededTableBody = document.getElementById("seeded-table-body");
+els.seededInspector = document.getElementById("seeded-inspector");
+els.seededExamplesBody = document.getElementById("seeded-examples-body");
+
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
 const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
@@ -199,6 +222,10 @@ let selectedGraphEdgeKey = "";
 let patternDiscoveryResult = null;
 let clusterGraph = null;
 let selectedClusterNodeId = "";
+let selectedSeededNeurons = [];
+let seededPatternResult = null;
+let seededPatterns = [];
+let seededPatternResults = [];
 const clusterMapFilters = { minEdgeWeight: 1, minNodeWeight: 1, session: "all" };
 let selectedPatternCandidateId = "";
 let selectedReviewCandidateId = "";
@@ -1003,6 +1030,7 @@ function rerender() {
   refreshSessionCandlesTab();
   refreshStorageStatusUI();
   renderPatternReviewPanel();
+  renderSeededPatternLab();
 }
 
 function onHypothesisDecision(id, decision) {
@@ -2252,11 +2280,29 @@ function rebuildClusterMap() {
   if (!clusterGraph.nodes.some((node) => node.id === selectedClusterNodeId)) selectedClusterNodeId = "";
 
   renderClusterSummary(els.clusterMapSummary, clusterGraph);
-  renderClusterInspector(els.clusterMapInspector, clusterGraph, selectedClusterNodeId, candidates);
+  renderClusterInspector(els.clusterMapInspector, clusterGraph, selectedClusterNodeId, candidates, {
+    onSendToSeededLab: (neurons) => {
+      selectedSeededNeurons = [...new Set([...(selectedSeededNeurons || []), ...(neurons || [])])].slice(0, 4);
+      if (els.seededStatus) {
+        els.seededStatus.className = "quick-add-feedback success";
+        els.seededStatus.textContent = `Sent ${selectedSeededNeurons.length} neuron(s) to Seeded Lab.`;
+      }
+      renderSeededPatternLab();
+    },
+  });
   renderClusterMap(els.clusterMapContainer, clusterGraph, {
     onNodeClick: (node) => {
       selectedClusterNodeId = node.id;
-      renderClusterInspector(els.clusterMapInspector, clusterGraph, selectedClusterNodeId, candidates);
+      renderClusterInspector(els.clusterMapInspector, clusterGraph, selectedClusterNodeId, candidates, {
+    onSendToSeededLab: (neurons) => {
+      selectedSeededNeurons = [...new Set([...(selectedSeededNeurons || []), ...(neurons || [])])].slice(0, 4);
+      if (els.seededStatus) {
+        els.seededStatus.className = "quick-add-feedback success";
+        els.seededStatus.textContent = `Sent ${selectedSeededNeurons.length} neuron(s) to Seeded Lab.`;
+      }
+      renderSeededPatternLab();
+    },
+  });
     },
   });
 }
@@ -2276,6 +2322,162 @@ function refreshClusterMapPanel() {
   rebuildClusterMap();
 }
 
+
+function getSeededExpiriesFromUI() {
+  const selected = [];
+  if (els.seededExpiry1?.checked) selected.push(1);
+  if (els.seededExpiry2?.checked) selected.push(2);
+  if (els.seededExpiry3?.checked) selected.push(3);
+  if (els.seededExpiry5?.checked) selected.push(5);
+  return selected.length ? selected : [1, 2, 3, 5];
+}
+
+function refreshSeededNeuronPicker() {
+  if (!els.seededNeuronSelect) return;
+  const previous = new Set(selectedSeededNeurons);
+  const ids = NEURON_DEFINITIONS.map((row) => row.id).sort((a, b) => a.localeCompare(b));
+  els.seededNeuronSelect.innerHTML = ids.map((id) => `<option value="${id}" ${previous.has(id) ? "selected" : ""}>${id}</option>`).join("");
+}
+
+function renderSeededExamples(examples, expiries) {
+  if (!els.seededExamplesBody) return;
+  if (!examples?.length) {
+    els.seededExamplesBody.innerHTML = '<tr><td colspan="7" class="muted">No examples yet.</td></tr>';
+    return;
+  }
+  els.seededExamplesBody.innerHTML = examples.map((ex) => {
+    const ts = ex.timestamp ? new Date(ex.timestamp).toLocaleString() : "-";
+    const outcomeText = expiries.map((expiry) => `${expiry}c:${(ex.outcomes?.[`${expiry}c`]?.outcome || "-").toUpperCase()}`).join(" · ");
+    return `<tr><td>${ts}</td><td>${ex.index}</td><td>${ex.direction}</td><td>${ex.session}</td><td>${outcomeText}</td><td>${(ex.favorableMove * 100).toFixed(2)}%</td><td>${(ex.adverseMove * 100).toFixed(2)}%</td></tr>`;
+  }).join("");
+}
+
+function renderSeededPatternLab() {
+  refreshSeededNeuronPicker();
+  if (els.seededSelected) {
+    els.seededSelected.textContent = selectedSeededNeurons.length ? selectedSeededNeurons.join(" + ") : "No neurons selected";
+  }
+
+  if (!els.seededSummary || !els.seededTableBody || !els.seededInspector) return;
+
+  if (!seededPatternResult || seededPatternResult.status !== "ok") {
+    els.seededSummary.className = "panel-soft muted tiny";
+    els.seededSummary.textContent = "Select 2-4 neurons and run evaluation.";
+    els.seededTableBody.innerHTML = '<tr><td colspan="9" class="muted">No seeded result yet.</td></tr>';
+    els.seededInspector.className = "panel-soft muted tiny";
+    els.seededInspector.textContent = "Inspector will show first 10 occurrences once evaluated.";
+    renderSeededExamples([], []);
+    return;
+  }
+
+  els.seededSummary.className = "panel-soft tiny";
+  els.seededSummary.innerHTML = `
+    <div class="neuron-summary-grid">
+      <span class="item">Combo: <strong>${seededPatternResult.selectedNeurons.join(" + ")}</strong></span>
+      <span class="item">Direction: <strong>${seededPatternResult.directionMode}</strong></span>
+      <span class="item">Session: <strong>${seededPatternResult.sessionFilter}</strong></span>
+      <span class="item">Triggers: <strong>${seededPatternResult.sampleCount}</strong></span>
+    </div>
+  `;
+
+  els.seededTableBody.innerHTML = seededPatternResult.summaryByExpiry.map((row) => `
+    <tr>
+      <td>${row.expiry}c</td>
+      <td>${row.sampleCount}</td>
+      <td>${row.wins}</td>
+      <td>${row.losses}</td>
+      <td>${(row.winRate * 100).toFixed(1)}%</td>
+      <td>${(row.avgFavorableMove * 100).toFixed(3)}%</td>
+      <td>${(row.avgAdverseMove * 100).toFixed(3)}%</td>
+      <td>${(row.consistency * 100).toFixed(1)}%</td>
+      <td>${Object.entries(row.sessionBreakdown || {}).map(([k, v]) => `${k}:${v.wins}/${v.sampleCount}`).join(" · ") || "-"}</td>
+    </tr>
+  `).join("");
+
+  els.seededInspector.className = "panel-soft tiny";
+  els.seededInspector.innerHTML = `
+    <strong>Inspector</strong>
+    <div class="tiny">Showing first ${Math.min(10, seededPatternResult.examples.length)} examples. Binary outcome by expiry and directional move stats.</div>
+  `;
+  renderSeededExamples(seededPatternResult.examples, seededPatternResult.expiries);
+}
+
+function handleRunSeededLab() {
+  const fromPicker = Array.from(els.seededNeuronSelect?.selectedOptions || []).map((option) => option.value);
+  selectedSeededNeurons = [...new Set([...(selectedSeededNeurons || []), ...fromPicker])].slice(0, 4);
+  if (selectedSeededNeurons.length > 4) selectedSeededNeurons = selectedSeededNeurons.slice(0, 4);
+
+  const result = evaluateSeededPattern(marketDataCandles, neuronActivations, {
+    selectedNeurons: selectedSeededNeurons,
+    directionMode: els.seededDirectionMode?.value || "auto",
+    expiries: getSeededExpiriesFromUI(),
+    sessionFilter: els.seededSessionFilter?.value || "all",
+  });
+
+  seededPatternResult = result;
+  if (els.seededStatus) {
+    els.seededStatus.className = `quick-add-feedback ${result.status === "ok" ? "success" : "warning"}`;
+    els.seededStatus.textContent = result.status === "ok"
+      ? `Seeded evaluation complete. ${result.sampleCount} triggers found.`
+      : (result.reason || "Seeded evaluation failed.");
+  }
+  if (result.status === "ok") {
+    const stamped = { id: `seeded_result_${Date.now().toString(36)}`, createdAt: new Date().toISOString(), config: {
+      selectedNeurons: result.selectedNeurons,
+      directionMode: result.directionMode,
+      sessionFilter: result.sessionFilter,
+      expiries: result.expiries,
+    }, result };
+    seededPatternResults = [stamped, ...seededPatternResults].slice(0, 100);
+    saveSeededPatternResults(seededPatternResults);
+  }
+  renderSeededPatternLab();
+}
+
+function handleSaveSeededCandidate() {
+  if (!seededPatternResult || seededPatternResult.status !== "ok") return;
+  const candidate = buildSeededCandidatePayload(seededPatternResult, { source: "manual-save" });
+  if (!candidate) return;
+  seededPatterns = [candidate, ...seededPatterns.filter((row) => row.patternId !== candidate.patternId)].slice(0, 200);
+  saveSeededPatterns(seededPatterns);
+  if (els.seededStatus) {
+    els.seededStatus.className = "quick-add-feedback success";
+    els.seededStatus.textContent = `Saved seeded candidate ${candidate.patternId}.`;
+  }
+}
+
+function handlePromoteSeededCandidate() {
+  if (!seededPatternResult || seededPatternResult.status !== "ok") return;
+  const candidate = buildSeededCandidatePayload(seededPatternResult, { source: "promote-review" });
+  if (!candidate) return;
+  promotedPatterns = upsertPromotedPattern(promotedPatterns, candidate, "promoted").map((row) => normalizePromotedPattern(row));
+  persistPromotedPatterns();
+  if (els.seededStatus) {
+    els.seededStatus.className = "quick-add-feedback success";
+    els.seededStatus.textContent = `Promoted seeded combo to review queue as ${candidate.patternId}.`;
+  }
+  renderPatternReviewPanel();
+  renderSeededPatternLab();
+}
+
+function handleExportSeededDefinition() {
+  if (!seededPatternResult || seededPatternResult.status !== "ok") return;
+  const payload = {
+    kind: "seededPatternDefinition",
+    exportedAt: new Date().toISOString(),
+    combo: seededPatternResult.selectedNeurons,
+    directionMode: seededPatternResult.directionMode,
+    sessionFilter: seededPatternResult.sessionFilter,
+    expiries: seededPatternResult.expiries,
+    summaryByExpiry: seededPatternResult.summaryByExpiry,
+  };
+  exportDataset(payload);
+  if (els.seededStatus) {
+    els.seededStatus.className = "quick-add-feedback success";
+    els.seededStatus.textContent = "Seeded combo definition exported.";
+  }
+}
+
 function applyPatternReviewDecision(decision) {
   const normalizedDecision = ["promoted", "rejected", "ignored"].includes(decision) ? decision : "";
   if (!normalizedDecision) return;
@@ -2290,6 +2492,7 @@ function applyPatternReviewDecision(decision) {
   }
   patternReviewDecisions = { ...patternReviewDecisions, [selected.patternId]: normalizedDecision };
   renderPatternReviewPanel();
+  renderSeededPatternLab();
 }
 
 async function handleDiscoverPatterns() {
@@ -2343,6 +2546,7 @@ function refreshMarketDataUI() {
   renderPatternReviewPanel();
   renderNeuronGraphPanel();
   refreshClusterMapPanel();
+  renderSeededPatternLab();
 
   if (!els.mdPreviewBody) return;
   const preview = marketDataCandles.slice(-20);
@@ -2572,7 +2776,17 @@ function setupMarketDataEvents() {
     clusterMapFilters.session = els.clusterSessionFilter.value || "all";
     refreshClusterMapPanel();
   });
+
+  els.seededNeuronSelect?.addEventListener("change", () => {
+    selectedSeededNeurons = Array.from(els.seededNeuronSelect.selectedOptions || []).map((option) => option.value).slice(0, 4);
+    renderSeededPatternLab();
+  });
+  els.seededRunBtn?.addEventListener("click", handleRunSeededLab);
+  els.seededSaveBtn?.addEventListener("click", handleSaveSeededCandidate);
+  els.seededPromoteBtn?.addEventListener("click", handlePromoteSeededCandidate);
+  els.seededExportBtn?.addEventListener("click", handleExportSeededDefinition);
 }
+
 
 async function init() {
   await initializeStorage();
@@ -2610,6 +2824,8 @@ async function init() {
   marketDataCandles = loadMarketData();
   marketDataMeta = loadMarketDataMeta();
   promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
+  seededPatterns = loadSeededPatterns();
+  seededPatternResults = loadSeededPatternResults();
   setupTabs();
   setupEvents();
   setupMarketDataEvents();
