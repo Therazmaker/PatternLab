@@ -38,6 +38,7 @@
       <button class="tab-btn" data-tab="bot-generator">Bot Generator</button>
       <button class="tab-btn" data-tab="robustness">Robustness Lab</button>
       <button class="tab-btn" data-tab="session-candles">Session Candles</button>
+      <button class="tab-btn" data-tab="market-data">Market Data</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
 
@@ -316,6 +317,55 @@
         <div id="session-candle-status" class="quick-add-feedback muted"></div>
         <div class="table-wrap"><table><thead><tr><th>index</th><th>time</th><th>open</th><th>high</th><th>low</th><th>close</th><th>color</th><th>analytical read</th><th>recorded signal</th><th>actions</th></tr></thead><tbody id="session-candles-body"></tbody></table></div>
         <h3>Past Sessions</h3><div id="past-sessions" class="stack"></div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="market-data">
+        <h2>Market Data <span class="hint" title="Recolector de velas históricas. Dominio separado de las señales.">ⓘ</span></h2>
+        <p class="muted tiny">Datos de mercado raw para análisis y backtesting. No se mezclan con las señales.</p>
+        <div class="filters">
+          <label>Asset
+            <select id="md-asset">
+              <option value="EURUSD=X">EURUSD</option>
+              <option value="GBPUSD=X">GBPUSD</option>
+              <option value="USDJPY=X">USDJPY</option>
+              <option value="AUDUSD=X">AUDUSD</option>
+            </select>
+          </label>
+          <label>Timeframe
+            <select id="md-timeframe">
+              <option value="1m">1m</option>
+              <option value="2m">2m</option>
+              <option value="5m" selected>5m</option>
+              <option value="15m">15m</option>
+              <option value="30m">30m</option>
+              <option value="1h">1h</option>
+              <option value="1d">1d</option>
+            </select>
+          </label>
+          <label>Range
+            <select id="md-range">
+              <option value="1d">1d</option>
+              <option value="5d" selected>5d</option>
+              <option value="1mo">1mo</option>
+            </select>
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="btn-md-fetch" class="primary">Fetch candles</button>
+          <button id="btn-md-sync" class="ghost">Sync latest</button>
+          <button id="btn-md-export" class="ghost">Export candles</button>
+          <button id="btn-md-clear" class="danger">Clear candles</button>
+        </div>
+        <p id="md-status" class="quick-add-feedback muted"></p>
+        <h3>Últimas 20 velas</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Timestamp</th><th>Open</th><th>High</th><th>Low</th><th>Close</th></tr>
+            </thead>
+            <tbody id="md-preview-body"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel tab-panel" data-panel="settings">

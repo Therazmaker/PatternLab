@@ -14,6 +14,8 @@ const STORAGE_KEYS = [
   "botCompiler",
   "backup",
   "backupMeta",
+  "marketData",
+  "marketDataMeta",
 ];
 
 const defaultMetaFeedback = {
@@ -27,6 +29,7 @@ let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
+  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" },
 };
 
 function enqueueWrite(task) {
@@ -38,6 +41,7 @@ function enqueueWrite(task) {
 }
 
 function normalizeCache(snapshot = {}) {
+  const defaultMarketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
   cache = {
     ...cache,
     signals: Array.isArray(snapshot.signals) ? dedupeSignals(snapshot.signals.map(migrateStoredSignal)) : [],
@@ -50,6 +54,8 @@ function normalizeCache(snapshot = {}) {
     botCompiler: snapshot.botCompiler?.patternMeta && typeof snapshot.botCompiler.patternMeta === "object" ? snapshot.botCompiler : { patternMeta: {} },
     backup: snapshot.backup || null,
     backupMeta: snapshot.backupMeta || null,
+    marketData: Array.isArray(snapshot.marketData) ? snapshot.marketData : [],
+    marketDataMeta: snapshot.marketDataMeta && typeof snapshot.marketDataMeta === "object" ? { ...defaultMarketDataMeta, ...snapshot.marketDataMeta } : { ...defaultMarketDataMeta },
   };
 }
 
@@ -180,6 +186,19 @@ export function loadBotCompilerState() { return cache.botCompiler || { patternMe
 export function saveBotCompilerState(value) {
   cache.botCompiler = value?.patternMeta && typeof value.patternMeta === "object" ? value : { patternMeta: {} };
   return enqueueWrite(() => persistDomain("botCompiler"));
+}
+
+export function loadMarketData() { return cache.marketData || []; }
+export function saveMarketData(candles) {
+  cache.marketData = Array.isArray(candles) ? candles : [];
+  return enqueueWrite(() => persistDomain("marketData"));
+}
+
+const defaultMarketDataMetaValue = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
+export function loadMarketDataMeta() { return cache.marketDataMeta || { ...defaultMarketDataMetaValue }; }
+export function saveMarketDataMeta(meta) {
+  cache.marketDataMeta = meta && typeof meta === "object" ? { ...defaultMarketDataMetaValue, ...meta } : { ...defaultMarketDataMetaValue };
+  return enqueueWrite(() => persistDomain("marketDataMeta"));
 }
 
 export function exportDataset(payload) {
