@@ -38,6 +38,7 @@ import {
   mergeCandles,
   getLatestCandleTimestamp,
   getEarliestCandleTimestamp,
+  importCandlesFromFile,
 } from "./modules/marketData.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
@@ -133,7 +134,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdExportBtn: document.getElementById("btn-md-export"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdPreviewBody: document.getElementById("md-preview-body"),
+  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdPreviewBody: document.getElementById("md-preview-body"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -1886,9 +1887,45 @@ async function handleMarketDataClear() {
   setMarketDataStatus("Market data borrado.", "muted");
 }
 
+async function handleMarketDataImport(file) {
+  setMarketDataStatus("Importing candles...", "muted");
+  const asset = (els.mdAsset?.value || "EURUSD").replace(/=X$/i, "").toUpperCase();
+  const timeframe = els.mdTimeframe?.value || "5m";
+  try {
+    const result = await importCandlesFromFile(file, { asset, timeframe, source: "import" });
+    if (result.invalid > 0) {
+      console.warn("[MarketData] Import skipped rows:", result.errors);
+    }
+    if (result.candles.length === 0) {
+      setMarketDataStatus("No valid candles found in the file.", "warning");
+      return;
+    }
+    console.log("[marketData] candles parsed:", result.total);
+    const prevCount = marketDataCandles.length;
+    marketDataCandles = mergeCandles(marketDataCandles, result.candles);
+    const newCount = marketDataCandles.length - prevCount;
+    const duplicates = result.valid - newCount;
+    console.log("[marketData] candles merged:", marketDataCandles.length);
+    marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles) };
+    await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+    console.log("[marketData] candles saved");
+    refreshMarketDataUI();
+    setMarketDataStatus(`Imported ${result.valid} candles (${newCount} new, ${duplicates} duplicates skipped)`, "success");
+  } catch (err) {
+    console.error("[MarketData] Import error:", err);
+    setMarketDataStatus(`Error: ${err.message}`, "error");
+  }
+}
+
 function setupMarketDataEvents() {
   els.mdFetchBtn?.addEventListener("click", handleMarketDataFetch);
   els.mdSyncBtn?.addEventListener("click", handleMarketDataSync);
+  els.mdImportBtn?.addEventListener("click", () => els.mdImportFile?.click());
+  els.mdImportFile?.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (file) handleMarketDataImport(file);
+    e.target.value = "";
+  });
   els.mdExportBtn?.addEventListener("click", handleMarketDataExport);
   els.mdClearBtn?.addEventListener("click", handleMarketDataClear);
 }

@@ -206,6 +206,136 @@ export function getCandlesInRange(candles, start, end) {
 }
 
 /**
+ * Parse and validate candles from a JSON File object.
+ * Supports both a plain array and a wrapped { candles: [] } format (e.g. PatternLab export).
+ * Required candle fields: timestamp, open, high, low, close.
+ * Optional fields: id, volume, asset, timeframe, source.
+ * If asset/timeframe/source are absent, the values from `defaults` are used.
+ * Invalid rows are skipped with a console warning.
+ *
+ * @param {File} file - JSON file to import
+ * @param {{ asset?: string, timeframe?: string, source?: string }} defaults - Fallback values
+ * @returns {Promise<{ candles: object[], total: number, valid: number, invalid: number, errors: string[] }>}
+ */
+export function importCandlesFromFile(file, { asset = "UNKNOWN", timeframe = "unknown", source = "import" } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("No file provided."));
+      return;
+    }
+
+    console.log("[marketData] import started:", file.name);
+
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error("Error reading file."));
+
+    reader.onload = (e) => {
+      const text = e.target.result;
+
+      if (!text || text.trim() === "") {
+        reject(new Error("Empty file."));
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        reject(new Error("Invalid JSON: could not parse file contents."));
+        return;
+      }
+
+      // Support plain array or PatternLab export wrapper { candles: [] }
+      let rows;
+      if (Array.isArray(parsed)) {
+        rows = parsed;
+      } else if (parsed && Array.isArray(parsed.candles)) {
+        rows = parsed.candles;
+      } else {
+        reject(new Error("JSON must be an array of candles or an object with a 'candles' array."));
+        return;
+      }
+
+      console.log("[marketData] candles parsed:", rows.length);
+
+      const candles = [];
+      const errors = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+
+        if (!row || typeof row !== "object") {
+          console.warn(`[marketData] Row ${i} skipped: not an object.`);
+          errors.push(`Row ${i}: not an object.`);
+          continue;
+        }
+
+        const { id, timestamp, open, high, low, close } = row;
+        const volume = row.volume !== undefined ? row.volume : null;
+
+        if (!timestamp) {
+          console.warn(`[marketData] Row ${i} skipped: missing timestamp.`);
+          errors.push(`Row ${i}: missing timestamp.`);
+          continue;
+        }
+
+        const ts = new Date(timestamp);
+        if (isNaN(ts.getTime())) {
+          console.warn(`[marketData] Row ${i} skipped: invalid timestamp "${timestamp}".`);
+          errors.push(`Row ${i}: invalid timestamp "${timestamp}".`);
+          continue;
+        }
+
+        const o = Number(open);
+        const h = Number(high);
+        const l = Number(low);
+        const c = Number(close);
+
+        if (isNaN(o) || isNaN(h) || isNaN(l) || isNaN(c)) {
+          console.warn(`[marketData] Row ${i} skipped: invalid OHLC values.`);
+          errors.push(`Row ${i}: invalid OHLC values (open=${open}, high=${high}, low=${low}, close=${close}).`);
+          continue;
+        }
+
+        // Infer optional fields from defaults when absent
+        const candleAsset = row.asset || asset;
+        const candleTimeframe = row.timeframe || timeframe;
+        const candleSource = row.source || source;
+
+        const unixSeconds = Math.floor(ts.getTime() / 1000);
+        const candleId = id || `mkt_${candleAsset}_${candleTimeframe}_${unixSeconds}`;
+
+        candles.push({
+          id: candleId,
+          asset: candleAsset,
+          timeframe: candleTimeframe,
+          source: candleSource,
+          timestamp: ts.toISOString(),
+          open: o,
+          high: h,
+          low: l,
+          close: c,
+          volume: (volume !== null && volume !== undefined && !isNaN(Number(volume))) ? Number(volume) : null,
+        });
+      }
+
+      console.log("[marketData] candles validated:", candles.length, "valid,", errors.length, "invalid.");
+
+      resolve({
+        candles,
+        total: rows.length,
+        valid: candles.length,
+        invalid: errors.length,
+        errors,
+      });
+    };
+
+    reader.readAsText(file);
+  });
+}
+
+/**
  * Slice candles into session-like chunks based on a session config.
  * Each session slice covers one calendar date (UTC) by default.
  * @param {object[]} candles - Sorted candles for a single asset+TF.
