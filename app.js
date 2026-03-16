@@ -2097,6 +2097,70 @@ function renderPatternDiscoveryPanel() {
 }
 
 
+function formatOutcomeLabel(label) {
+  const value = String(label || "").toUpperCase();
+  if (value === "WIN" || value === "LOSS") return value;
+  return "LOSS";
+}
+
+function renderPatternReviewInspector(candidate) {
+  if (!els.prInspect) return;
+  if (!candidate) {
+    els.prInspect.className = "panel-soft muted tiny";
+    els.prInspect.textContent = "Click Inspect on a candidate to review pattern details and examples.";
+    return;
+  }
+
+  const decision = patternReviewDecisions[candidate.patternId] || "pending";
+  const direction = candidate.binaryDirection || candidate.direction || "-";
+  const expiry = candidate.preferredExpiryCandles ? `${candidate.preferredExpiryCandles}c` : "-";
+  const examples = (candidate.examples || []).slice(0, 10).map((ex) => {
+    const ts = ex.timestamp ? new Date(ex.timestamp).toLocaleString() : "-";
+    const favorable = ((Number(ex.favorableMovePct) || 0) * 100).toFixed(2);
+    const adverse = ((Number(ex.adverseMovePct) || 0) * 100).toFixed(2);
+    return `
+      <tr>
+        <td>${ts}</td>
+        <td>${ex.index ?? "-"}</td>
+        <td>${formatOutcomeLabel(ex.outcomeLabel)}</td>
+        <td>${favorable}%</td>
+        <td>${adverse}%</td>
+      </tr>
+    `;
+  }).join("");
+
+  els.prInspect.className = "panel-soft tiny";
+  els.prInspect.innerHTML = `
+    <div class="note-head"><strong>Pattern Inspector · ${candidate.patternId}</strong><span class="badge">${decision}</span></div>
+    <div class="pr-inspector-grid">
+      <p><strong>patternId:</strong> ${candidate.patternId}</p>
+      <p><strong>direction:</strong> ${direction}</p>
+      <p><strong>expiry:</strong> ${expiry}</p>
+      <p><strong>sample count:</strong> ${candidate.sampleCount ?? 0}</p>
+      <p><strong>consistency:</strong> ${((candidate.consistencyScore || 0) * 100).toFixed(1)}%</p>
+      <p><strong>score:</strong> ${Number(candidate.score || 0).toFixed(3)}</p>
+    </div>
+    <p><strong>neuron list:</strong> ${(candidate.neurons || []).join(", ") || "-"}</p>
+    <div class="table-wrap pr-inspector-table-wrap">
+      <table class="pr-inspector-table">
+        <thead>
+          <tr><th>Timestamp</th><th>Candle Index</th><th>Outcome</th><th>Favorable Move</th><th>Adverse Move</th></tr>
+        </thead>
+        <tbody>${examples || '<tr><td colspan="5" class="muted">No examples available.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="button-row compact">
+      <button type="button" class="primary" data-pr-action="promoted">Promote</button>
+      <button type="button" class="ghost" data-pr-action="rejected">Reject</button>
+      <button type="button" class="ghost" data-pr-action="ignored">Ignore</button>
+    </div>
+  `;
+
+  els.prInspect.querySelectorAll("button[data-pr-action]").forEach((btn) => {
+    btn.addEventListener("click", () => applyPatternReviewDecision(btn.getAttribute("data-pr-action") || ""));
+  });
+}
+
 function renderPatternReviewPanel() {
   if (!els.prSummary || !els.prTableBody || !els.prInspect || !els.prPromotedSummary) return;
 
@@ -2113,16 +2177,11 @@ function renderPatternReviewPanel() {
   `;
 
   if (!candidates.length) {
-    els.prTableBody.innerHTML = '<tr><td colspan="8" class="muted">No candidate patterns yet. Run Discover Patterns first.</td></tr>';
-    els.prInspect.className = "panel-soft muted tiny";
-    els.prInspect.textContent = "Selecciona un candidato para inspeccionar su estructura.";
+    els.prTableBody.innerHTML = '<tr><td colspan="9" class="muted">No candidate patterns yet. Run Discover Patterns first.</td></tr>';
+    renderPatternReviewInspector(null);
     els.prPromotedSummary.className = "panel-soft muted tiny";
     els.prPromotedSummary.textContent = "Sin patrones promovidos.";
     return;
-  }
-
-  if (!selectedReviewCandidateId || !candidates.some((row) => row.patternId === selectedReviewCandidateId)) {
-    selectedReviewCandidateId = candidates[0].patternId;
   }
 
   els.prTableBody.innerHTML = candidates.slice(0, 50).map((row, index) => {
@@ -2138,41 +2197,28 @@ function renderPatternReviewPanel() {
         <td>${(row.consistencyScore * 100).toFixed(1)}%</td>
         <td>${row.score.toFixed(3)}</td>
         <td><span class="badge">${decision}</span></td>
+        <td><button type="button" class="ghost pr-inspect-btn" data-pr-inspect-id="${row.patternId}">Inspect</button></td>
       </tr>
     `;
   }).join("");
 
   els.prTableBody.querySelectorAll("tr[data-review-candidate-id]").forEach((tr) => {
-    tr.addEventListener("click", () => {
+    tr.addEventListener("click", (event) => {
+      if (event.target?.closest("button[data-pr-inspect-id]")) return;
       selectedReviewCandidateId = tr.getAttribute("data-review-candidate-id") || "";
       renderPatternReviewPanel();
     });
   });
 
-  const selected = candidates.find((row) => row.patternId === selectedReviewCandidateId) || candidates[0];
-  const decision = patternReviewDecisions[selected.patternId] || "pending";
-  const stats = {
-    wins: selected.winCount || 0,
-    losses: selected.lossCount || 0,
-    neutrals: selected.neutralCount || 0,
-    winRate: ((selected.winRate || 0) * 100).toFixed(1),
-    consistency: ((selected.consistencyScore || 0) * 100).toFixed(1),
-    score: Number(selected.score || 0).toFixed(3),
-  };
-  const examples = (selected.examples || []).map((ex) => {
-    const ts = ex.timestamp ? new Date(ex.timestamp).toLocaleString() : "-";
-    return `<li>${ts} · outcome ${ex.outcomeLabel || "-"} · expiry ${ex.expiryCandles || "-"} · entry ${ex.entryPrice ?? "-"} → close ${ex.expiryPrice ?? "-"}</li>`;
-  }).join("");
+  els.prTableBody.querySelectorAll("button[data-pr-inspect-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedReviewCandidateId = btn.getAttribute("data-pr-inspect-id") || "";
+      renderPatternReviewPanel();
+    });
+  });
 
-  els.prInspect.className = "panel-soft tiny";
-  els.prInspect.innerHTML = `
-    <div class="note-head"><strong>${selected.patternId}</strong><span class="badge">${decision}</span></div>
-    <p class="muted">${selected.explanation || "No explanation"}</p>
-    <p><strong>Neuron list:</strong> ${selected.neurons.join(", ") || "-"}</p>
-    <p><strong>Context:</strong> ${Object.entries(selected.context || {}).map(([k, v]) => `${k}=${v}`).join(", ") || "-"}</p>
-    <p><strong>Mini stats:</strong> ${stats.wins}W / ${stats.losses}L / ${stats.neutrals}N · Winrate ${stats.winRate}% · Consistency ${stats.consistency}% · Score ${stats.score}</p>
-    <details open><summary>Examples (timestamps + outcomes)</summary><ul class="tiny">${examples || "<li>No examples</li>"}</ul></details>
-  `;
+  const selected = candidates.find((row) => row.patternId === selectedReviewCandidateId) || null;
+  renderPatternReviewInspector(selected);
 
   els.prPromotedSummary.className = "panel-soft tiny";
   const promotedRows = promotedPatterns.slice(0, 8).map((row) => `<li>${row.id} · ${row.direction} · expiry ${row.expiry || "-"}c · ${row.neurons.join(" + ")} · W/L ${row.liveStats.wins}/${row.liveStats.losses}</li>`).join("");
@@ -2182,15 +2228,18 @@ function renderPatternReviewPanel() {
 }
 
 function applyPatternReviewDecision(decision) {
+  const normalizedDecision = ["promoted", "rejected", "ignored"].includes(decision) ? decision : "";
+  if (!normalizedDecision) return;
+
   const candidates = patternDiscoveryResult?.candidates || [];
   const selected = candidates.find((row) => row.patternId === selectedReviewCandidateId);
   if (!selected) return;
 
-  if (decision === "promoted") {
+  if (normalizedDecision === "promoted") {
     promotedPatterns = upsertPromotedPattern(promotedPatterns, selected, "promoted").map((row) => normalizePromotedPattern(row));
     persistPromotedPatterns();
   }
-  patternReviewDecisions = { ...patternReviewDecisions, [selected.patternId]: decision };
+  patternReviewDecisions = { ...patternReviewDecisions, [selected.patternId]: normalizedDecision };
   renderPatternReviewPanel();
 }
 
@@ -2213,7 +2262,7 @@ async function handleDiscoverPatterns() {
     minSamples: 5,
     maxCombinationSize: 4,
     lookaheadCandles: 6,
-    maxExamplesPerCandidate: 8,
+    maxExamplesPerCandidate: 10,
   });
   const elapsed = performance.now() - startedAt;
   renderPatternDiscoveryPanel();
