@@ -60,6 +60,9 @@ import {
   renderNeuronGraph,
 } from "./modules/neuronGraph.js";
 import { buildImportPreview } from "./modules/importer.js";
+import { buildClusterGraph, getWeightBounds } from "./src/modules/clusterMap/clusterGraphBuilder.js";
+import { renderClusterInspector, renderClusterSummary, syncRangeInput } from "./src/modules/clusterMap/clusterUI.js";
+import { renderClusterMap } from "./src/modules/clusterMap/clusterMap.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
 import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modules/feed.js";
 import { applyReview } from "./modules/review.js";
@@ -153,7 +156,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"),
+  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -194,6 +197,9 @@ let neuronGraph = null;
 let selectedGraphNodeId = "";
 let selectedGraphEdgeKey = "";
 let patternDiscoveryResult = null;
+let clusterGraph = null;
+let selectedClusterNodeId = "";
+const clusterMapFilters = { minEdgeWeight: 1, minNodeWeight: 1, session: "all" };
 let selectedPatternCandidateId = "";
 let selectedReviewCandidateId = "";
 let promotedPatterns = [];
@@ -2227,6 +2233,49 @@ function renderPatternReviewPanel() {
     : "Sin patrones promovidos.";
 }
 
+function rebuildClusterMap() {
+  const candidates = patternDiscoveryResult?.candidates || [];
+  const bounds = getWeightBounds(candidates);
+
+  if (els.clusterMinEdge) {
+    els.clusterMinEdge.max = String(Math.max(1, bounds.maxEdgeWeight));
+    clusterMapFilters.minEdgeWeight = Math.min(clusterMapFilters.minEdgeWeight, Number(els.clusterMinEdge.max) || 1);
+    syncRangeInput(els.clusterMinEdge, els.clusterMinEdgeValue, clusterMapFilters.minEdgeWeight);
+  }
+  if (els.clusterMinNode) {
+    els.clusterMinNode.max = String(Math.max(1, bounds.maxNodeWeight));
+    clusterMapFilters.minNodeWeight = Math.min(clusterMapFilters.minNodeWeight, Number(els.clusterMinNode.max) || 1);
+    syncRangeInput(els.clusterMinNode, els.clusterMinNodeValue, clusterMapFilters.minNodeWeight);
+  }
+
+  clusterGraph = buildClusterGraph(candidates, clusterMapFilters);
+  if (!clusterGraph.nodes.some((node) => node.id === selectedClusterNodeId)) selectedClusterNodeId = "";
+
+  renderClusterSummary(els.clusterMapSummary, clusterGraph);
+  renderClusterInspector(els.clusterMapInspector, clusterGraph, selectedClusterNodeId, candidates);
+  renderClusterMap(els.clusterMapContainer, clusterGraph, {
+    onNodeClick: (node) => {
+      selectedClusterNodeId = node.id;
+      renderClusterInspector(els.clusterMapInspector, clusterGraph, selectedClusterNodeId, candidates);
+    },
+  });
+}
+
+function refreshClusterMapPanel() {
+  if (!patternDiscoveryResult?.candidates?.length) {
+    clusterGraph = null;
+    selectedClusterNodeId = "";
+    renderClusterSummary(els.clusterMapSummary, null);
+    renderClusterInspector(els.clusterMapInspector, null, "", []);
+    if (els.clusterMapContainer) {
+      els.clusterMapContainer.innerHTML = '<div class="muted tiny">Run Discover Patterns to build neuron clusters.</div>';
+    }
+    return;
+  }
+
+  rebuildClusterMap();
+}
+
 function applyPatternReviewDecision(decision) {
   const normalizedDecision = ["promoted", "rejected", "ignored"].includes(decision) ? decision : "";
   if (!normalizedDecision) return;
@@ -2267,6 +2316,7 @@ async function handleDiscoverPatterns() {
   const elapsed = performance.now() - startedAt;
   renderPatternDiscoveryPanel();
   renderPatternReviewPanel();
+  refreshClusterMapPanel();
   setMarketDataStatus(`Pattern discovery complete: ${patternDiscoveryResult.summary.candidatesRanked} ranked candidates (${elapsed.toFixed(1)}ms).`, "success");
 }
 
@@ -2292,6 +2342,7 @@ function refreshMarketDataUI() {
   renderPatternDiscoveryPanel();
   renderPatternReviewPanel();
   renderNeuronGraphPanel();
+  refreshClusterMapPanel();
 
   if (!els.mdPreviewBody) return;
   const preview = marketDataCandles.slice(-20);
@@ -2506,6 +2557,21 @@ function setupMarketDataEvents() {
   els.prPromoteBtn?.addEventListener("click", () => applyPatternReviewDecision("promoted"));
   els.prRejectBtn?.addEventListener("click", () => applyPatternReviewDecision("rejected"));
   els.prIgnoreBtn?.addEventListener("click", () => applyPatternReviewDecision("ignored"));
+
+  els.clusterMinEdge?.addEventListener("input", () => {
+    clusterMapFilters.minEdgeWeight = Number(els.clusterMinEdge.value) || 1;
+    syncRangeInput(els.clusterMinEdge, els.clusterMinEdgeValue, clusterMapFilters.minEdgeWeight);
+    refreshClusterMapPanel();
+  });
+  els.clusterMinNode?.addEventListener("input", () => {
+    clusterMapFilters.minNodeWeight = Number(els.clusterMinNode.value) || 1;
+    syncRangeInput(els.clusterMinNode, els.clusterMinNodeValue, clusterMapFilters.minNodeWeight);
+    refreshClusterMapPanel();
+  });
+  els.clusterSessionFilter?.addEventListener("change", () => {
+    clusterMapFilters.session = els.clusterSessionFilter.value || "all";
+    refreshClusterMapPanel();
+  });
 }
 
 async function init() {
