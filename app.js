@@ -48,6 +48,7 @@ import {
   getTopNeuronTypes,
   summarizeNeuronActivations,
 } from "./modules/neuronEngine.js";
+import { discoverCandidatePatterns } from "./modules/patternDiscovery.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
 import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modules/feed.js";
@@ -142,7 +143,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"),
+  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -179,6 +180,8 @@ let marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yah
 let marketDataDiagnostics = null;
 let neuronActivations = [];
 let neuronSummary = null;
+let patternDiscoveryResult = null;
+let selectedPatternCandidateId = "";
 
 function setSettingsStatus(message, kind = "muted") {
   if (!els.settingsStatus) return;
@@ -1862,6 +1865,106 @@ function renderNeuronLatestPreview() {
   `).join("");
 }
 
+
+function renderPatternDiscoveryPanel() {
+  if (!els.mdPatternSummary || !els.mdPatternBody || !els.mdPatternDetails) return;
+  if (!patternDiscoveryResult) {
+    els.mdPatternSummary.className = "panel-soft muted tiny";
+    els.mdPatternSummary.textContent = "Pattern discovery pendiente.";
+    els.mdPatternBody.innerHTML = `<tr><td colspan="10" class="muted">No candidate patterns yet.</td></tr>`;
+    els.mdPatternDetails.className = "panel-soft muted tiny";
+    els.mdPatternDetails.textContent = "Selecciona un candidato para ver explicación y ejemplos.";
+    return;
+  }
+
+  const summary = patternDiscoveryResult.summary || {};
+  els.mdPatternSummary.className = "panel-soft tiny";
+  els.mdPatternSummary.innerHTML = `
+    <div class="neuron-summary-grid">
+      <span class="item">Candles scanned: <strong>${summary.candlesScanned || 0}</strong></span>
+      <span class="item">Occurrences: <strong>${summary.occurrencesBuilt || 0}</strong></span>
+      <span class="item">Candidate groups: <strong>${summary.candidateGroups || 0}</strong></span>
+      <span class="item">Ranked: <strong>${summary.candidatesRanked || 0}</strong></span>
+    </div>
+  `;
+
+  const candidates = patternDiscoveryResult.candidates || [];
+  if (!candidates.length) {
+    els.mdPatternBody.innerHTML = `<tr><td colspan="10" class="muted">No strong candidates with current filters.</td></tr>`;
+    els.mdPatternDetails.className = "panel-soft muted tiny";
+    els.mdPatternDetails.textContent = "Prueba con más velas o ajusta minSamples.";
+    return;
+  }
+
+  if (!selectedPatternCandidateId || !candidates.some((row) => row.patternId === selectedPatternCandidateId)) {
+    selectedPatternCandidateId = candidates[0].patternId;
+  }
+
+  const topRows = candidates.slice(0, 20);
+  els.mdPatternBody.innerHTML = topRows.map((row, i) => `
+    <tr class="${row.patternId === selectedPatternCandidateId ? "session-row-selected" : ""}" data-pattern-id="${row.patternId}">
+      <td>${i + 1}</td>
+      <td>${row.direction}</td>
+      <td>${row.neurons.join(" + ")}</td>
+      <td>${row.context.session || "-"}${row.context.localPush ? ` · ${row.context.localPush}` : ""}</td>
+      <td>${row.sampleCount}</td>
+      <td>${(row.winRate * 100).toFixed(1)}%</td>
+      <td>${(row.avgFavorableMovePct * 100).toFixed(2)}%</td>
+      <td>${(row.avgAdverseMovePct * 100).toFixed(2)}%</td>
+      <td>${row.score.toFixed(3)}</td>
+      <td>${row.pineCompatible ? "yes" : "no"}</td>
+    </tr>
+  `).join("");
+
+  els.mdPatternBody.querySelectorAll("tr[data-pattern-id]").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      selectedPatternCandidateId = tr.getAttribute("data-pattern-id") || "";
+      renderPatternDiscoveryPanel();
+    });
+  });
+
+  const selected = candidates.find((row) => row.patternId === selectedPatternCandidateId) || candidates[0];
+  const exampleList = (selected.examples || []).map((ex) => {
+    const ts = ex.timestamp ? new Date(ex.timestamp).toLocaleString() : "-";
+    return `<li>${ts} · idx ${ex.index} · ${ex.outcomeLabel} · fav ${(ex.maxFavorableMovePct * 100).toFixed(2)}% / adv ${(ex.maxAdverseMovePct * 100).toFixed(2)}%</li>`;
+  }).join("");
+
+  els.mdPatternDetails.className = "panel-soft tiny";
+  els.mdPatternDetails.innerHTML = `
+    <strong>${selected.patternId}</strong>
+    <p class="muted">${selected.explanation}</p>
+    <div class="tiny">Neurons: ${selected.neurons.join(" + ")}</div>
+    <div class="tiny">Context: ${Object.entries(selected.context).map(([k,v]) => `${k}=${v}`).join(", ") || "-"}</div>
+    <ul class="tiny">${exampleList || "<li>No examples</li>"}</ul>
+  `;
+}
+
+async function handleDiscoverPatterns() {
+  if (!marketDataCandles.length) {
+    setMarketDataStatus("Load or import candles before discovering patterns.", "warning");
+    return;
+  }
+  if (!neuronActivations.length) {
+    handleComputeNeurons();
+  }
+
+  if (!neuronActivations.length) {
+    setMarketDataStatus("Neuron activations unavailable.", "error");
+    return;
+  }
+
+  const startedAt = performance.now();
+  patternDiscoveryResult = discoverCandidatePatterns(marketDataCandles, neuronActivations, {
+    minSamples: 5,
+    maxCombinationSize: 4,
+    lookaheadCandles: 6,
+    maxExamplesPerCandidate: 8,
+  });
+  const elapsed = performance.now() - startedAt;
+  renderPatternDiscoveryPanel();
+  setMarketDataStatus(`Pattern discovery complete: ${patternDiscoveryResult.summary.candidatesRanked} ranked candidates (${elapsed.toFixed(1)}ms).`, "success");
+}
+
 function refreshMarketDataUI() {
   const total = marketDataCandles.length;
   const first = getEarliestCandleTimestamp(marketDataCandles);
@@ -1881,6 +1984,7 @@ function refreshMarketDataUI() {
   renderMarketDataDiagnostics();
   renderNeuronSummaryPanel();
   renderNeuronLatestPreview();
+  renderPatternDiscoveryPanel();
 
   if (!els.mdPreviewBody) return;
   const preview = marketDataCandles.slice(-20);
@@ -1914,6 +2018,8 @@ async function handleMarketDataFetch() {
     marketDataCandles = mergeCandles(marketDataCandles, candles);
     neuronActivations = [];
     neuronSummary = null;
+    patternDiscoveryResult = null;
+    selectedPatternCandidateId = "";
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
     refreshMarketDataUI();
@@ -1942,6 +2048,8 @@ async function handleMarketDataSync() {
     const added = marketDataCandles.length - prevCount;
     neuronActivations = [];
     neuronSummary = null;
+    patternDiscoveryResult = null;
+    selectedPatternCandidateId = "";
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
     refreshMarketDataUI();
@@ -1972,6 +2080,8 @@ function handleComputeNeurons() {
   console.log("[neuronEngine] candles loaded", marketDataCandles.length);
   neuronActivations = calculateNeuronActivations(marketDataCandles);
   neuronSummary = summarizeNeuronActivations(neuronActivations);
+  patternDiscoveryResult = null;
+  selectedPatternCandidateId = "";
   console.log("[neuronEngine] activations computed", neuronActivations.length);
   console.log("[neuronEngine] summary built", neuronSummary);
 
@@ -2005,6 +2115,8 @@ async function handleMarketDataClear() {
   marketDataDiagnostics = null;
   neuronActivations = [];
   neuronSummary = null;
+  patternDiscoveryResult = null;
+  selectedPatternCandidateId = "";
   await Promise.all([saveMarketData([]), saveMarketDataMeta(marketDataMeta)]);
   refreshMarketDataUI();
   setMarketDataStatus("Market data borrado.", "muted");
@@ -2030,6 +2142,8 @@ async function handleMarketDataImport(file) {
     const duplicates = result.valid - newCount;
     neuronActivations = [];
     neuronSummary = null;
+    patternDiscoveryResult = null;
+    selectedPatternCandidateId = "";
     console.log("[marketData] candles merged:", marketDataCandles.length);
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles) };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
@@ -2054,6 +2168,7 @@ function setupMarketDataEvents() {
   els.mdExportBtn?.addEventListener("click", handleMarketDataExport);
   els.mdIntegrityBtn?.addEventListener("click", handleMarketDataIntegrityCheck);
   els.mdNeuronBtn?.addEventListener("click", handleComputeNeurons);
+  els.mdDiscoverPatternsBtn?.addEventListener("click", handleDiscoverPatterns);
   els.mdClearBtn?.addEventListener("click", handleMarketDataClear);
 }
 
