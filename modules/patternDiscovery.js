@@ -354,14 +354,19 @@ export function aggregateCandidatePatterns(evaluatedOccurrences, options = {}) {
       pineCompatible,
       score: 0,
       explanation: "",
-      examples: rows.slice(0, opts.maxExamplesPerCandidate).map((row) => ({
-        timestamp: row.timestamp,
-        index: row.index,
-        outcomeLabel: row.outcome.outcomeLabel,
-        expiryCandles: row.outcome.expiryCandles,
-        entryPrice: row.outcome.entryPrice,
-        expiryPrice: row.outcome.expiryPrice,
-      })),
+      examples: rows.slice(0, opts.maxExamplesPerCandidate).map((row) => {
+        const moveStats = buildExampleMoveStats(row.outcome);
+        return {
+          timestamp: row.timestamp,
+          index: row.index,
+          outcomeLabel: row.outcome.outcomeLabel,
+          expiryCandles: row.outcome.expiryCandles,
+          entryPrice: row.outcome.entryPrice,
+          expiryPrice: row.outcome.expiryPrice,
+          favorableMovePct: moveStats.favorableMovePct,
+          adverseMovePct: moveStats.adverseMovePct,
+        };
+      }),
     };
 
     candidate.score = scoreCandidatePattern(candidate, opts);
@@ -381,6 +386,24 @@ function hashCode(text) {
     hash |= 0;
   }
   return hash;
+}
+
+function toMovePct(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildExampleMoveStats(outcome = {}) {
+  const entryPrice = toMovePct(outcome.entryPrice);
+  const expiryPrice = toMovePct(outcome.expiryPrice, entryPrice);
+  if (!entryPrice) return { favorableMovePct: 0, adverseMovePct: 0 };
+
+  const deltaPct = (expiryPrice - entryPrice) / entryPrice;
+  const directionalDelta = outcome.binaryDirection === "PUT" ? -deltaPct : deltaPct;
+  return {
+    favorableMovePct: Math.max(0, directionalDelta),
+    adverseMovePct: Math.max(0, -directionalDelta),
+  };
 }
 
 export function rankCandidatePatterns(candidates, options = {}) {
