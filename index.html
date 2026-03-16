@@ -29,6 +29,7 @@
       <button class="tab-btn" data-tab="compare">Compare</button>
       <button class="tab-btn" data-tab="radar">Radar</button>
       <button class="tab-btn" data-tab="versions">Pattern Versions</button>
+      <button class="tab-btn" data-tab="cluster-map">Cluster Map</button>
       <button class="tab-btn" data-tab="confidence">Confidence Evolution</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
       <button class="tab-btn" data-tab="hypothesis">Hypothesis Lab</button>
@@ -164,6 +165,26 @@
       </section>
 
       <section class="panel tab-panel" data-panel="versions"><h2>Pattern Versions</h2><div id="versions-wrap"></div></section>
+
+      <section class="panel tab-panel" data-panel="cluster-map">
+        <h2>Cluster Map</h2>
+        <div class="filters">
+          <label>Min edge weight <input id="cluster-min-edge" type="range" min="1" max="20" value="1" /></label>
+          <span id="cluster-min-edge-value" class="tiny muted">1</span>
+          <label>Min node weight <input id="cluster-min-node" type="range" min="1" max="20" value="1" /></label>
+          <span id="cluster-min-node-value" class="tiny muted">1</span>
+          <label>Session filter
+            <select id="cluster-session-filter">
+              <option value="all">All sessions</option>
+            </select>
+          </label>
+        </div>
+        <div id="cluster-map-summary" class="panel-soft muted tiny">No cluster map data yet.</div>
+        <div class="split">
+          <div id="cluster-map-container" class="cluster-map-container"></div>
+          <div id="cluster-map-inspector" class="panel-soft muted tiny">Click a node to inspect combos and related patterns.</div>
+        </div>
+      </section>
 
       <section class="panel tab-panel" data-panel="confidence">
         <h2>Confidence Evolution</h2>
@@ -483,6 +504,7 @@
       </form>
     </dialog>
 
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>
