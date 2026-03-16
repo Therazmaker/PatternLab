@@ -48,7 +48,15 @@
     <main class="layout">
       <section class="panel tab-panel active" data-panel="import">
         <h2>Importador JSON</h2>
-        <div class="quick-add-block">
+        <div class="filters">
+          <label>Modo importador
+            <select id="importer-mode">
+              <option value="research">Quick Add Signal</option>
+              <option value="live">Live Pattern Log</option>
+            </select>
+          </label>
+        </div>
+        <div class="quick-add-block" id="quick-add-block">
           <h3>Quick Add Signal</h3>
           <div class="quick-add-meta-row">
             <select id="quick-add-pattern"><option value="">Selecciona patrón</option></select>
@@ -66,13 +74,57 @@
           <p class="muted tiny">Guía: CALL suele alinearse con soporte y PUT con resistencia (no bloqueante).</p>
           <details id="quick-add-v3-toggle"><summary>V3 Price Structure</summary><p class="muted tiny">Estos campos son opcionales y pensados para v3 o superior.</p><div class="quick-add-sr-row"><input id="quick-add-open" type="number" step="0.00001" placeholder="Open" /><input id="quick-add-high" type="number" step="0.00001" placeholder="High" /><input id="quick-add-low" type="number" step="0.00001" placeholder="Low" /><input id="quick-add-close" type="number" step="0.00001" placeholder="Close" /></div><div class="quick-add-sr-row"><input id="quick-add-mfe" type="number" step="0.00001" placeholder="MFE" /><input id="quick-add-mae" type="number" step="0.00001" placeholder="MAE" /><select id="quick-add-excursion-unit"><option value="price">price</option><option value="points">points</option><option value="ticks">ticks</option></select><button type="button" id="btn-quick-add-auto-excursion" class="ghost" title="Aproximación basada en datos ingresados.">Auto-calculate MFE/MAE</button></div><div class="quick-add-sr-row"><label class="inline-toggle"><input id="quick-add-attach-session" type="checkbox" /> Attach to active session</label><select id="quick-add-session-candle"><option value="">Última vela</option></select></div></details><div id="quick-add-feedback" class="quick-add-feedback muted"></div>
         </div>
+        <div id="live-log-block" class="quick-add-block" style="display:none;">
+          <h3>Live Pattern Log</h3>
+          <div class="quick-add-meta-row">
+            <select id="live-pattern-selector"><option value="">Selecciona patrón promovido</option></select>
+            <input id="live-pattern-id" placeholder="patternId" />
+          </div>
+          <div class="quick-add-meta-row">
+            <input id="live-pattern-name" placeholder="patternName" />
+            <input id="live-asset" placeholder="asset" />
+          </div>
+          <div class="quick-add-meta-row">
+            <input id="live-timeframe" placeholder="timeframe (ej: 5m)" />
+            <select id="live-direction"><option value="CALL">CALL</option><option value="PUT">PUT</option></select>
+          </div>
+          <div class="quick-add-sr-row">
+            <input id="live-trigger-ts" type="datetime-local" placeholder="triggerTimestamp" />
+            <input id="live-entry-ts" type="datetime-local" placeholder="entryTimestamp" />
+            <input id="live-expiry-bars" type="number" min="1" placeholder="expiryBars" />
+            <input id="live-expiry-ts" type="datetime-local" placeholder="expiryTimestamp (opcional)" />
+          </div>
+          <div class="quick-add-sr-row">
+            <input id="live-entry-price" type="number" step="0.00001" placeholder="entryPrice" />
+            <input id="live-expiry-price" type="number" step="0.00001" placeholder="expiryPrice" />
+            <input id="live-session" placeholder="session (auto)" />
+          </div>
+          <div class="quick-add-sr-row">
+            <input id="live-open" type="number" step="0.00001" placeholder="open" />
+            <input id="live-high" type="number" step="0.00001" placeholder="high" />
+            <input id="live-low" type="number" step="0.00001" placeholder="low" />
+            <input id="live-close" type="number" step="0.00001" placeholder="close" />
+          </div>
+          <div class="quick-add-sr-row">
+            <input id="live-mfe" type="number" step="0.00001" placeholder="mfe" />
+            <input id="live-mae" type="number" step="0.00001" placeholder="mae" />
+            <input id="live-notes" placeholder="notes" />
+          </div>
+          <div id="live-feedback" class="quick-add-feedback muted"></div>
+        </div>
         <p class="muted">Pega una señal, un array de señales o un objeto con <code>signals</code>.</p>
         <textarea id="json-input" placeholder='Ejemplo: [{"asset":"EURUSD","direction":"CALL","timestamp":"2026-01-12T14:05:00Z"}]'></textarea>
-        <div class="button-row">
+        <div class="button-row" id="research-actions">
           <button id="btn-validate">Validar</button>
           <button id="btn-import" class="primary">Importar válidas</button>
           <button id="btn-clear" class="ghost">Limpiar</button>
           <button id="btn-load-demo" class="ghost">Cargar demo</button>
+        </div>
+        <div class="button-row" id="live-actions" style="display:none;">
+          <button id="btn-live-save" class="primary">Save live signal</button>
+          <button id="btn-live-import">Import live signals</button>
+          <button id="btn-live-validate">Validate</button>
+          <button id="btn-live-clear" class="ghost">Clear</button>
         </div>
         <label class="inline-toggle"><input id="import-allow-duplicates" type="checkbox" /> Permitir importación de duplicadas detectadas</label>
         <div id="preview" class="preview"></div>

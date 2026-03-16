@@ -14,6 +14,8 @@ import {
   loadMarketData,
   loadMarketDataMeta,
   loadMetaFeedback,
+  loadLivePatternSignals,
+  loadLivePatternSummary,
   loadNotes,
   loadPatternVersionsRegistry,
   loadPromotedPatterns,
@@ -28,6 +30,8 @@ import {
   saveMarketData,
   saveMarketDataMeta,
   saveBotCompilerState,
+  saveLivePatternSignals,
+  saveLivePatternSummary,
   saveMetaFeedback,
   saveNotes,
   savePatternVersionsRegistry,
@@ -64,6 +68,7 @@ import {
   renderNeuronGraph,
 } from "./modules/neuronGraph.js";
 import { buildImportPreview } from "./modules/importer.js";
+import { buildLiveImportPreview, computeLivePatternSummary, normalizeLivePatternSignal } from "./modules/livePatternSignals.js";
 import { buildClusterGraph, getWeightBounds } from "./src/modules/clusterMap/clusterGraphBuilder.js";
 import { buildSeededCandidatePayload, evaluateSeededPattern } from "./modules/seededPatternLab.js";
 import { renderClusterInspector, renderClusterSummary, syncRangeInput } from "./src/modules/clusterMap/clusterUI.js";
@@ -182,6 +187,37 @@ els.seededTableBody = document.getElementById("seeded-table-body");
 els.seededInspector = document.getElementById("seeded-inspector");
 els.seededExamplesBody = document.getElementById("seeded-examples-body");
 
+els.importerMode = document.getElementById("importer-mode");
+els.quickAddBlock = document.getElementById("quick-add-block");
+els.liveLogBlock = document.getElementById("live-log-block");
+els.researchActions = document.getElementById("research-actions");
+els.liveActions = document.getElementById("live-actions");
+els.livePatternSelector = document.getElementById("live-pattern-selector");
+els.livePatternId = document.getElementById("live-pattern-id");
+els.livePatternName = document.getElementById("live-pattern-name");
+els.liveAsset = document.getElementById("live-asset");
+els.liveTimeframe = document.getElementById("live-timeframe");
+els.liveDirection = document.getElementById("live-direction");
+els.liveTriggerTs = document.getElementById("live-trigger-ts");
+els.liveEntryTs = document.getElementById("live-entry-ts");
+els.liveExpiryBars = document.getElementById("live-expiry-bars");
+els.liveExpiryTs = document.getElementById("live-expiry-ts");
+els.liveEntryPrice = document.getElementById("live-entry-price");
+els.liveExpiryPrice = document.getElementById("live-expiry-price");
+els.liveSession = document.getElementById("live-session");
+els.liveOpen = document.getElementById("live-open");
+els.liveHigh = document.getElementById("live-high");
+els.liveLow = document.getElementById("live-low");
+els.liveClose = document.getElementById("live-close");
+els.liveMfe = document.getElementById("live-mfe");
+els.liveMae = document.getElementById("live-mae");
+els.liveNotes = document.getElementById("live-notes");
+els.liveFeedback = document.getElementById("live-feedback");
+els.liveSaveBtn = document.getElementById("btn-live-save");
+els.liveImportBtn = document.getElementById("btn-live-import");
+els.liveValidateBtn = document.getElementById("btn-live-validate");
+els.liveClearBtn = document.getElementById("btn-live-clear");
+
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
 const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
@@ -231,6 +267,9 @@ let selectedPatternCandidateId = "";
 let selectedReviewCandidateId = "";
 let promotedPatterns = [];
 let patternReviewDecisions = {};
+let livePatternSignals = [];
+let livePatternSummary = [];
+let importerMode = "research";
 
 function setSettingsStatus(message, kind = "muted") {
   if (!els.settingsStatus) return;
@@ -251,6 +290,8 @@ function refreshStorageStatusUI() {
     <li><span>Pattern Versions</span><strong>${counts.patternVersions}</strong></li>
     <li><span>Reviews</span><strong>${counts.reviews}</strong></li>
     <li><span>Promoted Patterns</span><strong>${counts.promotedPatterns || 0}</strong></li>
+    <li><span>Live Signals</span><strong>${counts.livePatternSignals || 0}</strong></li>
+    <li><span>Live Summary Rows</span><strong>${counts.livePatternSummary || 0}</strong></li>
     <li><span>Tamaño estimado</span><strong>${Math.round(estimatedBytes / 1024)} KB</strong></li>
   `;
   els.settingsStorageStatus.textContent = backend === "indexedDB"
@@ -266,6 +307,10 @@ function persistNotes() { saveNotes(notes).catch((error) => console.error("[Stor
 function persistBotCompiler() { saveBotCompilerState(botCompilerState).catch((error) => console.error("[Storage] saveBotCompiler failed", error)); }
 function persistPatternVersions() { savePatternVersionsRegistry(patternVersionsRegistry).catch((error) => console.error("[Storage] savePatternVersions failed", error)); }
 function persistPromotedPatterns() { savePromotedPatterns(promotedPatterns).catch((error) => console.error("[Storage] savePromotedPatterns failed", error)); }
+function persistLivePatternDomains() {
+  Promise.all([saveLivePatternSignals(livePatternSignals), saveLivePatternSummary(livePatternSummary)])
+    .catch((error) => console.error("[Storage] saveLivePattern domains failed", error));
+}
 
 function syncPatternVersionsWithSignals(signals) {
   patternVersionsRegistry = rebuildPatternVersionsFromSignals(signals, patternVersionsRegistry);
@@ -289,6 +334,110 @@ function refreshQuickAddVersionOptions() {
   } else if (versions.length) {
     els.quickAddVersion.value = versions[versions.length - 1];
   }
+}
+
+
+function refreshLivePatternSelector() {
+  if (!els.livePatternSelector) return;
+  const options = promotedPatterns.map((row) => row.sourceCandidateId || row.id).filter(Boolean);
+  renderFilterOptions(els.livePatternSelector, options, options.length ? "Selecciona patrón promovido" : "Sin promoted patterns");
+}
+
+function setLiveFeedback(message, tone = "muted") {
+  if (!els.liveFeedback) return;
+  els.liveFeedback.className = `quick-add-feedback ${tone}`;
+  els.liveFeedback.textContent = message || "";
+}
+
+function toInputIso(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDateTimeInput(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function applyImporterMode() {
+  const isLive = importerMode === "live";
+  if (els.quickAddBlock) els.quickAddBlock.style.display = isLive ? "none" : "block";
+  if (els.liveLogBlock) els.liveLogBlock.style.display = isLive ? "block" : "none";
+  if (els.researchActions) els.researchActions.style.display = isLive ? "none" : "flex";
+  if (els.liveActions) els.liveActions.style.display = isLive ? "flex" : "none";
+}
+
+function getLiveFormSignal() {
+  return {
+    patternId: els.livePatternId?.value || "",
+    patternName: els.livePatternName?.value || "",
+    asset: els.liveAsset?.value || "",
+    timeframe: els.liveTimeframe?.value || "",
+    direction: els.liveDirection?.value || "CALL",
+    triggerTimestamp: fromDateTimeInput(els.liveTriggerTs?.value),
+    entryTimestamp: fromDateTimeInput(els.liveEntryTs?.value),
+    expiryBars: els.liveExpiryBars?.value,
+    expiryTimestamp: fromDateTimeInput(els.liveExpiryTs?.value),
+    entryPrice: els.liveEntryPrice?.value,
+    expiryPrice: els.liveExpiryPrice?.value,
+    session: els.liveSession?.value || null,
+    open: els.liveOpen?.value,
+    high: els.liveHigh?.value,
+    low: els.liveLow?.value,
+    close: els.liveClose?.value,
+    mfe: els.liveMfe?.value,
+    mae: els.liveMae?.value,
+    notes: els.liveNotes?.value || "",
+  };
+}
+
+function clearLiveForm() {
+  [els.livePatternId, els.livePatternName, els.liveAsset, els.liveTimeframe, els.liveTriggerTs, els.liveEntryTs, els.liveExpiryBars, els.liveExpiryTs, els.liveEntryPrice, els.liveExpiryPrice, els.liveSession, els.liveOpen, els.liveHigh, els.liveLow, els.liveClose, els.liveMfe, els.liveMae, els.liveNotes].forEach((el) => { if (el) el.value = ""; });
+  if (els.liveDirection) els.liveDirection.value = "CALL";
+  setLiveFeedback("");
+}
+
+function handleLiveValidate() {
+  const preview = buildLiveImportPreview(els.jsonInput.value.trim(), livePatternSignals);
+  setImportPreview(preview);
+  if (preview.ok) setLiveFeedback(`Valid live: ${preview.uniqueValid.length} importables`, "success");
+  rerender();
+}
+
+function importLiveFromPreview(preview, message = "") {
+  if (!preview?.ok) return false;
+  const selectedRows = els.includeDuplicates.checked ? preview.valid : preview.uniqueValid;
+  livePatternSignals = [...livePatternSignals, ...selectedRows];
+  livePatternSummary = computeLivePatternSummary(livePatternSignals);
+  persistLivePatternDomains();
+  setImportPreview({ ...preview, message: message || `Imported ${selectedRows.length} live signals.` });
+  setLiveFeedback(message || `Imported ${selectedRows.length} live signals.`, "success");
+  return true;
+}
+
+function handleLiveImport() {
+  if (!state.importPreview || !state.importPreview.ok) handleLiveValidate();
+  if (!state.importPreview?.ok) return;
+  importLiveFromPreview(state.importPreview);
+  rerender();
+}
+
+function handleLiveSave() {
+  const { signal, errors } = normalizeLivePatternSignal(getLiveFormSignal());
+  if (errors.length) {
+    setLiveFeedback(errors[0], "error");
+    return;
+  }
+  livePatternSignals = [...livePatternSignals, signal];
+  livePatternSummary = computeLivePatternSummary(livePatternSignals);
+  persistLivePatternDomains();
+  setLiveFeedback("Live signal saved", "success");
+  clearLiveForm();
+  rerender();
 }
 
 function getPatternVersions(patternName) {
@@ -820,6 +969,7 @@ function refreshSharedOptions() {
     els.quickAddPattern.value = patterns[0];
   }
   refreshQuickAddVersionOptions();
+  refreshLivePatternSelector();
   const isV3 = (els.quickAddVersion?.value || "").toLowerCase().includes("v3");
   if (els.quickAddV3Toggle) els.quickAddV3Toggle.open = isV3;
   const activeSession = getActiveSession();
@@ -1049,7 +1199,13 @@ function onSuggestionDecision(id, decision) {
   rerender();
 }
 
-function handleValidate() { setImportPreview(buildImportPreview(els.jsonInput.value.trim(), state.signals)); rerender(); }
+function handleValidate() {
+  const preview = importerMode === "live"
+    ? buildLiveImportPreview(els.jsonInput.value.trim(), livePatternSignals)
+    : buildImportPreview(els.jsonInput.value.trim(), state.signals);
+  setImportPreview(preview);
+  rerender();
+}
 
 
 async function handleExportMemory() {
@@ -1218,6 +1374,10 @@ function importSignalsFromPreview(preview, importedMessage) {
   return true;
 }
 function handleImport() {
+  if (importerMode === "live") {
+    handleLiveImport();
+    return;
+  }
   if (!state.importPreview || !state.importPreview.ok) handleValidate();
   if (!state.importPreview?.ok) return;
   importSignalsFromPreview(state.importPreview);
@@ -1281,6 +1441,7 @@ function handleActivatePatternVersion(versionId) {
   if (active && els.quickAddPattern && els.quickAddVersion) {
     els.quickAddPattern.value = active.patternName;
     refreshQuickAddVersionOptions();
+  refreshLivePatternSelector();
     els.quickAddVersion.value = active.version;
   }
   rerender();
@@ -1586,6 +1747,24 @@ function setupTabs() {
 
 function setupEvents() {
   els.validateBtn.addEventListener("click", handleValidate);
+  els.importerMode?.addEventListener("change", (event) => {
+    importerMode = event.target.value === "live" ? "live" : "research";
+    applyImporterMode();
+    setImportPreview(null);
+    rerender();
+  });
+  els.liveValidateBtn?.addEventListener("click", handleLiveValidate);
+  els.liveImportBtn?.addEventListener("click", handleLiveImport);
+  els.liveSaveBtn?.addEventListener("click", handleLiveSave);
+  els.liveClearBtn?.addEventListener("click", () => { els.jsonInput.value = ""; clearLiveForm(); setImportPreview(null); rerender(); });
+  els.livePatternSelector?.addEventListener("change", () => {
+    const selected = promotedPatterns.find((row) => (row.sourceCandidateId || row.id) === els.livePatternSelector.value);
+    if (!selected) return;
+    if (els.livePatternId) els.livePatternId.value = selected.sourceCandidateId || selected.id || "";
+    if (els.livePatternName) els.livePatternName.value = selected.sourceCandidateId || selected.id || "";
+    if (els.liveDirection) els.liveDirection.value = selected.direction || "CALL";
+    if (els.liveExpiryBars && selected.expiry) els.liveExpiryBars.value = selected.expiry;
+  });
   els.quickAddPattern?.addEventListener("change", refreshQuickAddVersionOptions);
   els.quickAddVersion?.addEventListener("change", refreshSharedOptions);
   els.quickAddBtn?.addEventListener("click", handleQuickAdd);
@@ -2826,9 +3005,13 @@ async function init() {
   promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
   seededPatterns = loadSeededPatterns();
   seededPatternResults = loadSeededPatternResults();
+  livePatternSignals = loadLivePatternSignals();
+  livePatternSummary = loadLivePatternSummary();
   setupTabs();
   setupEvents();
   setupMarketDataEvents();
+  importerMode = els.importerMode?.value === "live" ? "live" : "research";
+  applyImporterMode();
   refreshMarketDataUI();
   rerender();
   if (activePatternVersionId) {
