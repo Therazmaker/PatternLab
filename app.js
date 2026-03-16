@@ -11,6 +11,8 @@ import {
   initializeStorage,
   loadActivePatternVersionId,
   loadLastImportReport,
+  loadMarketData,
+  loadMarketDataMeta,
   loadMetaFeedback,
   loadNotes,
   loadPatternVersionsRegistry,
@@ -20,6 +22,8 @@ import {
   restoreBackup,
   saveActivePatternVersionId,
   saveLastImportReport,
+  saveMarketData,
+  saveMarketDataMeta,
   saveBotCompilerState,
   saveMetaFeedback,
   saveNotes,
@@ -28,6 +32,13 @@ import {
   saveSignals,
   validateMemoryPayload,
 } from "./modules/storage.js";
+import {
+  fetchYahooCandles,
+  normalizeYahooCandles,
+  mergeCandles,
+  getLatestCandleTimestamp,
+  getEarliestCandleTimestamp,
+} from "./modules/marketData.js";
 import { buildImportPreview } from "./modules/importer.js";
 import { dedupeSignals, migrateStoredSignal } from "./modules/normalizer.js";
 import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modules/feed.js";
@@ -122,6 +133,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
+  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdExportBtn: document.getElementById("btn-md-export"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdPreviewBody: document.getElementById("md-preview-body"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -152,6 +164,9 @@ let sessionAnalysisPrefs = { showOverlay: true, showNarratives: true, showNear: 
 let robustnessState = { overfit: null, stress: null, monteCarlo: { simulations: 0, insight: "Ejecuta simulación para ver resultados." }, summary: null };
 let pendingMemoryImport = null;
 let storageStatus = null;
+
+let marketDataCandles = [];
+let marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
 
 function setSettingsStatus(message, kind = "muted") {
   if (!els.settingsStatus) return;
@@ -1759,6 +1774,125 @@ function setupEvents() {
   });
 }
 
+function setMarketDataStatus(message, kind = "muted") {
+  if (!els.mdStatus) return;
+  els.mdStatus.className = `quick-add-feedback ${kind}`;
+  els.mdStatus.textContent = message || "";
+}
+
+function refreshMarketDataUI() {
+  const total = marketDataCandles.length;
+  const first = getEarliestCandleTimestamp(marketDataCandles);
+  const last = getLatestCandleTimestamp(marketDataCandles);
+  const lastSync = marketDataMeta?.lastSyncAt;
+
+  if (!els.mdStatus) return;
+  const infoLines = [
+    `Velas almacenadas: ${total}`,
+    first ? `Primera: ${new Date(first).toLocaleString()}` : "Primera: -",
+    last ? `Última: ${new Date(last).toLocaleString()}` : "Última: -",
+    lastSync ? `Último sync: ${new Date(lastSync).toLocaleString()}` : "Último sync: -",
+  ];
+  els.mdStatus.className = "quick-add-feedback muted";
+  els.mdStatus.innerHTML = infoLines.join(" &nbsp;·&nbsp; ");
+
+  if (!els.mdPreviewBody) return;
+  const preview = marketDataCandles.slice(-20);
+  if (preview.length === 0) {
+    els.mdPreviewBody.innerHTML = `<tr><td colspan="5" class="muted">Sin datos.</td></tr>`;
+    return;
+  }
+  els.mdPreviewBody.innerHTML = preview
+    .map(
+      (c) =>
+        `<tr><td>${new Date(c.timestamp).toLocaleString()}</td><td>${c.open}</td><td>${c.high}</td><td>${c.low}</td><td>${c.close}</td></tr>`
+    )
+    .join("");
+}
+
+async function handleMarketDataFetch() {
+  const symbol = (els.mdAsset?.value || "EURUSD=X").trim();
+  const interval = els.mdTimeframe?.value || "5m";
+  const range = els.mdRange?.value || "5d";
+
+  setMarketDataStatus("Obteniendo velas...", "muted");
+  try {
+    const raw = await fetchYahooCandles({ symbol, interval, range });
+    const { candles, errors } = normalizeYahooCandles(raw, { symbol, interval });
+    if (errors.length) console.warn("[MarketData] Normalize warnings:", errors);
+    if (candles.length === 0) {
+      setMarketDataStatus("Sin velas válidas en la respuesta.", "warning");
+      return;
+    }
+    marketDataCandles = mergeCandles(marketDataCandles, candles);
+    marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
+    await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+    refreshMarketDataUI();
+    setMarketDataStatus(`✓ ${candles.length} velas recibidas, ${marketDataCandles.length} total almacenadas.`, "success");
+  } catch (err) {
+    console.error("[MarketData] Fetch error:", err);
+    setMarketDataStatus(`Error: ${err.message}`, "error");
+  }
+}
+
+async function handleMarketDataSync() {
+  const symbol = (els.mdAsset?.value || "EURUSD=X").trim();
+  const interval = els.mdTimeframe?.value || "5m";
+
+  setMarketDataStatus("Sincronizando velas más recientes...", "muted");
+  try {
+    const raw = await fetchYahooCandles({ symbol, interval, range: "1d" });
+    const { candles, errors } = normalizeYahooCandles(raw, { symbol, interval });
+    if (errors.length) console.warn("[MarketData] Sync normalize warnings:", errors);
+    if (candles.length === 0) {
+      setMarketDataStatus("Sin velas nuevas en el sync.", "warning");
+      return;
+    }
+    const prevCount = marketDataCandles.length;
+    marketDataCandles = mergeCandles(marketDataCandles, candles);
+    const added = marketDataCandles.length - prevCount;
+    marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
+    await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+    refreshMarketDataUI();
+    setMarketDataStatus(`✓ Sync completado. ${added} velas nuevas agregadas (${marketDataCandles.length} total).`, "success");
+  } catch (err) {
+    console.error("[MarketData] Sync error:", err);
+    setMarketDataStatus(`Error en sync: ${err.message}`, "error");
+  }
+}
+
+function handleMarketDataExport() {
+  if (marketDataCandles.length === 0) {
+    setMarketDataStatus("Sin datos para exportar.", "warning");
+    return;
+  }
+  const payload = { app: "PatternLab", exportedAt: new Date().toISOString(), type: "marketData", meta: marketDataMeta, candles: marketDataCandles };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `patternlab-marketdata-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  setMarketDataStatus(`✓ Exportado: ${marketDataCandles.length} velas.`, "success");
+}
+
+async function handleMarketDataClear() {
+  if (!window.confirm("¿Borrar todas las velas de market data almacenadas?")) return;
+  marketDataCandles = [];
+  marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
+  await Promise.all([saveMarketData([]), saveMarketDataMeta(marketDataMeta)]);
+  refreshMarketDataUI();
+  setMarketDataStatus("Market data borrado.", "muted");
+}
+
+function setupMarketDataEvents() {
+  els.mdFetchBtn?.addEventListener("click", handleMarketDataFetch);
+  els.mdSyncBtn?.addEventListener("click", handleMarketDataSync);
+  els.mdExportBtn?.addEventListener("click", handleMarketDataExport);
+  els.mdClearBtn?.addEventListener("click", handleMarketDataClear);
+}
+
 async function init() {
   await initializeStorage();
   replaceSignals(loadSignals());
@@ -1792,8 +1926,12 @@ async function init() {
   loadSessionAnalysisPrefs();
   syncSessionAnalysisToggleUI();
   if (els.sessionDate) els.sessionDate.value = new Date().toISOString().slice(0, 10);
+  marketDataCandles = loadMarketData();
+  marketDataMeta = loadMarketDataMeta();
   setupTabs();
   setupEvents();
+  setupMarketDataEvents();
+  refreshMarketDataUI();
   rerender();
   if (activePatternVersionId) {
     const active = patternVersionsRegistry.find((entry) => entry.id === activePatternVersionId);
