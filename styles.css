@@ -195,3 +195,10 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
 .settings-status.warn { color: var(--skip); }
 .settings-status.error { color: var(--loss); }
 .danger-zone { border-color: #69313a; }
+
+
+.market-data-diagnostics { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; }
+.market-data-diagnostics .item { border:1px solid var(--line); border-radius:999px; padding:.1rem .5rem; }
+.badge.health-ok { color:#58d09b; border-color:#58d09b; }
+.badge.health-warn { color:#f2bf6b; border-color:#f2bf6b; }
+.md-extra-col { opacity:.75; }

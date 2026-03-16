@@ -356,14 +356,16 @@
           <button id="btn-md-import" class="ghost">Import candles</button>
           <input id="md-import-file" type="file" accept="application/json" style="display:none" />
           <button id="btn-md-export" class="ghost">Export candles</button>
+          <button id="btn-md-integrity" class="ghost">Run integrity check</button>
           <button id="btn-md-clear" class="danger">Clear candles</button>
         </div>
         <p id="md-status" class="quick-add-feedback muted"></p>
+        <div id="md-diagnostics" class="panel-soft muted tiny">Integrity check pendiente.</div>
         <h3>Últimas 20 velas</h3>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Timestamp</th><th>Open</th><th>High</th><th>Low</th><th>Close</th></tr>
+              <tr><th>Timestamp</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th class="md-extra-col">Range</th><th class="md-extra-col">Body</th><th class="md-extra-col">Body %</th></tr>
             </thead>
             <tbody id="md-preview-body"></tbody>
           </table>
