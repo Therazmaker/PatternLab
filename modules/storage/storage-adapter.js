@@ -19,6 +19,8 @@ const STORAGE_KEYS = [
   "promotedPatterns",
   "seededPatterns",
   "seededPatternResults",
+  "livePatternSignals",
+  "livePatternSummary",
 ];
 
 const defaultMetaFeedback = {
@@ -32,7 +34,7 @@ let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
-  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [],
+  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [],
 };
 
 function enqueueWrite(task) {
@@ -62,6 +64,8 @@ function normalizeCache(snapshot = {}) {
     promotedPatterns: Array.isArray(snapshot.promotedPatterns) ? snapshot.promotedPatterns : [],
     seededPatterns: Array.isArray(snapshot.seededPatterns) ? snapshot.seededPatterns : [],
     seededPatternResults: Array.isArray(snapshot.seededPatternResults) ? snapshot.seededPatternResults : [],
+    livePatternSignals: Array.isArray(snapshot.livePatternSignals) ? snapshot.livePatternSignals : [],
+    livePatternSummary: Array.isArray(snapshot.livePatternSummary) ? snapshot.livePatternSummary : [],
   };
 }
 
@@ -83,6 +87,8 @@ function writeLegacyByDomain(domain) {
     case "promotedPatterns": writeLegacyValue(LEGACY_KEYS.promotedPatterns, cache.promotedPatterns); break;
     case "seededPatterns": writeLegacyValue(LEGACY_KEYS.seededPatterns, cache.seededPatterns); break;
     case "seededPatternResults": writeLegacyValue(LEGACY_KEYS.seededPatternResults, cache.seededPatternResults); break;
+    case "livePatternSignals": writeLegacyValue(LEGACY_KEYS.livePatternSignals, cache.livePatternSignals); break;
+    case "livePatternSummary": writeLegacyValue(LEGACY_KEYS.livePatternSummary, cache.livePatternSummary); break;
     default: break;
   }
 }
@@ -145,6 +151,8 @@ export function getStorageStatus() {
       promotedPatterns: cache.promotedPatterns.length,
       seededPatterns: cache.seededPatterns.length,
       seededPatternResults: cache.seededPatternResults.length,
+      livePatternSignals: cache.livePatternSignals.length,
+      livePatternSummary: cache.livePatternSummary.length,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -233,6 +241,18 @@ export function saveSeededPatternResults(rows) {
   return enqueueWrite(() => persistDomain("seededPatternResults"));
 }
 
+export function loadLivePatternSignals() { return cache.livePatternSignals || []; }
+export function saveLivePatternSignals(rows) {
+  cache.livePatternSignals = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("livePatternSignals"));
+}
+
+export function loadLivePatternSummary() { return cache.livePatternSummary || []; }
+export function saveLivePatternSummary(rows) {
+  cache.livePatternSummary = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("livePatternSummary"));
+}
+
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -278,6 +298,8 @@ export function exportMemory() {
       promotedPatterns: cache.promotedPatterns || [],
       seededPatterns: cache.seededPatterns || [],
       seededPatternResults: cache.seededPatternResults || [],
+      livePatternSignals: cache.livePatternSignals || [],
+      livePatternSummary: cache.livePatternSummary || [],
     },
   };
 }
@@ -304,6 +326,8 @@ export function validateMemoryPayload(payload) {
       promotedPatterns: Array.isArray(payload.data.promotedPatterns) ? payload.data.promotedPatterns.length : 0,
       seededPatterns: Array.isArray(payload.data.seededPatterns) ? payload.data.seededPatterns.length : 0,
       seededPatternResults: Array.isArray(payload.data.seededPatternResults) ? payload.data.seededPatternResults.length : 0,
+      livePatternSignals: Array.isArray(payload.data.livePatternSignals) ? payload.data.livePatternSignals.length : 0,
+      livePatternSummary: Array.isArray(payload.data.livePatternSummary) ? payload.data.livePatternSummary.length : 0,
     },
   };
 }
@@ -330,11 +354,13 @@ export async function importMemory(payload, mode = "replace") {
     promotedPatterns: payload.data.promotedPatterns || [],
     seededPatterns: payload.data.seededPatterns || [],
     seededPatternResults: payload.data.seededPatternResults || [],
+    livePatternSignals: payload.data.livePatternSignals || [],
+    livePatternSummary: payload.data.livePatternSummary || [],
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 
