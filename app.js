@@ -16,6 +16,7 @@ import {
   loadMetaFeedback,
   loadNotes,
   loadPatternVersionsRegistry,
+  loadPromotedPatterns,
   loadSessions,
   loadSignals,
   loadBotCompilerState,
@@ -28,6 +29,7 @@ import {
   saveMetaFeedback,
   saveNotes,
   savePatternVersionsRegistry,
+  savePromotedPatterns,
   saveSessions,
   saveSignals,
   validateMemoryPayload,
@@ -49,6 +51,7 @@ import {
   summarizeNeuronActivations,
 } from "./modules/neuronEngine.js";
 import { discoverCandidatePatterns } from "./modules/patternDiscovery.js";
+import { normalizePromotedPattern, summarizeReviewState, upsertPromotedPattern } from "./modules/patternReview.js";
 import {
   buildNeuronCoactivationGraph,
   getNodeTopConnections,
@@ -150,7 +153,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"),
+  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"),
 };
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
@@ -192,6 +195,9 @@ let selectedGraphNodeId = "";
 let selectedGraphEdgeKey = "";
 let patternDiscoveryResult = null;
 let selectedPatternCandidateId = "";
+let selectedReviewCandidateId = "";
+let promotedPatterns = [];
+let patternReviewDecisions = {};
 
 function setSettingsStatus(message, kind = "muted") {
   if (!els.settingsStatus) return;
@@ -211,6 +217,7 @@ function refreshStorageStatusUI() {
     <li><span>Sesiones</span><strong>${counts.sessions}</strong></li>
     <li><span>Pattern Versions</span><strong>${counts.patternVersions}</strong></li>
     <li><span>Reviews</span><strong>${counts.reviews}</strong></li>
+    <li><span>Promoted Patterns</span><strong>${counts.promotedPatterns || 0}</strong></li>
     <li><span>Tamaño estimado</span><strong>${Math.round(estimatedBytes / 1024)} KB</strong></li>
   `;
   els.settingsStorageStatus.textContent = backend === "indexedDB"
@@ -225,6 +232,7 @@ function persist() {
 function persistNotes() { saveNotes(notes).catch((error) => console.error("[Storage] saveNotes failed", error)); }
 function persistBotCompiler() { saveBotCompilerState(botCompilerState).catch((error) => console.error("[Storage] saveBotCompiler failed", error)); }
 function persistPatternVersions() { savePatternVersionsRegistry(patternVersionsRegistry).catch((error) => console.error("[Storage] savePatternVersions failed", error)); }
+function persistPromotedPatterns() { savePromotedPatterns(promotedPatterns).catch((error) => console.error("[Storage] savePromotedPatterns failed", error)); }
 
 function syncPatternVersionsWithSignals(signals) {
   patternVersionsRegistry = rebuildPatternVersionsFromSignals(signals, patternVersionsRegistry);
@@ -988,6 +996,7 @@ function rerender() {
   refreshRobustnessLab();
   refreshSessionCandlesTab();
   refreshStorageStatusUI();
+  renderPatternReviewPanel();
 }
 
 function onHypothesisDecision(id, decision) {
@@ -2087,6 +2096,104 @@ function renderPatternDiscoveryPanel() {
   `;
 }
 
+
+function renderPatternReviewPanel() {
+  if (!els.prSummary || !els.prTableBody || !els.prInspect || !els.prPromotedSummary) return;
+
+  const candidates = patternDiscoveryResult?.candidates || [];
+  const summary = summarizeReviewState(candidates, patternReviewDecisions, promotedPatterns);
+  els.prSummary.className = "panel-soft tiny";
+  els.prSummary.innerHTML = `
+    <div class="neuron-summary-grid">
+      <span class="item">Candidates: <strong>${summary.candidates}</strong></span>
+      <span class="item">Promoted: <strong>${summary.promoted}</strong></span>
+      <span class="item">Rejected: <strong>${summary.rejected}</strong></span>
+      <span class="item">Ignored: <strong>${summary.ignored}</strong></span>
+    </div>
+  `;
+
+  if (!candidates.length) {
+    els.prTableBody.innerHTML = '<tr><td colspan="8" class="muted">No candidate patterns yet. Run Discover Patterns first.</td></tr>';
+    els.prInspect.className = "panel-soft muted tiny";
+    els.prInspect.textContent = "Selecciona un candidato para inspeccionar su estructura.";
+    els.prPromotedSummary.className = "panel-soft muted tiny";
+    els.prPromotedSummary.textContent = "Sin patrones promovidos.";
+    return;
+  }
+
+  if (!selectedReviewCandidateId || !candidates.some((row) => row.patternId === selectedReviewCandidateId)) {
+    selectedReviewCandidateId = candidates[0].patternId;
+  }
+
+  els.prTableBody.innerHTML = candidates.slice(0, 50).map((row, index) => {
+    const decision = patternReviewDecisions[row.patternId] || "pending";
+    const expiry = row.preferredExpiryCandles ? `${row.preferredExpiryCandles}c` : "-";
+    return `
+      <tr class="${row.patternId === selectedReviewCandidateId ? "session-row-selected" : ""}" data-review-candidate-id="${row.patternId}">
+        <td>${index + 1}</td>
+        <td>${row.binaryDirection || row.direction || "-"}</td>
+        <td>${expiry}</td>
+        <td>${row.neurons.join(" + ")}</td>
+        <td>${row.sampleCount}</td>
+        <td>${(row.consistencyScore * 100).toFixed(1)}%</td>
+        <td>${row.score.toFixed(3)}</td>
+        <td><span class="badge">${decision}</span></td>
+      </tr>
+    `;
+  }).join("");
+
+  els.prTableBody.querySelectorAll("tr[data-review-candidate-id]").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      selectedReviewCandidateId = tr.getAttribute("data-review-candidate-id") || "";
+      renderPatternReviewPanel();
+    });
+  });
+
+  const selected = candidates.find((row) => row.patternId === selectedReviewCandidateId) || candidates[0];
+  const decision = patternReviewDecisions[selected.patternId] || "pending";
+  const stats = {
+    wins: selected.winCount || 0,
+    losses: selected.lossCount || 0,
+    neutrals: selected.neutralCount || 0,
+    winRate: ((selected.winRate || 0) * 100).toFixed(1),
+    consistency: ((selected.consistencyScore || 0) * 100).toFixed(1),
+    score: Number(selected.score || 0).toFixed(3),
+  };
+  const examples = (selected.examples || []).map((ex) => {
+    const ts = ex.timestamp ? new Date(ex.timestamp).toLocaleString() : "-";
+    return `<li>${ts} · outcome ${ex.outcomeLabel || "-"} · expiry ${ex.expiryCandles || "-"} · entry ${ex.entryPrice ?? "-"} → close ${ex.expiryPrice ?? "-"}</li>`;
+  }).join("");
+
+  els.prInspect.className = "panel-soft tiny";
+  els.prInspect.innerHTML = `
+    <div class="note-head"><strong>${selected.patternId}</strong><span class="badge">${decision}</span></div>
+    <p class="muted">${selected.explanation || "No explanation"}</p>
+    <p><strong>Neuron list:</strong> ${selected.neurons.join(", ") || "-"}</p>
+    <p><strong>Context:</strong> ${Object.entries(selected.context || {}).map(([k, v]) => `${k}=${v}`).join(", ") || "-"}</p>
+    <p><strong>Mini stats:</strong> ${stats.wins}W / ${stats.losses}L / ${stats.neutrals}N · Winrate ${stats.winRate}% · Consistency ${stats.consistency}% · Score ${stats.score}</p>
+    <details open><summary>Examples (timestamps + outcomes)</summary><ul class="tiny">${examples || "<li>No examples</li>"}</ul></details>
+  `;
+
+  els.prPromotedSummary.className = "panel-soft tiny";
+  const promotedRows = promotedPatterns.slice(0, 8).map((row) => `<li>${row.id} · ${row.direction} · expiry ${row.expiry || "-"}c · ${row.neurons.join(" + ")} · W/L ${row.liveStats.wins}/${row.liveStats.losses}</li>`).join("");
+  els.prPromotedSummary.innerHTML = promotedPatterns.length
+    ? `<strong>Promoted pattern store (${promotedPatterns.length})</strong><ul class="tiny">${promotedRows}</ul>`
+    : "Sin patrones promovidos.";
+}
+
+function applyPatternReviewDecision(decision) {
+  const candidates = patternDiscoveryResult?.candidates || [];
+  const selected = candidates.find((row) => row.patternId === selectedReviewCandidateId);
+  if (!selected) return;
+
+  if (decision === "promoted") {
+    promotedPatterns = upsertPromotedPattern(promotedPatterns, selected, "promoted").map((row) => normalizePromotedPattern(row));
+    persistPromotedPatterns();
+  }
+  patternReviewDecisions = { ...patternReviewDecisions, [selected.patternId]: decision };
+  renderPatternReviewPanel();
+}
+
 async function handleDiscoverPatterns() {
   if (!marketDataCandles.length) {
     setMarketDataStatus("Load or import candles before discovering patterns.", "warning");
@@ -2110,6 +2217,7 @@ async function handleDiscoverPatterns() {
   });
   const elapsed = performance.now() - startedAt;
   renderPatternDiscoveryPanel();
+  renderPatternReviewPanel();
   setMarketDataStatus(`Pattern discovery complete: ${patternDiscoveryResult.summary.candidatesRanked} ranked candidates (${elapsed.toFixed(1)}ms).`, "success");
 }
 
@@ -2133,6 +2241,7 @@ function refreshMarketDataUI() {
   renderNeuronSummaryPanel();
   renderNeuronLatestPreview();
   renderPatternDiscoveryPanel();
+  renderPatternReviewPanel();
   renderNeuronGraphPanel();
 
   if (!els.mdPreviewBody) return;
@@ -2172,6 +2281,8 @@ async function handleMarketDataFetch() {
     selectedGraphEdgeKey = "";
     patternDiscoveryResult = null;
     selectedPatternCandidateId = "";
+    selectedReviewCandidateId = "";
+    patternReviewDecisions = {};
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
     refreshMarketDataUI();
@@ -2205,6 +2316,8 @@ async function handleMarketDataSync() {
     selectedGraphEdgeKey = "";
     patternDiscoveryResult = null;
     selectedPatternCandidateId = "";
+    selectedReviewCandidateId = "";
+    patternReviewDecisions = {};
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
     refreshMarketDataUI();
@@ -2240,6 +2353,8 @@ function handleComputeNeurons() {
   selectedGraphEdgeKey = "";
   patternDiscoveryResult = null;
   selectedPatternCandidateId = "";
+    selectedReviewCandidateId = "";
+    patternReviewDecisions = {};
   console.log("[neuronEngine] activations computed", neuronActivations.length);
   console.log("[neuronEngine] summary built", neuronSummary);
 
@@ -2278,6 +2393,8 @@ async function handleMarketDataClear() {
   selectedGraphEdgeKey = "";
   patternDiscoveryResult = null;
   selectedPatternCandidateId = "";
+    selectedReviewCandidateId = "";
+    patternReviewDecisions = {};
   await Promise.all([saveMarketData([]), saveMarketDataMeta(marketDataMeta)]);
   refreshMarketDataUI();
   setMarketDataStatus("Market data borrado.", "muted");
@@ -2308,6 +2425,8 @@ async function handleMarketDataImport(file) {
     selectedGraphEdgeKey = "";
     patternDiscoveryResult = null;
     selectedPatternCandidateId = "";
+    selectedReviewCandidateId = "";
+    patternReviewDecisions = {};
     console.log("[marketData] candles merged:", marketDataCandles.length);
     marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles) };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
@@ -2335,6 +2454,9 @@ function setupMarketDataEvents() {
   els.mdBuildGraphBtn?.addEventListener("click", handleBuildNeuronGraph);
   els.mdDiscoverPatternsBtn?.addEventListener("click", handleDiscoverPatterns);
   els.mdClearBtn?.addEventListener("click", handleMarketDataClear);
+  els.prPromoteBtn?.addEventListener("click", () => applyPatternReviewDecision("promoted"));
+  els.prRejectBtn?.addEventListener("click", () => applyPatternReviewDecision("rejected"));
+  els.prIgnoreBtn?.addEventListener("click", () => applyPatternReviewDecision("ignored"));
 }
 
 async function init() {
@@ -2372,6 +2494,7 @@ async function init() {
   if (els.sessionDate) els.sessionDate.value = new Date().toISOString().slice(0, 10);
   marketDataCandles = loadMarketData();
   marketDataMeta = loadMarketDataMeta();
+  promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
   setupTabs();
   setupEvents();
   setupMarketDataEvents();

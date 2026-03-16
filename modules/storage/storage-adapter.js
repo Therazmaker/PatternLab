@@ -16,6 +16,7 @@ const STORAGE_KEYS = [
   "backupMeta",
   "marketData",
   "marketDataMeta",
+  "promotedPatterns",
 ];
 
 const defaultMetaFeedback = {
@@ -29,7 +30,7 @@ let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
-  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" },
+  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" }, promotedPatterns: [],
 };
 
 function enqueueWrite(task) {
@@ -56,6 +57,7 @@ function normalizeCache(snapshot = {}) {
     backupMeta: snapshot.backupMeta || null,
     marketData: Array.isArray(snapshot.marketData) ? snapshot.marketData : [],
     marketDataMeta: snapshot.marketDataMeta && typeof snapshot.marketDataMeta === "object" ? { ...defaultMarketDataMeta, ...snapshot.marketDataMeta } : { ...defaultMarketDataMeta },
+    promotedPatterns: Array.isArray(snapshot.promotedPatterns) ? snapshot.promotedPatterns : [],
   };
 }
 
@@ -74,6 +76,7 @@ function writeLegacyByDomain(domain) {
     case "lastImportReport": writeLegacyValue(LEGACY_KEYS.lastImportReport, cache.lastImportReport); break;
     case "metaFeedback": writeLegacyValue(LEGACY_KEYS.metaFeedback, cache.metaFeedback); break;
     case "botCompiler": writeLegacyValue(LEGACY_KEYS.botCompiler, cache.botCompiler); break;
+    case "promotedPatterns": writeLegacyValue(LEGACY_KEYS.promotedPatterns, cache.promotedPatterns); break;
     default: break;
   }
 }
@@ -133,6 +136,7 @@ export function getStorageStatus() {
       signals: cache.signals.length,
       sessions: cache.sessions.length,
       patternVersions: cache.patternVersions.length,
+      promotedPatterns: cache.promotedPatterns.length,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -201,6 +205,13 @@ export function saveMarketDataMeta(meta) {
   return enqueueWrite(() => persistDomain("marketDataMeta"));
 }
 
+
+export function loadPromotedPatterns() { return cache.promotedPatterns || []; }
+export function savePromotedPatterns(rows) {
+  cache.promotedPatterns = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("promotedPatterns"));
+}
+
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -243,6 +254,7 @@ export function exportMemory() {
         metaFeedback: cache.metaFeedback || { ...defaultMetaFeedback },
         botCompiler: cache.botCompiler || { patternMeta: {} },
       },
+      promotedPatterns: cache.promotedPatterns || [],
     },
   };
 }
@@ -266,6 +278,7 @@ export function validateMemoryPayload(payload) {
       signals: Array.isArray(payload.data.signals) ? payload.data.signals.length : 0,
       sessions: Array.isArray(payload.data.sessions) ? payload.data.sessions.length : 0,
       patternVersions: Array.isArray(payload.data.patternVersions) ? payload.data.patternVersions.length : 0,
+      promotedPatterns: Array.isArray(payload.data.promotedPatterns) ? payload.data.promotedPatterns.length : 0,
     },
   };
 }
@@ -289,11 +302,12 @@ export async function importMemory(payload, mode = "replace") {
     lastImportReport: payload.data.meta?.lastImportReport || null,
     metaFeedback: payload.data.meta?.metaFeedback || defaultMetaFeedback,
     botCompiler: payload.data.meta?.botCompiler || { patternMeta: {} },
+    promotedPatterns: payload.data.promotedPatterns || [],
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 
