@@ -1,0 +1,8 @@
+name = "patternlab-proxy"
+main = "worker/index.js"
+compatibility_date = "2024-01-01"
+
+# Deploy with: npx wrangler deploy
+# After deploying, update WORKER_URL in modules/marketData.js with the
+# assigned workers.dev subdomain, e.g.:
+#   https://patternlab-proxy.<your-account>.workers.dev/yahoo-chart

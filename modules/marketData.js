@@ -4,10 +4,13 @@
  * Kept fully independent from the signals domain.
  */
 
-const YAHOO_BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+// Cloudflare Worker proxy URL – avoids CORS issues when fetching from the browser.
+// Update this constant to match your deployed worker's subdomain after running:
+//   npx wrangler deploy
+const WORKER_URL = "https://patternlab-proxy.ACCOUNT_SUBDOMAIN.workers.dev/yahoo-chart";
 
 /**
- * Fetch raw candle data from Yahoo Finance.
+ * Fetch raw candle data via the Cloudflare Worker proxy.
  * @param {{ symbol?: string, interval?: string, range?: string }} options
  * @returns {Promise<object>} Raw Yahoo Finance API response
  */
@@ -22,16 +25,23 @@ export async function fetchYahooCandles({ symbol = "EURUSD=X", interval = "5m", 
     throw new Error(`Rango no soportado: ${range}. Válidos: ${SUPPORTED_RANGES.join(", ")}`);
   }
 
-  const url = `${YAHOO_BASE_URL}${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`;
+  if (WORKER_URL.includes("ACCOUNT_SUBDOMAIN")) {
+    throw new Error(
+      "Worker URL not configured. Replace ACCOUNT_SUBDOMAIN in WORKER_URL (modules/marketData.js) " +
+      "with your actual Cloudflare Workers subdomain after running `npx wrangler deploy`."
+    );
+  }
+
+  const url = `${WORKER_URL}?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`;
   let response;
   try {
     response = await fetch(url);
   } catch (networkError) {
-    throw new Error(`Error de red al conectar con Yahoo Finance: ${networkError.message}`);
+    throw new Error(`Error de red al conectar con el proxy: ${networkError.message}`);
   }
 
   if (!response.ok) {
-    throw new Error(`Yahoo Finance respondió con error HTTP ${response.status}: ${response.statusText}`);
+    throw new Error(`El proxy respondió con error HTTP ${response.status}: ${response.statusText}`);
   }
 
   let json;
