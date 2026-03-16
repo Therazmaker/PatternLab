@@ -30,7 +30,7 @@ export function renderClusterSummary(container, graph) {
   `;
 }
 
-export function renderClusterInspector(container, graph, selectedNodeId, candidates) {
+export function renderClusterInspector(container, graph, selectedNodeId, candidates, options = {}) {
   if (!container) return;
   if (!graph?.nodes?.length) {
     container.className = "panel-soft muted tiny";
@@ -52,15 +52,29 @@ export function renderClusterInspector(container, graph, selectedNodeId, candida
   container.innerHTML = `
     <h4>${escapeHtml(node.id)}</h4>
     <p>Total occurrences: <strong>${node.weight}</strong></p>
+    <div class="button-row compact"><button type="button" class="ghost" data-send-node="${escapeHtml(node.id)}">Send node to Seeded Lab</button></div>
     <div class="tiny muted">Top combos</div>
     <ul>
-      ${topConnections.map((item) => `<li>${escapeHtml(node.id)} + ${escapeHtml(item.neuronId)} <strong>(${item.weight})</strong></li>`).join("") || "<li>-</li>"}
+      ${topConnections.map((item) => `<li>${escapeHtml(node.id)} + ${escapeHtml(item.neuronId)} <strong>(${item.weight})</strong> <button type="button" class="ghost" data-send-combo="${escapeHtml(node.id)}::${escapeHtml(item.neuronId)}">Send combo</button></li>`).join("") || "<li>-</li>"}
     </ul>
     <div class="tiny muted">Related candidate patterns</div>
     <ul>
       ${relatedCandidates.map((candidate) => `<li>${escapeHtml(candidate.patternId || "candidate")} · score ${(candidate.score || 0).toFixed(3)} · sample ${candidate.sampleCount || 0}</li>`).join("") || "<li>-</li>"}
     </ul>
   `;
+
+  container.querySelectorAll("button[data-send-node]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const neuronId = btn.getAttribute("data-send-node") || "";
+      if (options.onSendToSeededLab) options.onSendToSeededLab([neuronId]);
+    });
+  });
+  container.querySelectorAll("button[data-send-combo]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const combo = (btn.getAttribute("data-send-combo") || "").split("::").filter(Boolean);
+      if (options.onSendToSeededLab) options.onSendToSeededLab(combo);
+    });
+  });
 }
 
 export function syncRangeInput(rangeEl, labelEl, value) {

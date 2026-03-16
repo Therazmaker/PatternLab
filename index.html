@@ -30,6 +30,7 @@
       <button class="tab-btn" data-tab="radar">Radar</button>
       <button class="tab-btn" data-tab="versions">Pattern Versions</button>
       <button class="tab-btn" data-tab="cluster-map">Cluster Map</button>
+      <button class="tab-btn" data-tab="seeded-lab">Seeded Pattern Lab</button>
       <button class="tab-btn" data-tab="confidence">Confidence Evolution</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
       <button class="tab-btn" data-tab="hypothesis">Hypothesis Lab</button>
@@ -183,6 +184,66 @@
         <div class="split">
           <div id="cluster-map-container" class="cluster-map-container"></div>
           <div id="cluster-map-inspector" class="panel-soft muted tiny">Click a node to inspect combos and related patterns.</div>
+        </div>
+      </section>
+
+      
+
+      <section class="panel tab-panel" data-panel="seeded-lab">
+        <h2>Seeded Pattern Lab</h2>
+        <div class="filters">
+          <label>Neuron combo (2-4)
+            <select id="seeded-neuron-select" multiple size="8"></select>
+          </label>
+          <label>Direction mode
+            <select id="seeded-direction-mode">
+              <option value="auto">auto infer</option>
+              <option value="call">force CALL</option>
+              <option value="put">force PUT</option>
+            </select>
+          </label>
+          <label>Session filter
+            <select id="seeded-session-filter">
+              <option value="all">all</option>
+              <option value="asia">asia</option>
+              <option value="london">london</option>
+              <option value="newyork">newyork</option>
+              <option value="overlap">overlap</option>
+            </select>
+          </label>
+          <div>
+            <div class="tiny muted">Expiries to test</div>
+            <label class="inline-toggle"><input id="seeded-expiry-1" type="checkbox" checked /> 1c</label>
+            <label class="inline-toggle"><input id="seeded-expiry-2" type="checkbox" checked /> 2c</label>
+            <label class="inline-toggle"><input id="seeded-expiry-3" type="checkbox" checked /> 3c</label>
+            <label class="inline-toggle"><input id="seeded-expiry-5" type="checkbox" checked /> 5c</label>
+          </div>
+        </div>
+        <div id="seeded-selected" class="panel-soft tiny muted">No neurons selected</div>
+        <div class="button-row">
+          <button id="btn-seeded-run" class="primary">Run seeded evaluation</button>
+          <button id="btn-seeded-save">Save as seeded candidate</button>
+          <button id="btn-seeded-promote">Promote to review queue</button>
+          <button id="btn-seeded-export" class="ghost">Export combo definition</button>
+        </div>
+        <div id="seeded-status" class="quick-add-feedback muted"></div>
+        <div id="seeded-summary" class="panel-soft muted tiny">Select 2-4 neurons and run evaluation.</div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Expiry</th><th>sampleCount</th><th>wins</th><th>losses</th><th>winRate</th><th>avg favorable move</th><th>avg adverse move</th><th>consistency</th><th>session breakdown</th></tr>
+            </thead>
+            <tbody id="seeded-table-body"><tr><td colspan="9" class="muted">No seeded result yet.</td></tr></tbody>
+          </table>
+        </div>
+
+        <div id="seeded-inspector" class="panel-soft muted tiny">Inspector will show first 10 occurrences once evaluated.</div>
+        <div class="table-wrap">
+          <table class="seeded-examples-table">
+            <thead><tr><th>timestamp</th><th>candle index</th><th>direction</th><th>session</th><th>outcomes by expiry</th><th>favorable move</th><th>adverse move</th></tr></thead>
+            <tbody id="seeded-examples-body"><tr><td colspan="7" class="muted">No examples yet.</td></tr></tbody>
+          </table>
         </div>
       </section>
 

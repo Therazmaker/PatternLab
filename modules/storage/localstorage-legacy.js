@@ -8,6 +8,8 @@ export const LEGACY_KEYS = {
   metaFeedback: "patternlab.metaFeedback.v1",
   botCompiler: "patternlab.botCompiler.v1",
   promotedPatterns: "patternlab.promotedPatterns.v1",
+  seededPatterns: "patternlab.seededPatterns.v1",
+  seededPatternResults: "patternlab.seededPatternResults.v1",
 };
 
 function parseJson(raw, fallback) {
@@ -29,6 +31,8 @@ export function readLegacySnapshot() {
     metaFeedback: parseJson(localStorage.getItem(LEGACY_KEYS.metaFeedback), null),
     botCompiler: parseJson(localStorage.getItem(LEGACY_KEYS.botCompiler), null),
     promotedPatterns: parseJson(localStorage.getItem(LEGACY_KEYS.promotedPatterns), []),
+    seededPatterns: parseJson(localStorage.getItem(LEGACY_KEYS.seededPatterns), []),
+    seededPatternResults: parseJson(localStorage.getItem(LEGACY_KEYS.seededPatternResults), []),
   };
 }
 
