@@ -1,3 +1,19 @@
+
+import { createBinanceLiveDataFeed, loadBinanceFuturesSymbols, loadBinanceHistoricalCandles } from "./binanceMarketData.js";
+import { normalizeBinanceInterval } from "./binanceNormalize.js";
+
+const MARKET_DATA_SOURCES = {
+  YAHOO: "yahoo",
+  BINANCE_FUTURES: "binance-futures",
+};
+
+const binanceLiveFeed = createBinanceLiveDataFeed();
+let activeLiveSubscription = null;
+
+function normalizeSource(source = MARKET_DATA_SOURCES.YAHOO) {
+  return String(source || MARKET_DATA_SOURCES.YAHOO).trim().toLowerCase();
+}
+
 /**
  * modules/marketData.js
  * Market data collector for EURUSD 5m candles via Yahoo Finance public chart endpoint.
@@ -487,3 +503,95 @@ export function enrichCandles(candles) {
   if (!Array.isArray(candles)) return [];
   return candles.map((candle) => enrichCandle(candle));
 }
+
+
+// Source-aware market data facade (compatible with existing callers)
+export async function loadHistoricalCandles(options = {}) {
+  const source = normalizeSource(options.source);
+  if (source === MARKET_DATA_SOURCES.BINANCE_FUTURES) {
+    const symbol = options.symbol || options.asset || "BTCUSDT";
+    const timeframe = normalizeBinanceInterval(options.timeframe || options.interval || "5m");
+    const limit = Number(options.limit) || 500;
+    return loadBinanceHistoricalCandles({ symbol, timeframe, limit, endTime: options.endTime });
+  }
+
+  const symbol = options.symbol || "EURUSD=X";
+  const interval = options.interval || options.timeframe || "5m";
+  const range = options.range || "5d";
+  const raw = await fetchYahooCandles({ symbol, interval, range });
+  const { candles } = normalizeYahooCandles(raw, { symbol, interval });
+  return candles;
+}
+
+export async function subscribeLiveCandles(options = {}, handlers = {}) {
+  const source = normalizeSource(options.source);
+  if (activeLiveSubscription && activeLiveSubscription.source !== source) {
+    unsubscribeLiveCandles();
+  }
+
+  if (source !== MARKET_DATA_SOURCES.BINANCE_FUTURES) {
+    return { token: null, source, status: "unsupported-live-source" };
+  }
+
+  const token = binanceLiveFeed.subscribe({
+    symbol: options.symbol || options.asset || "BTCUSDT",
+    timeframe: options.timeframe || options.interval || "5m",
+    onCandle: (candle) => {
+      handlers.onCandle?.(candle);
+      if (candle.closed) handlers.onCandleClose?.(candle);
+      else handlers.onCandleUpdate?.(candle);
+    },
+    onStatus: (status) => handlers.onStatus?.(status),
+  });
+
+  activeLiveSubscription = { token, source, symbol: options.symbol || options.asset, timeframe: options.timeframe || options.interval };
+  return { token, source, status: "subscribed" };
+}
+
+export function unsubscribeLiveCandles() {
+  if (!activeLiveSubscription) return;
+  if (activeLiveSubscription.source === MARKET_DATA_SOURCES.BINANCE_FUTURES) {
+    binanceLiveFeed.unsubscribe();
+  }
+  activeLiveSubscription = null;
+}
+
+export async function getAvailableSymbols(options = {}) {
+  const source = normalizeSource(options.source);
+  if (source === MARKET_DATA_SOURCES.BINANCE_FUTURES) {
+    return loadBinanceFuturesSymbols();
+  }
+  return [
+    { symbol: "EURUSD=X", baseAsset: "EUR", quoteAsset: "USD" },
+    { symbol: "GBPUSD=X", baseAsset: "GBP", quoteAsset: "USD" },
+    { symbol: "USDJPY=X", baseAsset: "USD", quoteAsset: "JPY" },
+    { symbol: "AUDUSD=X", baseAsset: "AUD", quoteAsset: "USD" },
+  ];
+}
+
+export function getSourceStatus(options = {}) {
+  const source = normalizeSource(options.source);
+  if (source === MARKET_DATA_SOURCES.BINANCE_FUTURES) {
+    return {
+      source,
+      ...binanceLiveFeed.getStatus(),
+      activeSubscription: activeLiveSubscription,
+    };
+  }
+  return {
+    source,
+    connected: true,
+    stream: null,
+    activeSubscription: activeLiveSubscription,
+  };
+}
+
+export async function resyncLatestCandles(options = {}) {
+  const source = normalizeSource(options.source);
+  if (source === MARKET_DATA_SOURCES.BINANCE_FUTURES) {
+    return binanceLiveFeed.resyncLatest({ symbol: options.symbol || options.asset, timeframe: options.timeframe || options.interval, limit: options.limit || 3 });
+  }
+  return loadHistoricalCandles({ ...options, range: options.range || "1d" });
+}
+
+export { MARKET_DATA_SOURCES };
