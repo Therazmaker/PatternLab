@@ -95,6 +95,7 @@ import { getFilteredSignals, renderFeedRows, renderFilterOptions } from "./modul
 import { applyReview } from "./modules/review.js";
 import { buildSrContextFromQuickAdd, buildSrInsights, computeSrStats, normalizeSrContext } from "./modules/sr.js";
 import { computeSessionStats, deriveCandleColor, normalizeSession } from "./modules/sessions.js";
+import { SessionChart } from "./modules/sessionChart.js";
 import { buildSessionCandleExplanations, getDefaultSessionAnalysisConfig } from "./modules/sessionAnalysis.js";
 import { buildSessionCandleAnalysis } from "./modules/sessionCandleAnalysis.js";
 import { computeExcursionFromSignal, deriveColorHint, formatExcursion, normalizeCandleData, normalizeExcursion, normalizeOHLCInput, normalizeSessionRef, normalizeV3Meta, validateOHLCConsistency } from "./modules/v3.js";
@@ -306,6 +307,7 @@ let selectedSessionCandleIndex = null;
 let sessionReplayTimer = null;
 let editingSessionCandleIndex = null;
 let sessionCandleDraft = null;
+let _sessionChart = null; // SessionChart Canvas instance
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
 let sessionAnalysisPrefs = {
@@ -944,121 +946,73 @@ function renderSessionLivePlanPanel(record, marketView) {
   `;
 }
 
-// Core binding: this renderer is called from refreshSessionCandlesTab and paints either
-// historical session candles or the live market candles from the active source/symbol/timeframe.
+function inferChartDecimals(candles) {
+  const sample = (candles || []).map(c => c.close).filter(Number.isFinite).slice(0, 10);
+  if (!sample.length) return 4;
+  const avg = sample.reduce((a, b) => a + b, 0) / sample.length;
+  if (avg > 5000) return 1;
+  if (avg > 100)  return 2;
+  if (avg > 1)    return 4;
+  return 5;
+}
+
 function drawSessionCandles(session, explanations = [], marketAnalysis = null, livePlanRecord = null) {
   if (!els.sessionSvg) return;
   const marketRows = marketAnalysis?.marketView?.candles || [];
-  const useMarket = marketRows.length > 0;
-  const rows = useMarket ? marketRows : (session?.candles || []);
-  if (!rows.length) {
-    els.sessionSvg.innerHTML = '<div class="muted">Agrega velas para visualizarlas.</div>';
-    return;
+  const useMarket  = marketRows.length > 0;
+  const candles    = useMarket ? marketRows : (session?.candles || []);
+
+  // Boot or re-use the Canvas chart instance
+  if (!_sessionChart) {
+    _sessionChart = new SessionChart(els.sessionSvg, {
+      onCandleClick: (idx) => {
+        selectedSessionCandleIndex = idx;
+        refreshSessionCandlesTab();
+      },
+      onCandleHover: (idx) => {
+        // Update toolbar OHLC bar
+        const allC = candles;
+        const c = allC.find(c => c.index === idx);
+        if (c) {
+          const dec = inferChartDecimals(allC);
+          const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Number.isFinite(v) ? v.toFixed(dec) : '—'; };
+          set('chart-o', c.open); set('chart-h', c.high); set('chart-l', c.low); set('chart-c', c.close);
+        }
+        if (selectedSessionCandleIndex !== idx) {
+          selectedSessionCandleIndex = idx;
+          const viewed = session;
+          if (viewed) renderSessionAnalysisPanel(viewed, explanations);
+        }
+      },
+    });
   }
-  const candles = rows;
-  const highs = candles.map((c) => c.high).filter((v) => typeof v === "number");
-  const lows = candles.map((c) => c.low).filter((v) => typeof v === "number");
-  const max = Math.max(...highs);
-  const min = Math.min(...lows);
-  const range = Math.max(max - min, 0.00001);
-  const width = Math.max(900, candles.length * 34);
-  const height = 280;
-  const y = (price) => 18 + ((max - price) / range) * (height - 36);
-  const markerColor = (stateValue) => {
-    if (stateValue === "call") return "#58d09b";
-    if (stateValue === "put") return "#ff857a";
-    if (stateValue === "near-call") return "#2f7f61";
-    if (stateValue === "near-put") return "#8b5550";
-    return "#64748b";
+
+  const overlays = {
+    ...(marketAnalysis?.analysis?.overlays || {}),
+    _explanations: explanations,
   };
-  const selectedExplanation = explanations.find((item) => item.candleIndex === selectedSessionCandleIndex) || explanations[explanations.length - 1] || null;
-  const context = selectedExplanation?.structureContext || null;
-  let contextBand = "";
-  if (context) {
-    const startX = 18 + (context.startCandleIndex - 1) * 34;
-    const endX = 18 + context.endCandleIndex * 34 - 14;
-    contextBand = `<rect x="${startX}" y="8" width="${Math.max(10, endX - startX)}" height="${height - 16}" fill="rgba(96,165,250,0.08)" stroke="rgba(147,197,253,0.5)" stroke-dasharray="4 4" rx="6" />`;
+
+  // Update toolbar symbol label
+  const _chartSymbolEl = document.getElementById('chart-symbol');
+  if (_chartSymbolEl) {
+    const mv = marketAnalysis?.marketView;
+    _chartSymbolEl.textContent = mv?.symbol ? (mv.symbol + '  ' + (mv.timeframe || '')) : (session?.asset || '—');
   }
-  const overlays = marketAnalysis?.analysis?.overlays || {};
-  const bodies = candles.map((candle, i) => {
-    if ([candle.open, candle.high, candle.low, candle.close].some((v) => typeof v !== "number")) return "";
-    const x = 18 + i * 34;
-    const openY = y(candle.open);
-    const closeY = y(candle.close);
-    const highY = y(candle.high);
-    const lowY = y(candle.low);
-    const color = deriveCandleColor(candle) || "doji";
-    const fill = color === "green" ? "#22c55e" : color === "red" ? "#ef4444" : "#a1a1aa";
-    const bodyTop = Math.min(openY, closeY);
-    const bodyH = Math.max(Math.abs(closeY - openY), 2);
-    const explanation = explanations.find((item) => item.candleIndex === candle.index);
-    const stateValue = explanation?.signalState || "none";
-    const showMarker = sessionAnalysisPrefs.showOverlay && (sessionAnalysisPrefs.showNear || !String(stateValue).startsWith("near"));
-    const marker = showMarker && stateValue !== "none" ? `<circle cx="${x + 8}" cy="${lowY + 8}" r="3.5" fill="${markerColor(stateValue)}" />` : "";
-    const selectedStroke = selectedSessionCandleIndex === candle.index ? '#93c5fd' : 'transparent';
-    const isOpen = candle.closed === false;
-    return `<g data-candle-index="${candle.index}"><line x1="${x + 8}" x2="${x + 8}" y1="${highY}" y2="${lowY}" stroke="${fill}" stroke-opacity="${isOpen ? 0.65 : 1}" /><rect x="${x + 2}" y="${bodyTop}" width="12" height="${bodyH}" fill="${fill}" fill-opacity="${isOpen ? 0.45 : 0.95}" stroke="${isOpen ? "#fbbf24" : selectedStroke}" stroke-width="${isOpen ? 1.2 : 1.5}" rx="2"><title>#${candle.index} O:${candle.open} H:${candle.high} L:${candle.low} C:${candle.close}${explanation ? ` | ${signalBadgeLabel(explanation.signalState)}` : ""}</title></rect>${marker}</g>`;
-  }).join("");
-  const emaFast = sessionAnalysisPrefs.showMa && Array.isArray(overlays.emaFast)
-    ? overlays.emaFast.map((value, i) => (typeof value === "number" ? `${18 + i * 34 + 8},${y(value)}` : null)).filter(Boolean).join(" ")
-    : "";
-  const emaSlow = sessionAnalysisPrefs.showMa && Array.isArray(overlays.emaSlow)
-    ? overlays.emaSlow.map((value, i) => (typeof value === "number" ? `${18 + i * 34 + 8},${y(value)}` : null)).filter(Boolean).join(" ")
-    : "";
-  const swingHighs = sessionAnalysisPrefs.showStructure ? (overlays.swings?.highs || []).map((item) => {
-    const x = 18 + (item.index - 1) * 34 + 8;
-    return `<circle cx="${x}" cy="${y(item.price)}" r="2.8" fill="#fb7185" />`;
-  }).join("") : "";
-  const swingLows = sessionAnalysisPrefs.showStructure ? (overlays.swings?.lows || []).map((item) => {
-    const x = 18 + (item.index - 1) * 34 + 8;
-    return `<circle cx="${x}" cy="${y(item.price)}" r="2.8" fill="#34d399" />`;
-  }).join("") : "";
-  const timeStep = Math.max(1, Math.floor(candles.length / 8));
-  const timeMarkers = candles.map((candle, i) => {
-    if (i % timeStep !== 0) return "";
-    const label = candle.timeLabel || (candle.timestamp ? new Date(candle.timestamp).toLocaleTimeString() : `${candle.index}`);
-    return `<text x="${18 + i * 34 + 8}" y="${height - 6}" fill="#94a3b8" font-size="9" text-anchor="middle">${label}</text>`;
-  }).join("");
-  const currentPriceLine = typeof overlays.currentPrice === "number"
-    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.currentPrice)}" y2="${y(overlays.currentPrice)}" stroke="rgba(148,163,184,.5)" stroke-dasharray="4 4" />`
-    : "";
-  const rangeLines = sessionAnalysisPrefs.showStructure && typeof overlays.recentHigh === "number" && typeof overlays.recentLow === "number"
-    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.recentHigh)}" y2="${y(overlays.recentHigh)}" stroke="rgba(239,68,68,.35)" stroke-dasharray="3 5" /><line x1="10" x2="${width - 12}" y1="${y(overlays.recentLow)}" y2="${y(overlays.recentLow)}" stroke="rgba(16,185,129,.35)" stroke-dasharray="3 5" />`
-    : "";
-  const nearestSupportLine = sessionAnalysisPrefs.showStructure && typeof overlays.nearestSupport === "number"
-    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.nearestSupport)}" y2="${y(overlays.nearestSupport)}" stroke="rgba(34,197,94,.6)" stroke-width="1.2" /><text x="14" y="${Math.max(12, y(overlays.nearestSupport) - 4)}" fill="rgba(34,197,94,.9)" font-size="10">Support ${formatNumber(overlays.nearestSupport, 4)}</text>`
-    : "";
-  const nearestResistanceLine = sessionAnalysisPrefs.showStructure && typeof overlays.nearestResistance === "number"
-    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.nearestResistance)}" y2="${y(overlays.nearestResistance)}" stroke="rgba(239,68,68,.6)" stroke-width="1.2" /><text x="14" y="${Math.max(12, y(overlays.nearestResistance) - 4)}" fill="rgba(239,68,68,.9)" font-size="10">Resistance ${formatNumber(overlays.nearestResistance, 4)}</text>`
-    : "";
-  const liveStatus = resolveLivePlanStatus(livePlanRecord);
-  const liveColor = liveStatus === "win" ? "#22c55e" : liveStatus === "loss" ? "#ef4444" : liveStatus === "skipped" ? "#94a3b8" : "#a78bfa";
-  const liveStroke = livePlanRecord?.policy?.action === "LONG" ? "#38bdf8" : "#f97316";
-  const entryLine = typeof livePlanRecord?.plan?.referencePrice === "number"
-    ? `<line x1="10" x2="${width - 12}" y1="${y(livePlanRecord.plan.referencePrice)}" y2="${y(livePlanRecord.plan.referencePrice)}" stroke="${liveStroke}" stroke-width="1.6" /><text x="${width - 14}" y="${Math.max(11, y(livePlanRecord.plan.referencePrice) - 4)}" text-anchor="end" fill="${liveStroke}" font-size="10">Entry ${formatNumber(livePlanRecord.plan.referencePrice, 4)}</text>`
-    : "";
-  const stopLine = typeof livePlanRecord?.plan?.stopLoss === "number"
-    ? `<line x1="10" x2="${width - 12}" y1="${y(livePlanRecord.plan.stopLoss)}" y2="${y(livePlanRecord.plan.stopLoss)}" stroke="#ef4444" stroke-dasharray="6 4" /><text x="${width - 14}" y="${Math.max(11, y(livePlanRecord.plan.stopLoss) - 4)}" text-anchor="end" fill="#ef4444" font-size="10">SL ${formatNumber(livePlanRecord.plan.stopLoss, 4)}</text>`
-    : "";
-  const tpLine = typeof livePlanRecord?.plan?.takeProfit === "number"
-    ? `<line x1="10" x2="${width - 12}" y1="${y(livePlanRecord.plan.takeProfit)}" y2="${y(livePlanRecord.plan.takeProfit)}" stroke="#22c55e" stroke-dasharray="6 4" /><text x="${width - 14}" y="${Math.max(11, y(livePlanRecord.plan.takeProfit) - 4)}" text-anchor="end" fill="#22c55e" font-size="10">TP ${formatNumber(livePlanRecord.plan.takeProfit, 4)}</text>`
-    : "";
-  const statusBadge = livePlanRecord
-    ? `<rect x="14" y="10" width="230" height="24" rx="7" fill="rgba(15,23,42,.74)" stroke="${liveColor}" /><text x="22" y="26" fill="${liveColor}" font-size="11">${livePlanRecord.policy?.action} · ${liveStatus.toUpperCase()} · ${formatTs(livePlanRecord.timestamp)}</text>`
-    : "";
-  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${rangeLines}${currentPriceLine}${emaSlow ? `<polyline points="${emaSlow}" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity=".7" />` : ""}${emaFast ? `<polyline points="${emaFast}" fill="none" stroke="#f59e0b" stroke-width="1.2" opacity=".8" />` : ""}${nearestSupportLine}${nearestResistanceLine}${entryLine}${stopLine}${tpLine}${statusBadge}${bodies}${swingHighs}${swingLows}${timeMarkers}</svg>`;
-  els.sessionSvg.querySelectorAll('[data-candle-index]').forEach((node) => {
-    node.addEventListener('mouseenter', () => {
-      selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
-      renderSessionAnalysisPanel(session, explanations);
-    });
-    node.addEventListener('click', () => {
-      selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
-      refreshSessionCandlesTab();
-    });
+
+  _sessionChart.setData({
+    candles,
+    overlays,
+    livePlan:    livePlanRecord,
+    explanations,
+    selectedIdx: selectedSessionCandleIndex,
+    prefs: {
+      showOverlay:   sessionAnalysisPrefs.showOverlay,
+      showNear:      sessionAnalysisPrefs.showNear,
+      showStructure: sessionAnalysisPrefs.showStructure,
+      showMa:        sessionAnalysisPrefs.showMa,
+    },
   });
 }
-
 function renderSessionTable(session, explanations = []) {
   if (!els.sessionCandlesBody) return;
   if (!session || !session.candles.length) {
@@ -2691,6 +2645,11 @@ function setupTabs() {
       els.tabs.forEach((b) => b.classList.toggle("active", b === btn));
       const tab = btn.dataset.tab;
       els.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === tab));
+      if (tab === "session-candles") {
+        // Destroy old chart so it re-mounts with correct size
+        if (_sessionChart) { _sessionChart.destroy(); _sessionChart = null; }
+        requestAnimationFrame(() => refreshSessionCandlesTab());
+      }
     });
   });
 }

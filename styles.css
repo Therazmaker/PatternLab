@@ -152,7 +152,18 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .badge.v3-ohlc { background: rgba(59,130,246,.2); color: #93c5fd; }
 .badge.v3-excursion { background: rgba(168,85,247,.2); color: #d8b4fe; }
 .badge.v3-session { background: rgba(34,197,94,.18); color: #86efac; }
-#session-canvas svg { display:block; min-width: 900px; }
+#session-canvas {
+  height: 420px;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  background: #0b1118;
+}
+#session-canvas canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
 #session-event-strip {
   display: flex;
   flex-wrap: wrap;
@@ -283,3 +294,40 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
 .bot-historical-lab { margin-top: .8rem; }
 #session-live-plan { margin-bottom: .6rem; }
 .session-live-plan-head { display:flex; flex-wrap: wrap; gap:.35rem; margin-bottom: .35rem; }
+
+/* ── Session Chart toolbar ─────────────────────────────────────────────── */
+.session-chart-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  padding: .35rem .5rem;
+  background: #0d1520;
+  border: 1px solid rgba(148,163,184,.1);
+  border-radius: 6px 6px 0 0;
+  font-size: .75rem;
+  color: #56687a;
+}
+.session-chart-toolbar .chart-symbol {
+  font-weight: 600;
+  color: #cbd5e1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .8rem;
+}
+.session-chart-toolbar .chart-ohlc {
+  display: flex;
+  gap: .45rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .75rem;
+}
+.session-chart-toolbar .chart-ohlc span { color: #56687a; }
+.session-chart-toolbar .chart-ohlc .ov { color: #cbd5e1; }
+.session-chart-toolbar .chart-ohlc .hv { color: #22c55e; }
+.session-chart-toolbar .chart-ohlc .lv { color: #ef4444; }
+.session-chart-toolbar .chart-ohlc .cv { color: #60a5fa; }
+.chart-zoom-hint {
+  margin-left: auto;
+  font-size: .7rem;
+  color: #334155;
+  font-style: italic;
+}

@@ -43,11 +43,6 @@ function buildExecutionPlan({ action, feature, candle, riskConfig = {} }) {
  */
 export function runStrategyDecisions({ strategyId, candles = [], features = [], strategyConfig = {}, runtimeContext = {} }) {
   const customDefinition = strategyConfig.customStrategyDefinition;
-  const hasLongRules = Array.isArray(customDefinition?.entry?.long) && customDefinition.entry.long.length > 0;
-  const hasShortRules = Array.isArray(customDefinition?.entry?.short) && customDefinition.entry.short.length > 0;
-  if (customDefinition && !hasLongRules && !hasShortRules) {
-    throw new Error("Strategy JSON missing entry conditions");
-  }
   const strategy = customDefinition
     ? {
       id: customDefinition.strategyId || strategyId || "json_rule_strategy",
@@ -59,7 +54,6 @@ export function runStrategyDecisions({ strategyId, candles = [], features = [], 
 
   const params = { ...(strategyConfig.params || {}) };
   const riskConfig = { ...(strategy.riskDefaults || {}), ...(strategyConfig.risk || {}) };
-  const isJsonRuleStrategy = Boolean(customDefinition);
 
   return candles.map((candle, index) => {
     const feature = features[index] || {};
@@ -83,11 +77,11 @@ export function runStrategyDecisions({ strategyId, candles = [], features = [], 
     const bearishScore = toNumber(feature.bearishScore, 0);
     let scoreGateBlocked = false;
     let scoreGateReason = '';
-    if (!isJsonRuleStrategy && action === STRATEGY_ACTIONS.LONG && bullishScore < scoreThreshold) {
+    if (action === STRATEGY_ACTIONS.LONG && bullishScore < scoreThreshold) {
       scoreGateBlocked = true;
       scoreGateReason = `Long blocked: bullish score ${bullishScore.toFixed(1)} below threshold ${scoreThreshold.toFixed(1)}.`;
     }
-    if (!isJsonRuleStrategy && action === STRATEGY_ACTIONS.SHORT && bearishScore < scoreThreshold) {
+    if (action === STRATEGY_ACTIONS.SHORT && bearishScore < scoreThreshold) {
       scoreGateBlocked = true;
       scoreGateReason = `Short blocked: bearish score ${bearishScore.toFixed(1)} below threshold ${scoreThreshold.toFixed(1)}.`;
     }

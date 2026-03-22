@@ -1,5 +1,3 @@
-import { calculateEMA, calculateRSI } from "./indicators.js";
-
 const STRATEGY_ACTIONS = { NO_TRADE: "NO_TRADE", LONG: "LONG", SHORT: "SHORT" };
 
 function toNumber(value, fallback = 0) {
@@ -36,13 +34,7 @@ function normalizeCondition(condition) {
   return { left: match[1], op: match[2], right: match[3], raw };
 }
 
-function tokenValue(token, context = {}) {
-  const {
-    candles = [],
-    features = [],
-    feature = {},
-    candleIndex = 0,
-  } = context;
+function tokenValue(token, { candles = [], features = [], feature = {}, candleIndex = 0 }) {
   const lower = String(token || "").toLowerCase();
   if (/^-?\d+(\.\d+)?$/.test(lower)) return Number(lower);
   const candle = candles[candleIndex] || {};
@@ -50,17 +42,10 @@ function tokenValue(token, context = {}) {
   const highs = candles.map((row) => toNumber(row.high, 0));
   const lows = candles.map((row) => toNumber(row.low, 0));
   const atrSeries = features.map((row) => toNumber(row.atr14, 0));
-  const indicatorCache = context.indicatorCache || (context.indicatorCache = {});
-  if (!Array.isArray(indicatorCache.emaFastSeries)) indicatorCache.emaFastSeries = calculateEMA(candles, 9);
-  if (!Array.isArray(indicatorCache.emaSlowSeries)) indicatorCache.emaSlowSeries = calculateEMA(candles, 21);
-  if (!Array.isArray(indicatorCache.rsiSeries)) indicatorCache.rsiSeries = calculateRSI(candles, 14);
   if (["open", "high", "low", "close", "volume"].includes(lower)) return toNumber(candle[lower], toNumber(feature[lower], 0));
   if (lower === "contextscore") return toNumber(feature.contextScore, 0);
   if (lower === "radarscore") return toNumber(feature.radarScore, 0);
   if (lower === "rsi14") return toNumber(feature.rsi14, 50);
-  if (lower === "rsi") return toNumber(indicatorCache.rsiSeries[candleIndex], toNumber(feature.rsi14, 50));
-  if (lower === "emafast") return toNumber(indicatorCache.emaFastSeries[candleIndex], toNumber(candle.close, 0));
-  if (lower === "emaslow") return toNumber(indicatorCache.emaSlowSeries[candleIndex], toNumber(candle.close, 0));
   if (lower === "atr14") return toNumber(feature.atr14, 0);
   const smaMatch = lower.match(/^sma(\d+)$/);
   if (smaMatch) return toNumber(sma(closes, candleIndex, Number(smaMatch[1])), 0);
@@ -112,7 +97,7 @@ export function validateRuleBasedStrategyDefinition(input = {}) {
   if (type !== "rule-based") errors.push('type must be "rule-based".');
   const longConditions = normalizeArray(input.entry?.long);
   const shortConditions = normalizeArray(input.entry?.short);
-  if (!longConditions.length && !shortConditions.length) errors.push("Strategy JSON missing entry conditions");
+  if (!longConditions.length && !shortConditions.length) errors.push("entry.long or entry.short must contain at least one condition.");
   [...longConditions, ...shortConditions].forEach((condition) => {
     if (!normalizeCondition(condition)) errors.push(`Invalid condition syntax: ${condition}`);
   });
@@ -140,32 +125,15 @@ export function validateRuleBasedStrategyDefinition(input = {}) {
 }
 
 export function evaluateJsonRuleStrategy({ definition, candles = [], candleIndex = 0, feature = {}, features = [] }) {
-  const hasLongRules = Array.isArray(definition.entry?.long) && definition.entry.long.length > 0;
-  const hasShortRules = Array.isArray(definition.entry?.short) && definition.entry.short.length > 0;
-  if (!hasLongRules && !hasShortRules) {
-    throw new Error("Strategy JSON missing entry conditions");
-  }
   const allowsLong = definition.filters?.allowLong !== false;
   const allowsShort = definition.filters?.allowShort !== false;
   const context = { candles, features, feature, candleIndex };
   const longChecks = (definition.entry?.long || []).map((condition) => evaluateJsonCondition(condition, context));
   const shortChecks = (definition.entry?.short || []).map((condition) => evaluateJsonCondition(condition, context));
-  console.debug("[Strategy JSON] Condition evaluation", {
-    candleIndex,
-    timestamp: candles[candleIndex]?.timestamp || feature.timestamp || null,
-    longChecks,
-    shortChecks,
-  });
   const longReady = allowsLong && longChecks.length > 0 && longChecks.every((check) => check.ok);
   const shortReady = allowsShort && shortChecks.length > 0 && shortChecks.every((check) => check.ok);
-  if (longReady && !shortReady) {
-    console.debug("[Strategy JSON] LONG signal triggered", { candleIndex, timestamp: candles[candleIndex]?.timestamp || feature.timestamp || null });
-    return { action: STRATEGY_ACTIONS.LONG, confidence: 0.62, reason: "JSON long rules matched", evidence: { longChecks, shortChecks } };
-  }
-  if (shortReady && !longReady) {
-    console.debug("[Strategy JSON] SHORT signal triggered", { candleIndex, timestamp: candles[candleIndex]?.timestamp || feature.timestamp || null });
-    return { action: STRATEGY_ACTIONS.SHORT, confidence: 0.62, reason: "JSON short rules matched", evidence: { longChecks, shortChecks } };
-  }
+  if (longReady && !shortReady) return { action: STRATEGY_ACTIONS.LONG, confidence: 0.62, reason: "JSON long rules matched" };
+  if (shortReady && !longReady) return { action: STRATEGY_ACTIONS.SHORT, confidence: 0.62, reason: "JSON short rules matched" };
   if (longReady && shortReady) return { action: STRATEGY_ACTIONS.NO_TRADE, confidence: 0.2, reason: "Both long/short rules matched; skipping ambiguous signal" };
-  return { action: STRATEGY_ACTIONS.NO_TRADE, confidence: 0.2, reason: "JSON rule conditions not met", evidence: { longChecks, shortChecks } };
+  return { action: STRATEGY_ACTIONS.NO_TRADE, confidence: 0.2, reason: "JSON rule conditions not met" };
 }

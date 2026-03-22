@@ -535,7 +535,19 @@
         </div>
         <div class="filters"><input id="session-candle-time" placeholder="Time label" /><input id="session-candle-open" type="number" step="0.00001" placeholder="Open" /><input id="session-candle-high" type="number" step="0.00001" placeholder="High" /><input id="session-candle-low" type="number" step="0.00001" placeholder="Low" /><input id="session-candle-close" type="number" step="0.00001" placeholder="Close" /><button id="btn-add-candle" class="primary">Add Candle</button><button id="btn-clear-candle" class="ghost">Clear</button><button id="btn-duplicate-open" class="ghost">Duplicate previous close as open</button></div>
         <div class="button-row compact session-replay-controls"><button id="btn-session-prev" class="ghost">Previous Candle</button><button id="btn-session-next" class="ghost">Next Candle</button><button id="btn-session-play" class="ghost">Play Session</button><button id="btn-session-pause" class="ghost">Pause</button></div>
-        <div id="session-canvas" class="panel-soft" style="overflow-x:auto;"></div>
+        <div style="border:1px solid rgba(148,163,184,.1);border-radius:8px;overflow:hidden;">
+          <div class="session-chart-toolbar">
+            <span id="chart-symbol" class="chart-symbol">—</span>
+            <div class="chart-ohlc" id="chart-ohlc-bar">
+              <span><span>O</span> <span class="ov" id="chart-o">—</span></span>
+              <span><span>H</span> <span class="hv" id="chart-h">—</span></span>
+              <span><span>L</span> <span class="lv" id="chart-l">—</span></span>
+              <span><span>C</span> <span class="cv" id="chart-c">—</span></span>
+            </div>
+            <span class="chart-zoom-hint">Ctrl+scroll para zoom · arrastra para mover</span>
+          </div>
+          <div id="session-canvas" style="height:420px;"></div>
+        </div>
         <div id="session-event-strip" class="panel-soft muted tiny">No recent market events.</div>
         <div id="session-analysis-panel" class="panel-soft"></div>
         <div id="session-summary" class="panel-soft"></div>
