@@ -5,6 +5,11 @@ function safeNum(value, digits = 2) {
   return Number.isFinite(n) ? n.toFixed(digits) : "-";
 }
 
+
+function joinList(items = []) {
+  return (items || []).map((item) => `<li>${item}</li>`).join("") || '<li class="muted">-</li>';
+}
+
 function pctWidth(bullish, bearish) {
   const sum = Math.max((Number(bullish) || 0) + (Number(bearish) || 0), 1);
   return {
@@ -36,6 +41,17 @@ export function renderAnalystPanel({ container, symbol, timeframe = "5m", data, 
   const divergence = data.divergence
     ? `<div class="analyst-divergence ${data.divergence.type}"><strong>${data.divergence.type.toUpperCase()} divergence</strong> · strength ${data.divergence.strength}/100</div>`
     : "";
+
+  const guidance = data.guidance || {
+    contextLabel: data.contextLabel || "neutral compression",
+    setupType: data.setupType || "neutral compression",
+    tradePosture: data.tradePosture || "WARN",
+    optimalEntryZone: [],
+    dangerZone: [],
+    recommendedAction: "Wait for cleaner confirmation.",
+    why: [],
+    narrative: data.narrative || "-",
+  };
 
   container.innerHTML = `
     <article class="analyst-panel ${collapsed ? "collapsed" : ""}">
@@ -74,8 +90,22 @@ export function renderAnalystPanel({ container, symbol, timeframe = "5m", data, 
           </div>
         </section>
         <section>
+          <h4>Operational guidance</h4>
+          <div class="session-analysis-tags">
+            <span class="badge">Context ${guidance.contextLabel || "-"}</span>
+            <span class="badge">Setup ${guidance.setupType || "-"}</span>
+            <span class="badge">Posture ${guidance.tradePosture || "-"}</span>
+          </div>
+          <p><strong>What to do:</strong> ${guidance.recommendedAction || "-"}</p>
+          <div class="analyst-guidance-grid">
+            <div><strong>Optimal entry zone</strong><ul>${joinList(guidance.optimalEntryZone)}</ul></div>
+            <div><strong>Avoid</strong><ul>${joinList(guidance.dangerZone)}</ul></div>
+            <div><strong>Why</strong><ul>${joinList(guidance.why)}</ul></div>
+          </div>
+        </section>
+        <section>
           <h4>Analyst narrative</h4>
-          <pre class="session-narrative muted">${data.narrative || "-"}</pre>
+          <pre class="session-narrative muted">${guidance.narrative || data.narrative || "-"}</pre>
         </section>
       </div>
     </article>
