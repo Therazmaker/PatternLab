@@ -5,6 +5,19 @@ import { computeFeatureSnapshot } from "./featureEngine.js";
 import { classifyMarketRegime } from "./marketRegime.js";
 import { computeProbabilityScores } from "./probabilityEngine.js";
 import { applyOperatorFeedback, deriveOperatorPatternFeedback } from "./operatorFeedback.js";
+import { computeOperatorModifier } from "./operatorModifierEngine.js";
+import { combineFinalDecision } from "./finalDecisionCombiner.js";
+import { buildContextSignature } from "./contextSignatureBuilder.js";
+import { createOperatorActionLogger } from "./operatorActionLogger.js";
+import { evaluateOperatorAction } from "./operatorOutcomeEvaluator.js";
+import { analyzeOperatorPatterns } from "./operatorPatternAnalyzer.js";
+import {
+  loadDecisionMemories,
+  loadOperatorActions,
+  loadOperatorPatternSummary,
+  loadTradeMemories,
+  saveOperatorPatternSummary,
+} from "./storage/storage-adapter.js";
 
 const DEFAULT_MAX_HISTORY = 400;
 
@@ -124,6 +137,7 @@ function hasResolutionSignal(record, candles, maxHoldBars) {
 
 export function createLiveShadowMonitor(options = {}) {
   const maxHistory = Math.max(100, Number(options.maxHistory) || DEFAULT_MAX_HISTORY);
+  const operatorActionLogger = createOperatorActionLogger();
   let records = [];
   const pendingIndex = new Map();
 
@@ -192,6 +206,32 @@ export function createLiveShadowMonitor(options = {}) {
     const pseudoMlFeature = computeFeatureSnapshot(candles, candleIndex);
     const regime = classifyMarketRegime(pseudoMlFeature);
     const probability = computeProbabilityScores({ feature: pseudoMlFeature, regime });
+    const contextSignature = buildContextSignature({
+      regime: regime.regime,
+      swingStructure: features.state?.structure?.structureBias === "bullish" ? "HH_HL" : features.state?.structure?.structureBias === "bearish" ? "LH_LL" : "range",
+      nearResistance: features.state?.nearResistance,
+      nearSupport: features.state?.nearSupport,
+      momentumState: Number(regime.strength || 0) >= 70 ? "strong" : Number(regime.strength || 0) >= 45 ? "medium" : "weak",
+      followThroughState: Number(probability.confidence || 0) >= 0.7 ? "strong" : Number(probability.confidence || 0) >= 0.45 ? "medium" : "weak",
+    });
+
+    const operatorPatternSummary = loadOperatorPatternSummary() || {};
+    const operatorModifier = computeOperatorModifier({
+      direction: probability.bias === "bullish" ? "LONG" : probability.bias === "bearish" ? "SHORT" : "NONE",
+      bullishScore: probability.bullishScore,
+      bearishScore: probability.bearishScore,
+      confidence: probability.confidence,
+    }, contextSignature, operatorPatternSummary, null);
+
+    const combinedDecision = combineFinalDecision({
+      direction: probability.bias === "bullish" ? "LONG" : probability.bias === "bearish" ? "SHORT" : "NONE",
+      bullishScore: probability.bullishScore,
+      bearishScore: probability.bearishScore,
+      confidence: Number(decision.confidence || 0),
+    }, {
+      decision: decision.evidence?.structure?.decision || "ALLOW",
+      reasons: decision.evidence?.structure?.reasons || [],
+    }, operatorModifier);
 
     const id = createRecordId(candle, candleIndex);
     if (records.some((row) => row.id === id)) return null;
@@ -228,6 +268,10 @@ export function createLiveShadowMonitor(options = {}) {
         supportingEvidence: decision.evidence || {},
         structureDecision: decision.evidence?.structure?.decision || "allow",
         structureReasons: decision.evidence?.structure?.reasons || [],
+        finalDecision: combinedDecision.finalDecision,
+        finalBias: combinedDecision.finalBias,
+        finalConfidence: combinedDecision.confidence,
+        finalDecisionSummary: combinedDecision.summaryText,
         bullishScore: probability.bullishScore,
         bearishScore: probability.bearishScore,
         neutralScore: probability.neutralScore,
@@ -264,6 +308,8 @@ export function createLiveShadowMonitor(options = {}) {
         pseudoMlFeature,
         regime,
         probability,
+        contextSignature,
+        operatorModifier,
       },
       outcome: buildDefaultOutcome(decision.action),
       decisionTrace: {
@@ -337,6 +383,50 @@ export function createLiveShadowMonitor(options = {}) {
         patterns: [...new Set([...(record.learningMemory?.patterns || []), ...deriveOperatorPatternFeedback({ ...record, operatorFeedback: applied, decisionTrace: { machine: machineTrace, operatorCorrected: corrected } })])],
       },
     };
+
+    const fromAction = record.policy?.finalDecision || "WARN";
+    const toAction = corrected.finalState === "operator_vetoed" ? "BLOCK" : corrected.finalState === "requires_manual_confirmation" ? "REQUIRES_MANUAL_CONFIRMATION" : fromAction;
+    const actionRecord = operatorActionLogger.logOperatorAction({
+      actionId: `op_${record.id}_${Date.now()}`,
+      timestamp: applied.recalculated.timestamp,
+      symbol: record.symbol,
+      timeframe: record.timeframe,
+      linkedTradeId: record.id,
+      linkedDecisionId: record.id,
+      rawSignal: {
+        direction: machineTrace.action === "LONG" || machineTrace.action === "SHORT" ? machineTrace.action : "NONE",
+        bullishScore: machineTrace.bullishScore,
+        bearishScore: machineTrace.bearishScore,
+        confidence: machineTrace.confidence,
+        reasonCodes: [machineTrace.reason || "machine_signal"],
+      },
+      operatorAction: {
+        type: applied.actions?.[0] || "none",
+        note: applied.note || null,
+      },
+      context20: {
+        contextSignature: record.stateSummary?.contextSignature,
+        regime: record.policy?.regime,
+      },
+      immediateEffect: {
+        decisionChanged: machineTrace.action !== corrected.finalAction || fromAction !== toAction,
+        fromDirection: machineTrace.action === "LONG" || machineTrace.action === "SHORT" ? machineTrace.action : "NONE",
+        toDirection: corrected.finalAction === "LONG" || corrected.finalAction === "SHORT" ? corrected.finalAction : "NONE",
+        fromDecision: fromAction,
+        toDecision: toAction,
+      },
+      laterEvaluation: {
+        evaluated: false,
+        verdict: null,
+        correctnessScore: null,
+        marketOutcome: null,
+      },
+    });
+
+    next.operatorIntelligence = {
+      actionId: actionRecord.actionId,
+      actionType: actionRecord.operatorAction.type,
+    };
     records[idx] = next;
     return next;
   }
@@ -393,11 +483,41 @@ export function createLiveShadowMonitor(options = {}) {
       };
 
       records[idx] = next;
+      if (record.operatorIntelligence?.actionId) {
+        const evaluation = evaluateOperatorAction(
+          {
+            actionId: record.operatorIntelligence.actionId,
+            operatorAction: { type: record.operatorIntelligence.actionType || "none" },
+            context20: { contextSignature: record.stateSummary?.contextSignature || {} },
+          },
+          {
+            result: next.outcomeComparison?.operatorCorrected?.result,
+            machineResult: next.outcomeComparison?.machineOnly?.result,
+            marketDirection: next.outcomeComparison?.actualOutcome?.result === "win"
+              ? (record.policy?.action === "LONG" ? "LONG" : "SHORT")
+              : (record.policy?.action === "LONG" ? "SHORT" : "LONG"),
+            moveStrength: Math.abs(Number(next.outcomeComparison?.actualOutcome?.rMultiple || 0)),
+          },
+        );
+        operatorActionLogger.updateActionEvaluation(record.operatorIntelligence.actionId, {
+          ...evaluation,
+          marketOutcome: next.outcomeComparison?.actualOutcome || null,
+        });
+        console.debug("Operator action evaluated", evaluation);
+      }
       pendingIndex.delete(id);
       resolved.push(next);
     });
 
     records = records.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+    if (resolved.length) {
+      const patternSummary = analyzeOperatorPatterns(loadOperatorActions(), loadTradeMemories(), loadDecisionMemories());
+      saveOperatorPatternSummary(patternSummary);
+      console.debug("Operator pattern summary updated", {
+        evaluatedActions: patternSummary?.totals?.evaluatedActions || 0,
+        highValuePatterns: (patternSummary?.highValuePatterns || []).length,
+      });
+    }
     return resolved;
   }
 

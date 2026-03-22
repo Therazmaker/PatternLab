@@ -1,0 +1,17 @@
+{
+  "finalDecision": "REQUIRES_MANUAL_CONFIRMATION",
+  "finalBias": "SHORT",
+  "confidence": 0.34,
+  "decisionBreakdown": {
+    "machineComponent": 0.21,
+    "structureComponent": -0.22,
+    "operatorComponent": -0.33
+  },
+  "reasonCodes": [
+    "machine_component_positive",
+    "structure_component_penalized",
+    "operator_component_protective",
+    "operator_requires_confirmation"
+  ],
+  "summaryText": "Final decision combined. Machine 0.21 + structure -0.22 + operator -0.33 = -0.34 -> REQUIRES_MANUAL_CONFIRMATION."
+}
