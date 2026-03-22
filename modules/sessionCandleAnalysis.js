@@ -153,6 +153,12 @@ export function buildSessionCandleAnalysis(candles = [], context = {}) {
   if (context.shadow?.status === "pending") {
     events.unshift({ type: "shadow", label: `Shadow ${context.shadow.action} pending`, timestamp: context.shadow.timestamp });
   }
+  if (context.shadow?.operatorAction) {
+    events.unshift({ type: "shadow", label: `Operator ${context.shadow.operatorAction}${context.shadow.operatorState ? ` (${context.shadow.operatorState})` : ""}`, timestamp: context.shadow.timestamp });
+  }
+  if ((context.shadow?.operatorInfluence || []).length) {
+    events.unshift({ type: "shadow", label: `Operator influence: ${context.shadow.operatorInfluence.slice(0, 1).join("")}`, timestamp: context.shadow.timestamp });
+  }
 
   return {
     symbol: context.symbol || "-",
