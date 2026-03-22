@@ -217,6 +217,20 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
   padding: .45rem .55rem;
   background: rgba(15, 23, 42, 0.25);
 }
+.analyst-panel { border: 1px solid var(--line); border-radius: 10px; padding: .6rem; background: rgba(11,17,24,.45); }
+.analyst-header { display:flex; justify-content:space-between; gap:.6rem; align-items:flex-start; cursor:pointer; }
+.analyst-kpis { display:flex; gap:.35rem; flex-wrap:wrap; }
+.analyst-body { margin-top: .55rem; display:grid; gap:.55rem; }
+.analyst-panel.collapsed .analyst-body { display: none; }
+.analyst-scorebar { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; min-height:30px; background: rgba(15,23,42,.4); }
+.analyst-scorebar .bear, .analyst-scorebar .bull, .analyst-scorebar .neutral { display:flex; align-items:center; justify-content:center; font-size:.72rem; }
+.analyst-scorebar .bear { background: rgba(239,68,68,.24); color: #fca5a5; }
+.analyst-scorebar .bull { background: rgba(34,197,94,.22); color: #86efac; }
+.analyst-scorebar .neutral { flex:1; color:#94a3b8; }
+.analyst-divergence { border-radius: 8px; padding: .35rem .5rem; font-size: .78rem; border:1px solid transparent; }
+.analyst-divergence.bullish { background: rgba(34,197,94,.14); border-color: rgba(34,197,94,.45); color:#86efac; }
+.analyst-divergence.bearish { background: rgba(239,68,68,.14); border-color: rgba(239,68,68,.45); color:#fca5a5; }
+.analyst-zones-table table { min-width: 560px; }
 .session-narrative {
   white-space: pre-line;
   background: rgba(15, 23, 42, 0.35);
