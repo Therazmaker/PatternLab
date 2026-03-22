@@ -1,0 +1,23 @@
+{
+  "tradeId": "trade_20260322_1001",
+  "result": "win",
+  "primaryCause": "trend_continuation",
+  "secondaryCause": "breakout_with_followthrough",
+  "reasonCodes": [
+    "trend_continuation",
+    "pullback_entry_valid",
+    "breakout_with_followthrough",
+    "strong_momentum_alignment",
+    "operator_bias_correct"
+  ],
+  "diagnosticScores": {
+    "trendAlignmentScore": 89,
+    "structureScore": 82,
+    "momentumScore": 86,
+    "timingScore": 80,
+    "followThroughScore": 92,
+    "operatorContextScore": 85
+  },
+  "confidenceInDiagnosis": 90,
+  "summaryText": "LONG win mainly because trade matched trend continuation. Secondary factor: breakout had strong follow-through."
+}

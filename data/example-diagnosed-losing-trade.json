@@ -1,0 +1,23 @@
+{
+  "tradeId": "trade_20260322_1002",
+  "result": "loss",
+  "primaryCause": "entered_into_resistance",
+  "secondaryCause": "no_followthrough",
+  "reasonCodes": [
+    "entered_into_resistance",
+    "no_followthrough",
+    "low_momentum_entry",
+    "late_entry",
+    "volatility_spike_against"
+  ],
+  "diagnosticScores": {
+    "trendAlignmentScore": 37,
+    "structureScore": 28,
+    "momentumScore": 34,
+    "timingScore": 30,
+    "followThroughScore": 18,
+    "operatorContextScore": 40
+  },
+  "confidenceInDiagnosis": 88,
+  "summaryText": "LONG loss mainly because entry occurred too close to resistance. Secondary factor: price failed to follow through after entry."
+}

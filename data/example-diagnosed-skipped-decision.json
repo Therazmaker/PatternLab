@@ -1,0 +1,13 @@
+{
+  "decisionId": "decision_20260322_2001",
+  "operatorAction": "veto",
+  "verdict": "good_skip",
+  "primaryCause": "veto_saved_loss",
+  "secondaryCause": "operator_context_correct",
+  "reasonCodes": [
+    "veto_saved_loss",
+    "operator_context_correct"
+  ],
+  "confidenceInDiagnosis": 81,
+  "summaryText": "Operator veto on LONG signal classified as good skip because operator veto prevented a likely loss. Secondary factor: operator context call was correct."
+}
