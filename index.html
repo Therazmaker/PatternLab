@@ -444,10 +444,22 @@
           <label class="inline-toggle"><input id="session-toggle-near" type="checkbox" checked /> Show near states</label>
           <label class="inline-toggle"><input id="session-toggle-metrics" type="checkbox" checked /> Show metrics</label>
           <label class="inline-toggle"><input id="session-toggle-replay" type="checkbox" /> Replay mode</label>
+          <label class="inline-toggle"><input id="session-toggle-structure" type="checkbox" checked /> Show structure markers</label>
+          <label class="inline-toggle"><input id="session-toggle-ma" type="checkbox" checked /> Show EMA overlays</label>
+          <label class="inline-toggle"><input id="session-toggle-live-annotations" type="checkbox" checked /> Show live annotations</label>
+          <label>Window
+            <select id="session-window-size">
+              <option value="40">40 candles</option>
+              <option value="60">60 candles</option>
+              <option value="80" selected>80 candles</option>
+              <option value="120">120 candles</option>
+            </select>
+          </label>
         </div>
         <div class="filters"><input id="session-candle-time" placeholder="Time label" /><input id="session-candle-open" type="number" step="0.00001" placeholder="Open" /><input id="session-candle-high" type="number" step="0.00001" placeholder="High" /><input id="session-candle-low" type="number" step="0.00001" placeholder="Low" /><input id="session-candle-close" type="number" step="0.00001" placeholder="Close" /><button id="btn-add-candle" class="primary">Add Candle</button><button id="btn-clear-candle" class="ghost">Clear</button><button id="btn-duplicate-open" class="ghost">Duplicate previous close as open</button></div>
         <div class="button-row compact session-replay-controls"><button id="btn-session-prev" class="ghost">Previous Candle</button><button id="btn-session-next" class="ghost">Next Candle</button><button id="btn-session-play" class="ghost">Play Session</button><button id="btn-session-pause" class="ghost">Pause</button></div>
         <div id="session-canvas" class="panel-soft" style="overflow-x:auto;"></div>
+        <div id="session-event-strip" class="panel-soft muted tiny">No recent market events.</div>
         <div id="session-analysis-panel" class="panel-soft"></div>
         <div id="session-summary" class="panel-soft"></div>
         <div id="session-candle-status" class="quick-add-feedback muted"></div>
