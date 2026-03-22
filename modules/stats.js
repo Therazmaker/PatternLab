@@ -30,6 +30,12 @@ export function computeStats(signals) {
     winrate: calcWinrate(wins, losses),
     topAssets: topEntries(countBy(signals, (s) => s.asset)),
     topPatterns: topEntries(countBy(signals, (s) => s.patternName)),
+    bySource: topEntries(countBy(signals, (s) => s.source || "manual")),
+    byStrategy: topEntries(countBy(signals, (s) => s.strategyName || s.strategyId || "N/A")),
+    bySymbol: topEntries(countBy(signals, (s) => s.asset)),
+    byTimeframe: topEntries(countBy(signals, (s) => s.timeframe)),
+    byAction: topEntries(countBy(signals, (s) => s.strategyAction || s.futuresPolicy?.action || "N/A")),
+    byResult: topEntries(countBy(signals, (s) => s.outcome?.status || "pending")),
     directionDist: topEntries(countBy(signals, (s) => s.direction), 2),
   };
 }

@@ -146,8 +146,10 @@
           <select id="filter-asset"><option value="">Todos los activos</option></select>
           <select id="filter-direction"><option value="">Todas las direcciones</option><option value="CALL">CALL</option><option value="PUT">PUT</option></select>
           <select id="filter-pattern"><option value="">Todos los patrones</option></select>
+          <select id="filter-source"><option value="">Todas las fuentes</option></select>
+          <select id="filter-strategy"><option value="">Todas las estrategias</option></select>
           <select id="filter-timeframe"><option value="">Todos los TF</option></select>
-          <select id="filter-status"><option value="">Todos los estados</option><option value="pending">pending</option><option value="win">win</option><option value="loss">loss</option><option value="skip">skip</option></select>
+          <select id="filter-status"><option value="">Todos los estados</option><option value="pending">pending</option><option value="win">win</option><option value="loss">loss</option><option value="flat">flat</option><option value="skip">skip</option></select>
           <select id="filter-near-support"><option value="">Support: todos</option><option value="only">Solo nearSupport</option><option value="exclude">Excluir nearSupport</option></select>
           <select id="filter-near-resistance"><option value="">Resistance: todos</option><option value="only">Solo nearResistance</option><option value="exclude">Excluir nearResistance</option></select>
           <select id="filter-has-ohlc"><option value="">OHLC: todos</option><option value="only">Con OHLC</option><option value="exclude">Sin OHLC</option></select>
@@ -173,11 +175,27 @@
 
       <section class="panel tab-panel" data-panel="stats">
         <h2>Estadísticas</h2>
+        <div class="filters">
+          <select id="stats-filter-source"><option value="">Todas las fuentes</option></select>
+          <select id="stats-filter-strategy"><option value="">Todas las estrategias</option></select>
+          <select id="stats-filter-symbol"><option value="">Todos los símbolos</option></select>
+          <select id="stats-filter-timeframe"><option value="">Todos los TF</option></select>
+        </div>
         <div id="stats-overview" class="stats-grid"></div><h3>v3 Signals Analytics</h3><div id="v3-signal-stats" class="stats-grid"></div><h3>Session Analytics</h3><div id="session-stats" class="stats-grid"></div>
         <div class="split">
           <div><h3>Top assets</h3><ul id="top-assets" class="mini-list"></ul></div>
           <div><h3>Top patterns</h3><ul id="top-patterns" class="mini-list"></ul></div>
           <div><h3>Dirección</h3><ul id="direction-dist" class="mini-list"></ul></div>
+        </div>
+        <div class="split">
+          <div><h3>By source</h3><ul id="stats-by-source" class="mini-list"></ul></div>
+          <div><h3>By strategy</h3><ul id="stats-by-strategy" class="mini-list"></ul></div>
+          <div><h3>By symbol</h3><ul id="stats-by-symbol" class="mini-list"></ul></div>
+        </div>
+        <div class="split">
+          <div><h3>By timeframe</h3><ul id="stats-by-timeframe" class="mini-list"></ul></div>
+          <div><h3>By action</h3><ul id="stats-by-action" class="mini-list"></ul></div>
+          <div><h3>By result</h3><ul id="stats-by-result" class="mini-list"></ul></div>
         </div>
         <h3>Ranking por patrón</h3>
         <div id="ranking-wrap" class="table-wrap"></div>
@@ -519,6 +537,10 @@
           </article>
         </div>
         <article id="md-live-shadow-stats" class="panel-soft muted tiny">Live shadow stats pending.</article>
+        <div class="button-row compact">
+          <label class="inline-toggle"><input id="md-live-shadow-auto-ingest" type="checkbox" checked /> Auto-send live shadow decisions to Import/Feed</label>
+          <button id="btn-live-shadow-import-selected" type="button" class="ghost">Import selected decision</button>
+        </div>
         <div class="filters">
           <label>Symbol
             <select id="md-live-shadow-filter-symbol">

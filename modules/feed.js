@@ -28,6 +28,14 @@ function renderFuturesBadge(signal) {
   return `<span class="badge ${tone}">Futures ${policy.action} ${(Number(policy.confidence || 0) * 100).toFixed(0)}%</span>${rr ? ` <span class="badge">RR ${rr.toFixed(2)}</span>` : ""}${replay ? ` <span class="badge">${replay}</span>` : ""}`;
 }
 
+function renderSourceBadge(signal) {
+  if (signal.source !== "strategy-live-shadow") return '<span class="badge">Manual</span>';
+  const strategy = signal.strategyName || signal.strategyId || "strategy";
+  const action = signal.strategyAction || signal.futuresPolicy?.action || "NO_TRADE";
+  const confidence = signal.confidence;
+  return `<span class="badge tag">Live Shadow</span> <span class="badge">${strategy}</span> <span class="badge">${action}</span>${typeof confidence === "number" ? ` <span class="badge">${(confidence * 100).toFixed(0)}%</span>` : ""}`;
+}
+
 function renderV3Badges(signal) {
   const badges = [];
   if (hasOHLCComplete(signal)) badges.push('<span class="badge v3-ohlc">OHLC complete</span>');
@@ -55,6 +63,8 @@ export function getFilteredSignals(signals, filters) {
     if (filters.asset && s.asset !== filters.asset) return false;
     if (filters.direction && s.direction !== filters.direction) return false;
     if (filters.patternName && s.patternName !== filters.patternName) return false;
+    if (filters.source && s.source !== filters.source) return false;
+    if (filters.strategyId && (s.strategyId || "") !== filters.strategyId) return false;
     if (filters.status && s.outcome.status !== filters.status) return false;
     if (filters.timeframe && s.timeframe !== filters.timeframe) return false;
     if (filters.hasOHLC === "only" && !hasOHLCComplete(s)) return false;
@@ -66,7 +76,7 @@ export function getFilteredSignals(signals, filters) {
     if (filters.mfeMin !== "" && !(Number(s?.excursion?.mfe) >= Number(filters.mfeMin))) return false;
     if (filters.maeMax !== "" && !(Number(s?.excursion?.mae) <= Number(filters.maeMax))) return false;
     if (term) {
-      const hay = [s.asset, s.patternName, s.direction, s.timeframe, s.notes, ...(s.autoTags || [])].join(" ").toLowerCase();
+      const hay = [s.asset, s.patternName, s.direction, s.timeframe, s.notes, s.strategyName, s.strategyId, ...(s.autoTags || [])].join(" ").toLowerCase();
       if (!hay.includes(term)) return false;
     }
     return true;
@@ -101,7 +111,7 @@ export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
           <small>${signal.contextLabel || "-"}</small>
         </div>
       </td>
-      <td>${renderTagBadges(signal.autoTags)} ${renderV3Badges(signal)} ${renderFuturesBadge(signal)}</td>
+      <td>${renderSourceBadge(signal)} ${renderTagBadges(signal.autoTags)} ${renderV3Badges(signal)} ${renderFuturesBadge(signal)}</td>
       <td class="quick-actions">
         <button data-quick="win" data-id="${signal.id}" class="ghost" title="Marcar win">Win</button>
         <button data-quick="loss" data-id="${signal.id}" class="ghost" title="Marcar loss">Loss</button>

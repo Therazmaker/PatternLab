@@ -4,6 +4,8 @@ export const state = {
     asset: "",
     direction: "",
     patternName: "",
+    source: "",
+    strategyId: "",
     status: "",
     timeframe: "",
     search: "",
