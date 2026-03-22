@@ -1,5 +1,6 @@
 import { getStrategyById } from "./strategyRegistry.js";
 import { evaluateJsonRuleStrategy } from "./strategyJson.js";
+import { evaluateStructureFilter } from "./structureFilter.js";
 
 export const STRATEGY_ACTIONS = { NO_TRADE: "NO_TRADE", LONG: "LONG", SHORT: "SHORT" };
 
