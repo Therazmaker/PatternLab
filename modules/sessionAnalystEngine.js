@@ -1,6 +1,7 @@
 import { detectPatterns } from "./patternDetector.js";
 import { detectRsiDivergence, computeRsi } from "./rsiDivergenceDetector.js";
 import { detectSrZones } from "./srZoneDetector.js";
+import { buildAnalystGuidance } from "./analystGuidanceBuilder.js";
 
 function num(v, d = null) {
   const n = Number(v);
@@ -61,6 +62,17 @@ function buildNarrative({ trend, rsi, zones, patterns, divergence }) {
 export function analyzeSessionCandles(candles = [], context = {}) {
   const rows = (Array.isArray(candles) ? candles : []).filter((c) => [c.open, c.high, c.low, c.close].every((v) => Number.isFinite(Number(v))));
   if (rows.length < 3) {
+    const guidance = buildAnalystGuidance({
+      trend: "neutral",
+      bullishScore: 0,
+      bearishScore: 0,
+      rsi: null,
+      atr: null,
+      volatilityState: "low",
+      patterns: [],
+      divergence: null,
+      zones: [],
+    });
     return {
       trend: "neutral",
       bullishScore: 0,
@@ -72,7 +84,11 @@ export function analyzeSessionCandles(candles = [], context = {}) {
       patterns: [],
       divergence: null,
       zones: [],
-      narrative: "Need at least 3 candles to activate analyst.",
+      narrative: guidance.narrative || "Need at least 3 candles to activate analyst.",
+      guidance,
+      setupType: guidance.setupType,
+      tradePosture: guidance.tradePosture,
+      contextLabel: guidance.contextLabel,
     };
   }
 
@@ -119,6 +135,18 @@ export function analyzeSessionCandles(candles = [], context = {}) {
   const divergence = detectRsiDivergence(rows, 24);
   const zones = detectSrZones(rows, { minTouches: 2 });
   const narrative = buildNarrative({ trend, rsi, zones, patterns, divergence });
+  const guidance = buildAnalystGuidance({
+    trend,
+    bullishScore,
+    bearishScore,
+    rsi,
+    atr,
+    volatilityState,
+    patterns,
+    divergence,
+    zones,
+    lastClose,
+  });
 
   return {
     trend,
@@ -132,6 +160,10 @@ export function analyzeSessionCandles(candles = [], context = {}) {
     patterns,
     divergence,
     zones,
-    narrative,
+    narrative: guidance.narrative || narrative,
+    guidance,
+    setupType: guidance.setupType,
+    tradePosture: guidance.tradePosture,
+    contextLabel: guidance.contextLabel,
   };
 }
