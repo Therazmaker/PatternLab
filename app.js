@@ -19,6 +19,7 @@ import {
   loadFuturesPolicyConfig,
   loadFuturesPolicySnapshots,
   loadLiveShadowState,
+  loadStrategyRuns,
   loadNotes,
   loadPatternVersionsRegistry,
   loadPromotedPatterns,
@@ -38,6 +39,7 @@ import {
   saveFuturesPolicyConfig,
   saveFuturesPolicySnapshots,
   saveLiveShadowState,
+  saveStrategyRuns,
   saveMetaFeedback,
   saveNotes,
   savePatternVersionsRegistry,
@@ -114,6 +116,12 @@ import { createLiveShadowMonitor } from "./modules/liveShadowMonitor.js";
 import { createLiveShadowTimeline } from "./modules/liveShadowTimeline.js";
 import { computeLiveShadowStats } from "./modules/liveShadowStats.js";
 import { formatConfidence, formatNumber, formatPct, formatTs, getOutcomeBadgeClass } from "./modules/liveShadowFormatters.js";
+import { listStrategies, getDefaultParams, getStrategyById } from "./modules/strategyRegistry.js";
+import { buildStrategyFeatures } from "./modules/strategyFeatures.js";
+import { runStrategyBacktest } from "./modules/strategyBacktest.js";
+import { getSavedStrategyRuns, persistStrategyRun } from "./modules/strategyPersistence.js";
+import { compareStrategyRuns } from "./modules/strategyRunCompare.js";
+import { RlEnvironmentAdapter } from "./modules/rlEnvironmentAdapter.js";
 import {
   applyMetaFeedbackBias,
   buildErrorClusters,
@@ -235,6 +243,20 @@ els.liveImportBtn = document.getElementById("btn-live-import");
 els.liveValidateBtn = document.getElementById("btn-live-validate");
 els.liveClearBtn = document.getElementById("btn-live-clear");
 
+els.slSymbol = document.getElementById("sl-symbol");
+els.slTimeframe = document.getElementById("sl-timeframe");
+els.slRangeBars = document.getElementById("sl-range-bars");
+els.slStrategy = document.getElementById("sl-strategy");
+els.slParams = document.getElementById("sl-params");
+els.slRunNotes = document.getElementById("sl-run-notes");
+els.slRunBtn = document.getElementById("btn-sl-run");
+els.slSaveBtn = document.getElementById("btn-sl-save");
+els.slLoadBtn = document.getElementById("btn-sl-load");
+els.slStatus = document.getElementById("sl-status");
+els.slMetrics = document.getElementById("sl-metrics");
+els.slRunsBody = document.getElementById("sl-runs-body");
+els.slTradesBody = document.getElementById("sl-trades-body");
+
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
 const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
@@ -304,6 +326,11 @@ let patternReviewDecisions = {};
 let livePatternSignals = [];
 let livePatternSummary = [];
 let importerMode = "research";
+let strategyRuns = [];
+let latestStrategyResult = null;
+let selectedStrategyRunId = "";
+let strategyLabConfig = { strategyId: "sma_rsi_trend", params: {}, risk: {}, execution: { feeBps: 4, slippageBps: 2, initialEquity: 10000 } };
+let strategyLabRlProbe = null;
 
 function setSettingsStatus(message, kind = "muted") {
   if (!els.settingsStatus) return;
@@ -327,6 +354,7 @@ function refreshStorageStatusUI() {
     <li><span>Live Signals</span><strong>${counts.livePatternSignals || 0}</strong></li>
     <li><span>Live Summary Rows</span><strong>${counts.livePatternSummary || 0}</strong></li>
     <li><span>Live Shadow Records</span><strong>${counts.liveShadowRecords || 0}</strong></li>
+    <li><span>Strategy Runs</span><strong>${counts.strategyRuns || 0}</strong></li>
     <li><span>Tamaño estimado</span><strong>${Math.round(estimatedBytes / 1024)} KB</strong></li>
   `;
   els.settingsStorageStatus.textContent = backend === "indexedDB"
@@ -1214,6 +1242,169 @@ function refreshBotGenerator() {
   renderBotIntegrationHints();
 }
 
+
+function setStrategyLabStatus(message, kind = "muted") {
+  if (!els.slStatus) return;
+  els.slStatus.className = `quick-add-feedback ${kind}`;
+  els.slStatus.textContent = message || "";
+}
+
+function parseStrategyParamsInput() {
+  try {
+    const raw = String(els.slParams?.value || "{}").trim();
+    if (!raw) return { params: {}, risk: {}, execution: strategyLabConfig.execution };
+    const parsed = JSON.parse(raw);
+    return {
+      params: parsed.params && typeof parsed.params === "object" ? parsed.params : {},
+      risk: parsed.risk && typeof parsed.risk === "object" ? parsed.risk : {},
+      execution: parsed.execution && typeof parsed.execution === "object" ? { ...strategyLabConfig.execution, ...parsed.execution } : { ...strategyLabConfig.execution },
+    };
+  } catch (error) {
+    throw new Error(`Invalid strategy JSON params: ${error.message}`);
+  }
+}
+
+function buildStrategySignalContextMap() {
+  const map = new Map();
+  const feed = [...state.signals, ...livePatternSignals].filter((row) => row?.timestamp);
+  feed.forEach((row) => {
+    const key = typeof row.timestamp === "string" ? row.timestamp : new Date(row.timestamp).toISOString();
+    map.set(key, row);
+  });
+  return map;
+}
+
+function buildStrategyRuntimeContext(symbol, timeframe) {
+  const sourceCandles = (marketDataCandles || []).filter((row) => {
+    const rowSymbol = row.symbol || row.asset || marketDataMeta.selectedSymbol;
+    const rowTf = row.timeframe || marketDataMeta.selectedTimeframe;
+    return (!symbol || rowSymbol === symbol) && (!timeframe || rowTf === timeframe);
+  });
+
+  const signalContextByTimestamp = buildStrategySignalContextMap();
+  return {
+    candles: sourceCandles,
+    symbol,
+    timeframe,
+    neuronActivations,
+    seededPatterns,
+    signalContextByTimestamp,
+    supportResistanceByTimestamp: new Map(sourceCandles.map((c) => [c.timestamp, signalContextByTimestamp.get(c.timestamp)?.srContext || {}])),
+    seededMatchesByIndex: new Map(sourceCandles.map((_, i) => [i, []])),
+  };
+}
+
+function renderStrategyLab() {
+  const strategies = listStrategies();
+  if (els.slStrategy && !els.slStrategy.options.length) {
+    els.slStrategy.innerHTML = strategies.map((row) => `<option value="${row.id}">${row.name} (${row.type})</option>`).join("");
+    els.slStrategy.value = strategyLabConfig.strategyId;
+  }
+
+  if (els.slSymbol && !els.slSymbol.options.length) {
+    const symbolOptions = [...new Set((marketDataCandles || []).map((c) => c.symbol || c.asset || marketDataMeta.selectedSymbol).filter(Boolean))];
+    const all = symbolOptions.length ? symbolOptions : [marketDataMeta.selectedSymbol || "BTCUSDT"];
+    els.slSymbol.innerHTML = all.map((symbol) => `<option value="${symbol}">${symbol}</option>`).join("");
+    els.slSymbol.value = all.includes(marketDataMeta.selectedSymbol) ? marketDataMeta.selectedSymbol : all[0];
+  }
+
+  if (els.slParams && !els.slParams.value) {
+    const defaults = getDefaultParams(strategyLabConfig.strategyId);
+    els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
+  }
+
+  const metrics = latestStrategyResult?.metrics || null;
+  els.slMetrics.innerHTML = metrics
+    ? `<div class="kpi"><span>Total Trades</span><strong>${metrics.totalTrades}</strong></div>
+      <div class="kpi"><span>Win Rate</span><strong>${(metrics.winRate * 100).toFixed(1)}%</strong></div>
+      <div class="kpi"><span>Avg PnL</span><strong>${formatNumber(metrics.avgPnl, 2)}</strong></div>
+      <div class="kpi"><span>Avg R</span><strong>${formatNumber(metrics.avgR, 2)}</strong></div>
+      <div class="kpi"><span>Expectancy</span><strong>${formatNumber(metrics.expectancy, 2)}</strong></div>
+      <div class="kpi"><span>Max DD</span><strong>${formatNumber(metrics.maxDrawdown, 2)}</strong></div>
+      <div class="kpi"><span>Profit Factor</span><strong>${Number.isFinite(metrics.profitFactor) ? formatNumber(metrics.profitFactor, 2) : "∞"}</strong></div>
+      <div class="kpi"><span>Win/Loss Streak</span><strong>${metrics.longestWinStreak}/${metrics.longestLossStreak}</strong></div>`
+    : '<div class="panel-soft muted tiny">Run a backtest to populate metrics.</div>';
+
+  const compareRows = compareStrategyRuns(strategyRuns).slice(0, 20);
+  els.slRunsBody.innerHTML = compareRows.length
+    ? compareRows.map((row) => `<tr data-strategy-run="${row.id}"><td><input type="radio" name="sl-run-select" ${selectedStrategyRunId === row.id ? "checked" : ""} /></td><td>${new Date(row.timestamp).toLocaleString()}</td><td>${row.strategyId}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td>${row.totalTrades}</td><td>${(row.winRate * 100).toFixed(1)}%</td><td>${formatNumber(row.netPnl, 2)}</td><td>${formatNumber(row.maxDrawdown, 2)}</td></tr>`).join("")
+    : '<tr><td colspan="9" class="muted">No runs saved.</td></tr>';
+
+  const trades = latestStrategyResult?.trades || [];
+  els.slTradesBody.innerHTML = trades.length
+    ? trades.slice(0, 200).map((t) => `<tr><td>${new Date(t.entryTimestamp).toLocaleString()}</td><td>${new Date(t.exitTimestamp).toLocaleString()}</td><td><span class="badge ${t.side === "LONG" ? "call" : "put"}">${t.side}</span></td><td>${t.reason || "-"}</td><td>${t.outcomeType}</td><td>${formatNumber(t.pnl, 2)}</td><td>${formatNumber(t.rMultiple, 2)}</td><td>${t.holdBars}</td></tr>`).join("")
+    : '<tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr>';
+}
+
+function runStrategyLabBacktest() {
+  try {
+    const strategyId = els.slStrategy?.value || strategyLabConfig.strategyId;
+    const symbol = els.slSymbol?.value || marketDataMeta.selectedSymbol;
+    const timeframe = els.slTimeframe?.value || marketDataMeta.selectedTimeframe;
+    const rangeBars = Number(els.slRangeBars?.value || 500);
+    const runtime = buildStrategyRuntimeContext(symbol, timeframe);
+    const candles = runtime.candles.slice(-Math.max(100, rangeBars));
+    if (candles.length < 100) {
+      setStrategyLabStatus("Need at least 100 candles for Strategy Lab run.", "warn");
+      return;
+    }
+    const features = buildStrategyFeatures(candles, runtime);
+    const parsed = parseStrategyParamsInput();
+    strategyLabConfig = { strategyId, ...parsed };
+    latestStrategyResult = runStrategyBacktest({ strategyId, candles, features, strategyConfig: strategyLabConfig, runtimeContext: runtime });
+    strategyLabRlProbe = new RlEnvironmentAdapter({ candles, features, windowSize: 20 });
+    const firstState = strategyLabRlProbe.reset();
+    setStrategyLabStatus(`Backtest completed: ${latestStrategyResult.trades.length} trades · RL state window ${firstState?.candlesWindow?.length || 0}.`, "success");
+    renderStrategyLab();
+  } catch (error) {
+    console.error("[StrategyLab] run failed", error);
+    setStrategyLabStatus(error.message, "error");
+  }
+}
+
+async function handleSaveStrategyRun() {
+  if (!latestStrategyResult) {
+    setStrategyLabStatus("Run a backtest first.", "warn");
+    return;
+  }
+  const strategy = getStrategyById(strategyLabConfig.strategyId);
+  const run = await persistStrategyRun({
+    strategyId: strategyLabConfig.strategyId,
+    strategyName: strategy?.name,
+    strategyType: strategy?.type,
+    parameters: strategyLabConfig,
+    symbol: els.slSymbol?.value || marketDataMeta.selectedSymbol,
+    timeframe: els.slTimeframe?.value || marketDataMeta.selectedTimeframe,
+    candleRange: { bars: Number(els.slRangeBars?.value || 500) },
+    metrics: latestStrategyResult.metrics,
+    trades: latestStrategyResult.trades,
+    notes: els.slRunNotes?.value || "",
+  });
+  strategyRuns = [run, ...strategyRuns.filter((row) => row.id !== run.id)].slice(0, 200);
+  await saveStrategyRuns(strategyRuns);
+  selectedStrategyRunId = run.id;
+  setStrategyLabStatus("Strategy run saved.", "success");
+  renderStrategyLab();
+}
+
+function handleLoadStrategyRun() {
+  const row = strategyRuns.find((run) => run.id === selectedStrategyRunId);
+  if (!row) {
+    setStrategyLabStatus("Select a saved run first.", "warn");
+    return;
+  }
+  latestStrategyResult = { metrics: row.metrics || {}, trades: row.trades || [] };
+  strategyLabConfig = row.parameters || strategyLabConfig;
+  if (els.slStrategy) els.slStrategy.value = row.strategyId;
+  if (els.slSymbol) els.slSymbol.value = row.symbol;
+  if (els.slTimeframe) els.slTimeframe.value = row.timeframe;
+  if (els.slRangeBars) els.slRangeBars.value = String(row.candleRange?.bars || 500);
+  if (els.slParams) els.slParams.value = JSON.stringify(strategyLabConfig, null, 2);
+  if (els.slRunNotes) els.slRunNotes.value = row.notes || "";
+  setStrategyLabStatus(`Loaded run ${row.id}.`, "success");
+  renderStrategyLab();
+}
+
 function rerender() {
   renderPreview(els.preview, state.importPreview);
   renderImportReport(els.importReport, loadLastImportReport());
@@ -1231,6 +1422,7 @@ function rerender() {
   refreshRobustnessLab();
   refreshSessionCandlesTab();
   refreshStorageStatusUI();
+  renderStrategyLab();
   renderPatternReviewPanel();
   renderSeededPatternLab();
 }
@@ -1811,6 +2003,20 @@ function setupEvents() {
   els.liveImportBtn?.addEventListener("click", handleLiveImport);
   els.liveSaveBtn?.addEventListener("click", handleLiveSave);
   els.liveClearBtn?.addEventListener("click", () => { els.jsonInput.value = ""; clearLiveForm(); setImportPreview(null); rerender(); });
+  els.slStrategy?.addEventListener("change", () => {
+    strategyLabConfig.strategyId = els.slStrategy.value;
+    const defaults = getDefaultParams(strategyLabConfig.strategyId);
+    if (els.slParams) els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
+  });
+  els.slRunBtn?.addEventListener("click", runStrategyLabBacktest);
+  els.slSaveBtn?.addEventListener("click", handleSaveStrategyRun);
+  els.slLoadBtn?.addEventListener("click", handleLoadStrategyRun);
+  els.slRunsBody?.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-strategy-run]");
+    if (!row) return;
+    selectedStrategyRunId = row.getAttribute("data-strategy-run") || "";
+    renderStrategyLab();
+  });
   els.livePatternSelector?.addEventListener("change", () => {
     const selected = promotedPatterns.find((row) => (row.sourceCandidateId || row.id) === els.livePatternSelector.value);
     if (!selected) return;
@@ -3368,6 +3574,8 @@ async function init() {
   seededPatterns = loadSeededPatterns();
   seededPatternResults = loadSeededPatternResults();
   replaceSignals(loadedSignals);
+  strategyRuns = getSavedStrategyRuns();
+  selectedStrategyRunId = strategyRuns[0]?.id || "";
   livePatternSignals = loadLivePatternSignals();
   livePatternSummary = loadLivePatternSummary();
   setupTabs();
@@ -3379,6 +3587,7 @@ async function init() {
   importerMode = els.importerMode?.value === "live" ? "live" : "research";
   applyImporterMode();
   refreshMarketDataUI();
+  if (els.slTimeframe) els.slTimeframe.value = marketDataMeta.selectedTimeframe || "5m";
   rerender();
   if (activePatternVersionId) {
     const active = patternVersionsRegistry.find((entry) => entry.id === activePatternVersionId);

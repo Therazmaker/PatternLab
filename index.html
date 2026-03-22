@@ -41,6 +41,7 @@
       <button class="tab-btn" data-tab="robustness">Robustness Lab</button>
       <button class="tab-btn" data-tab="session-candles">Session Candles</button>
       <button class="tab-btn" data-tab="market-data">Market Data</button>
+      <button class="tab-btn" data-tab="strategy-lab">Strategy Lab</button>
       <button class="tab-btn" data-tab="pattern-review">Pattern Review</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
     </nav>
@@ -592,6 +593,48 @@
               <tr><th>Timestamp</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th class="md-extra-col">Range</th><th class="md-extra-col">Body</th><th class="md-extra-col">Body %</th></tr>
             </thead>
             <tbody id="md-preview-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+
+      <section class="panel tab-panel" data-panel="strategy-lab">
+        <h2>Strategy Lab</h2>
+        <p class="muted">Backtesting integrado de estrategias de futuros. No ejecuta trading en vivo.</p>
+        <div class="filters">
+          <select id="sl-symbol"></select>
+          <select id="sl-timeframe">
+            <option value="1m">1m</option><option value="5m" selected>5m</option><option value="15m">15m</option><option value="1h">1h</option>
+          </select>
+          <select id="sl-range-bars">
+            <option value="200">Last 200 bars</option><option value="500" selected>Last 500 bars</option><option value="1000">Last 1000 bars</option><option value="2000">Last 2000 bars</option>
+          </select>
+          <select id="sl-strategy"></select>
+          <input id="sl-run-notes" placeholder="Run notes (optional)" />
+        </div>
+        <details open>
+          <summary>Strategy parameters (JSON)</summary>
+          <textarea id="sl-params" style="min-height:120px" placeholder='{"params":{},"risk":{},"execution":{}}'></textarea>
+        </details>
+        <div class="button-row">
+          <button id="btn-sl-run" class="primary">Run backtest</button>
+          <button id="btn-sl-save">Save run</button>
+          <button id="btn-sl-load">Load selected run</button>
+        </div>
+        <p id="sl-status" class="quick-add-feedback muted">Select strategy and run backtest.</p>
+        <div id="sl-metrics" class="stats-grid"></div>
+        <h3>Recent run comparison</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>Timestamp</th><th>Strategy</th><th>Symbol</th><th>TF</th><th>Trades</th><th>WinRate</th><th>Net PnL</th><th>Max DD</th></tr></thead>
+            <tbody id="sl-runs-body"><tr><td colspan="9" class="muted">No runs saved.</td></tr></tbody>
+          </table>
+        </div>
+        <h3>Trade log</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Entry</th><th>Exit</th><th>Side</th><th>Reason</th><th>Outcome</th><th>PnL</th><th>R</th><th>Bars</th></tr></thead>
+            <tbody id="sl-trades-body"><tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr></tbody>
           </table>
         </div>
       </section>
