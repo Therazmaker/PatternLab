@@ -16,6 +16,8 @@ import {
   loadMetaFeedback,
   loadLivePatternSignals,
   loadLivePatternSummary,
+  loadFuturesPolicyConfig,
+  loadFuturesPolicySnapshots,
   loadNotes,
   loadPatternVersionsRegistry,
   loadPromotedPatterns,
@@ -32,6 +34,8 @@ import {
   saveBotCompilerState,
   saveLivePatternSignals,
   saveLivePatternSummary,
+  saveFuturesPolicyConfig,
+  saveFuturesPolicySnapshots,
   saveMetaFeedback,
   saveNotes,
   savePatternVersionsRegistry,
@@ -249,6 +253,8 @@ let storageStatus = null;
 
 let marketDataCandles = [];
 let marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
+let futuresPolicyConfig = { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true, maxHoldBars: 24 };
+let futuresPolicySnapshots = [];
 let marketDataDiagnostics = null;
 let neuronActivations = [];
 let neuronSummary = null;
@@ -300,7 +306,8 @@ function refreshStorageStatusUI() {
 }
 
 function persist() {
-  Promise.all([saveSignals(state.signals), saveSessions(state.sessions)])
+  refreshFuturesSnapshots();
+  Promise.all([saveSignals(state.signals), saveSessions(state.sessions), saveFuturesPolicySnapshots(futuresPolicySnapshots), saveFuturesPolicyConfig(futuresPolicyConfig)])
     .catch((error) => console.error("[Storage] persist() failed", error));
 }
 function persistNotes() { saveNotes(notes).catch((error) => console.error("[Storage] saveNotes failed", error)); }
@@ -466,7 +473,7 @@ function findSignalSample(patternName, version) {
 
 function recalcSignals(rawSignals) {
   lastRanking = computePatternRanking(rawSignals);
-  const enrichedBase = enrichSignals(rawSignals, lastRanking);
+  const enrichedBase = enrichSignals(rawSignals, lastRanking, { marketDataCandles, neuronActivations, seededPatterns, futuresPolicyConfig });
   const patternRobustness = new Map();
   [...new Set(enrichedBase.map((row) => row.patternName))].forEach((patternName) => {
     const rows = enrichedBase.filter((row) => row.patternName === patternName);
@@ -1029,6 +1036,22 @@ function refreshStats() {
 function refreshFeed() { renderFeedRows(els.feedBody, getFilteredSignals(state.signals, state.filters), openReview, quickReview); }
 function refreshReviewQueue() { renderReviewQueue(els.reviewQueue, state.signals.filter((s) => s.outcome.status === "pending"), openReview); }
 
+function refreshFuturesSnapshots() {
+  const reviewed = state.signals.filter((s) => s.futuresPolicy?.replay && s.outcome?.status !== "pending");
+  if (!reviewed.length) return;
+  const pnlRows = reviewed.map((s) => Number(s.futuresPolicy?.replay?.pnlR || 0));
+  const avgPnlR = pnlRows.reduce((a, b) => a + b, 0) / pnlRows.length;
+  const noTradeCount = reviewed.filter((s) => s.futuresPolicy?.action === "NO_TRADE").length;
+  const snapshot = {
+    createdAt: new Date().toISOString(),
+    sample: reviewed.length,
+    avgPnlR: Number(avgPnlR.toFixed(4)),
+    noTradeRate: Number((noTradeCount / reviewed.length).toFixed(4)),
+    policyVersion: reviewed[0]?.futuresPolicy?.policyVersion || "phase1-shadow-v1",
+  };
+  futuresPolicySnapshots = [snapshot, ...futuresPolicySnapshots].slice(0, 200);
+}
+
 function refreshCompare() {
   const selectedPatterns = [...els.comparePatterns.selectedOptions].map((o) => o.value);
   renderCompareCards(els.compareResults, computePatternCompare(withCompareFilters(state.signals, compareFilters), selectedPatterns));
@@ -1060,7 +1083,7 @@ function refreshRadar() {
   rows = radarFilters.rangeMode === "24h"
     ? rows.filter((s) => new Date(s.timestamp).getTime() >= Date.now() - 24 * 60 * 60 * 1000)
     : rows.slice(0, radarFilters.rangeValue || 20);
-  rows.sort((a, b) => (b.radarScore + ((b.patternMeta?.robustness?.robustnessScore || 0) * 0.12)) - (a.radarScore + ((a.patternMeta?.robustness?.robustnessScore || 0) * 0.12)));
+  rows.sort((a, b) => ((b.radarFuturesScore ?? b.radarScore) + ((b.patternMeta?.robustness?.robustnessScore || 0) * 0.12)) - ((a.radarFuturesScore ?? a.radarScore) + ((a.patternMeta?.robustness?.robustnessScore || 0) * 0.12)));
   renderRadarCards(els.radarResults, rows);
 }
 function getRobustnessRows() {
@@ -1490,7 +1513,9 @@ function openReview(signalId) {
   const signal = state.signals.find((s) => s.id === signalId);
   if (!signal) return;
   state.activeSignalId = signalId;
-  els.reviewDetails.textContent = JSON.stringify(signal, null, 2);
+  const fp = signal.futuresPolicy;
+  const fpSummary = fp ? `Futures policy: ${fp.action} (${Math.round((fp.confidence || 0) * 100)}%)\nEntry: ${fp.executionPlan?.entryPrice ?? "-"} | SL: ${fp.executionPlan?.stopLoss ?? "-"} | TP: ${fp.executionPlan?.takeProfit ?? "-"} | RR: ${fp.executionPlan?.riskReward ? fp.executionPlan.riskReward.toFixed(2) : "-"}\nReplay: ${fp.replay?.outcomeType || "pending"} | PnL R: ${Number(fp.replay?.pnlR || 0).toFixed(2)}\nReason: ${fp.reason || "-"}\n\n` : "";
+  els.reviewDetails.textContent = `${fpSummary}${JSON.stringify(signal, null, 2)}`;
   els.reviewStatus.value = signal.outcome.status;
   els.reviewComment.value = signal.outcome.comment || "";
   els.reviewExpiryClose.value = signal.outcome.expiryClose ?? "";
@@ -2969,7 +2994,7 @@ function setupMarketDataEvents() {
 
 async function init() {
   await initializeStorage();
-  replaceSignals(loadSignals());
+  const loadedSignals = loadSignals();
   replaceSessions(loadSessions(normalizeSession));
   metaFeedback = loadMetaFeedback();
   botCompilerState = loadBotCompilerState();
@@ -3002,9 +3027,12 @@ async function init() {
   if (els.sessionDate) els.sessionDate.value = new Date().toISOString().slice(0, 10);
   marketDataCandles = loadMarketData();
   marketDataMeta = loadMarketDataMeta();
+  futuresPolicyConfig = { ...futuresPolicyConfig, ...(loadFuturesPolicyConfig() || {}) };
+  futuresPolicySnapshots = loadFuturesPolicySnapshots();
   promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
   seededPatterns = loadSeededPatterns();
   seededPatternResults = loadSeededPatternResults();
+  replaceSignals(loadedSignals);
   livePatternSignals = loadLivePatternSignals();
   livePatternSummary = loadLivePatternSummary();
   setupTabs();

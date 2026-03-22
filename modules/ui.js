@@ -132,12 +132,16 @@ export function renderRadarCards(container, rows) {
     return;
   }
   container.innerHTML = rows.map((signal) => `<article class="radar-card panel-soft">
-      <div class="note-head"><h3>${signal.asset} · ${signal.direction}</h3><span class="badge">Radar ${signal.radarScore}</span></div>
+      <div class="note-head"><h3>${signal.asset} · ${signal.direction}</h3><span class="badge">Radar ${signal.radarFuturesScore ?? signal.radarScore}</span></div>
       <p><strong>${signal.patternName}</strong> · ${new Date(signal.timestamp).toLocaleString()}</p>
       <div class="context-mini"><strong>Context ${signal.contextScore}</strong><div class="bar"><span style="width:${signal.contextScore}%"></span></div><small>${signal.contextLabel}</small></div>
       <p>${badgeList(signal.radarBadges, "radar")}</p>
       <p>${badgeList(signal.autoTags, "tag")}</p>
       <p class="muted">Regime: <strong>${signal.marketRegime || "unclear"}</strong> · Adaptive: <strong>${signal.patternMeta?.adaptiveScore ?? 0}</strong> · Robustness: <strong>${signal.patternMeta?.robustness?.robustnessScore ?? "-"}</strong></p>
+      ${signal.futuresPolicy ? `<p><span class="badge ${signal.futuresPolicy.action === "LONG" ? "call" : signal.futuresPolicy.action === "SHORT" ? "put" : "tag"}">${signal.futuresPolicy.action}</span> <span class="badge">${Math.round((signal.futuresPolicy.confidence || 0) * 100)}%</span> ${signal.futuresPolicy.executionPlan?.riskReward ? `<span class="badge">RR ${signal.futuresPolicy.executionPlan.riskReward.toFixed(2)}</span>` : ""}</p>
+      <p class="muted">${signal.futuresPolicy.reason}</p>
+      <p class="muted">Entry ${signal.futuresPolicy.executionPlan?.entryPrice ?? "-"} · SL ${signal.futuresPolicy.executionPlan?.stopLoss ?? "-"} · TP ${signal.futuresPolicy.executionPlan?.takeProfit ?? "-"}</p>
+      ${(signal.futuresPolicy.evidence?.warningFlags || []).length ? `<p>${(signal.futuresPolicy.evidence.warningFlags || []).map((flag) => `<span class="badge">⚠ ${flag}</span>`).join(" ")}</p>` : ""}` : ""}
       <p class="muted">${signal.radarInsight}</p>
     </article>`).join("");
 }
@@ -394,7 +398,7 @@ export function renderReviewQueue(container, rows, onReview) {
   rows.slice(0, 30).forEach((row) => {
     const item = document.createElement("article");
     item.className = "panel-soft";
-    item.innerHTML = `<div class="note-head"><h4>${row.patternName} · ${row.asset}</h4><button class="ghost" data-id="${row.id}">Revisar</button></div><p class="muted">${row.direction} · ${new Date(row.timestamp).toLocaleString()} · Regime ${row.marketRegime || "unclear"}</p>`;
+    item.innerHTML = `<div class="note-head"><h4>${row.patternName} · ${row.asset}</h4><button class="ghost" data-id="${row.id}">Revisar</button></div><p class="muted">${row.direction} · ${new Date(row.timestamp).toLocaleString()} · Regime ${row.marketRegime || "unclear"}</p>${row.futuresPolicy ? `<p class="muted"><strong>Policy:</strong> ${row.futuresPolicy.action} (${Math.round((row.futuresPolicy.confidence || 0) * 100)}%) · ${row.futuresPolicy.replay?.outcomeType || "pending"} · PnL R ${Number(row.futuresPolicy.replay?.pnlR || 0).toFixed(2)}</p>` : ""}`;
     item.querySelector("[data-id]").addEventListener("click", () => onReview(row.id));
     container.appendChild(item);
   });

@@ -21,6 +21,8 @@ const STORAGE_KEYS = [
   "seededPatternResults",
   "livePatternSignals",
   "livePatternSummary",
+  "futuresPolicyConfig",
+  "futuresPolicySnapshots",
 ];
 
 const defaultMetaFeedback = {
@@ -34,7 +36,7 @@ let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
-  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [],
+  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [],
 };
 
 function enqueueWrite(task) {
@@ -66,6 +68,8 @@ function normalizeCache(snapshot = {}) {
     seededPatternResults: Array.isArray(snapshot.seededPatternResults) ? snapshot.seededPatternResults : [],
     livePatternSignals: Array.isArray(snapshot.livePatternSignals) ? snapshot.livePatternSignals : [],
     livePatternSummary: Array.isArray(snapshot.livePatternSummary) ? snapshot.livePatternSummary : [],
+    futuresPolicyConfig: snapshot.futuresPolicyConfig && typeof snapshot.futuresPolicyConfig === "object" ? { ...cache.futuresPolicyConfig, ...snapshot.futuresPolicyConfig } : { ...cache.futuresPolicyConfig },
+    futuresPolicySnapshots: Array.isArray(snapshot.futuresPolicySnapshots) ? snapshot.futuresPolicySnapshots : [],
   };
 }
 
@@ -89,6 +93,8 @@ function writeLegacyByDomain(domain) {
     case "seededPatternResults": writeLegacyValue(LEGACY_KEYS.seededPatternResults, cache.seededPatternResults); break;
     case "livePatternSignals": writeLegacyValue(LEGACY_KEYS.livePatternSignals, cache.livePatternSignals); break;
     case "livePatternSummary": writeLegacyValue(LEGACY_KEYS.livePatternSummary, cache.livePatternSummary); break;
+    case "futuresPolicyConfig": writeLegacyValue(LEGACY_KEYS.futuresPolicyConfig, cache.futuresPolicyConfig); break;
+    case "futuresPolicySnapshots": writeLegacyValue(LEGACY_KEYS.futuresPolicySnapshots, cache.futuresPolicySnapshots); break;
     default: break;
   }
 }
@@ -153,6 +159,7 @@ export function getStorageStatus() {
       seededPatternResults: cache.seededPatternResults.length,
       livePatternSignals: cache.livePatternSignals.length,
       livePatternSummary: cache.livePatternSummary.length,
+      futuresPolicySnapshots: cache.futuresPolicySnapshots.length,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -253,6 +260,18 @@ export function saveLivePatternSummary(rows) {
   return enqueueWrite(() => persistDomain("livePatternSummary"));
 }
 
+export function loadFuturesPolicyConfig() { return cache.futuresPolicyConfig || { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }; }
+export function saveFuturesPolicyConfig(value) {
+  const base = loadFuturesPolicyConfig();
+  cache.futuresPolicyConfig = value && typeof value === "object" ? { ...base, ...value } : { ...base };
+  return enqueueWrite(() => persistDomain("futuresPolicyConfig"));
+}
+export function loadFuturesPolicySnapshots() { return cache.futuresPolicySnapshots || []; }
+export function saveFuturesPolicySnapshots(rows) {
+  cache.futuresPolicySnapshots = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("futuresPolicySnapshots"));
+}
+
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -300,6 +319,8 @@ export function exportMemory() {
       seededPatternResults: cache.seededPatternResults || [],
       livePatternSignals: cache.livePatternSignals || [],
       livePatternSummary: cache.livePatternSummary || [],
+      futuresPolicyConfig: cache.futuresPolicyConfig || {},
+      futuresPolicySnapshots: cache.futuresPolicySnapshots || [],
     },
   };
 }
@@ -356,11 +377,13 @@ export async function importMemory(payload, mode = "replace") {
     seededPatternResults: payload.data.seededPatternResults || [],
     livePatternSignals: payload.data.livePatternSignals || [],
     livePatternSummary: payload.data.livePatternSummary || [],
+    futuresPolicyConfig: payload.data.futuresPolicyConfig || cache.futuresPolicyConfig,
+    futuresPolicySnapshots: payload.data.futuresPolicySnapshots || cache.futuresPolicySnapshots,
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 

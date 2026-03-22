@@ -19,6 +19,15 @@ function hasSession(signal) {
   return Boolean(signal?.sessionRef?.sessionId);
 }
 
+function renderFuturesBadge(signal) {
+  const policy = signal?.futuresPolicy;
+  if (!policy) return "";
+  const tone = policy.action === "LONG" ? "call" : policy.action === "SHORT" ? "put" : "tag";
+  const rr = policy.executionPlan?.riskReward;
+  const replay = policy.replay?.outcomeType;
+  return `<span class="badge ${tone}">Futures ${policy.action} ${(Number(policy.confidence || 0) * 100).toFixed(0)}%</span>${rr ? ` <span class="badge">RR ${rr.toFixed(2)}</span>` : ""}${replay ? ` <span class="badge">${replay}</span>` : ""}`;
+}
+
 function renderV3Badges(signal) {
   const badges = [];
   if (hasOHLCComplete(signal)) badges.push('<span class="badge v3-ohlc">OHLC complete</span>');
@@ -92,7 +101,7 @@ export function renderFeedRows(tbody, signals, onReview, onQuickReview) {
           <small>${signal.contextLabel || "-"}</small>
         </div>
       </td>
-      <td>${renderTagBadges(signal.autoTags)} ${renderV3Badges(signal)}</td>
+      <td>${renderTagBadges(signal.autoTags)} ${renderV3Badges(signal)} ${renderFuturesBadge(signal)}</td>
       <td class="quick-actions">
         <button data-quick="win" data-id="${signal.id}" class="ghost" title="Marcar win">Win</button>
         <button data-quick="loss" data-id="${signal.id}" class="ghost" title="Marcar loss">Loss</button>
