@@ -148,6 +148,7 @@
           <select id="filter-pattern"><option value="">Todos los patrones</option></select>
           <select id="filter-source"><option value="">Todas las fuentes</option></select>
           <select id="filter-strategy"><option value="">Todas las estrategias</option></select>
+          <select id="filter-strategy-version"><option value="">Todas las versiones</option></select>
           <select id="filter-timeframe"><option value="">Todos los TF</option></select>
           <select id="filter-status"><option value="">Todos los estados</option><option value="pending">pending</option><option value="win">win</option><option value="loss">loss</option><option value="flat">flat</option><option value="skip">skip</option></select>
           <select id="filter-near-support"><option value="">Support: todos</option><option value="only">Solo nearSupport</option><option value="exclude">Excluir nearSupport</option></select>
@@ -178,6 +179,7 @@
         <div class="filters">
           <select id="stats-filter-source"><option value="">Todas las fuentes</option></select>
           <select id="stats-filter-strategy"><option value="">Todas las estrategias</option></select>
+          <select id="stats-filter-version"><option value="">Todas las versiones</option></select>
           <select id="stats-filter-symbol"><option value="">Todos los símbolos</option></select>
           <select id="stats-filter-timeframe"><option value="">Todos los TF</option></select>
         </div>
@@ -687,9 +689,44 @@
 
 
       <section class="panel tab-panel" data-panel="strategy-lab">
-        <h2>Strategy Lab (Live Boundary)</h2>
-        <p class="muted">This tab intentionally stays live-focused. Historical experimentation now lives in <strong>Bot Generator → Historical Strategy Lab</strong>.</p>
-        <div class="panel-soft muted tiny">Use Market Data / Live for incoming Binance candles, active live-shadow strategies, signals, and Feed/Stats integration.</div>
+        <h2>Strategy Lifecycle Lab</h2>
+        <p class="muted tiny">Unified lifecycle: design/versioning → in-sample backtest → out-of-sample validation → live shadow → degradation feedback loop.</p>
+        <div class="filters">
+          <select id="sl-strategy"></select>
+          <select id="sl-version"></select>
+          <select id="sl-symbol"></select>
+          <select id="sl-timeframe"><option value="1m">1m</option><option value="5m" selected>5m</option><option value="15m">15m</option><option value="1h">1h</option></select>
+          <input id="sl-range-bars" type="number" min="100" value="500" />
+          <select id="sl-json-mode"><option value="parameters">Parameter JSON</option><option value="strategy">Strategy JSON</option></select>
+        </div>
+        <div id="sl-version-status" class="panel-soft tiny muted">No version selected.</div>
+        <div id="sl-version-lineage" class="panel-soft tiny muted">Lineage: -</div>
+        <div class="button-row">
+          <button id="btn-sl-load-history">Fetch historical candles</button>
+          <button id="btn-sl-run" class="primary">Run historical backtest</button>
+          <button id="btn-sl-save">Save run</button>
+          <button id="btn-sl-validate">Validate Out-of-Sample</button>
+          <button id="btn-sl-promote-live">Promote to Live Shadow</button>
+          <button id="btn-sl-approve" class="ghost">Approve version</button>
+          <button id="btn-sl-clone-degrading" class="ghost">Clone degrading version</button>
+          <button id="btn-sl-load">Load selected run</button>
+        </div>
+        <textarea id="sl-params" rows="8" placeholder='{"params":{},"risk":{},"execution":{}}'></textarea>
+        <input id="sl-run-notes" placeholder="Run notes" />
+        <div id="sl-json-status" class="quick-add-feedback muted">JSON mode ready.</div>
+        <div id="sl-data-status" class="panel-soft tiny muted">No dataset loaded.</div>
+        <div id="sl-status" class="quick-add-feedback muted"></div>
+        <div id="sl-approved-status" class="panel-soft tiny muted">No approved run yet.</div>
+        <div id="sl-metrics" class="kpi-grid"></div>
+        <h3>Run comparison</h3>
+        <div class="table-wrap"><table><thead><tr><th></th><th>Timestamp</th><th>Strategy</th><th>Version</th><th>Symbol</th><th>TF</th><th>Trades</th><th>WR</th><th>PnL</th><th>DD</th><th>Approved</th></tr></thead><tbody id="sl-runs-body"><tr><td colspan="11" class="muted">No runs saved.</td></tr></tbody></table></div>
+        <h3>Trade log</h3>
+        <div class="table-wrap"><table><thead><tr><th>Entry</th><th>Exit</th><th>Side</th><th>Reason</th><th>Outcome</th><th>PnL</th><th>R</th><th>Bars</th></tr></thead><tbody id="sl-trades-body"><tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr></tbody></table></div>
+        <h3>Out-of-sample validation</h3>
+        <div class="table-wrap"><table><thead><tr><th>Time</th><th>Version</th><th>Range</th><th>Winrate</th><th>Drawdown</th><th>Result</th></tr></thead><tbody id="sl-validation-body"><tr><td colspan="6" class="muted">No out-of-sample validations yet.</td></tr></tbody></table></div>
+        <h3>Live shadow instances</h3>
+        <div class="table-wrap"><table><thead><tr><th>Instance</th><th>Version</th><th>Symbol</th><th>TF</th><th>Status</th><th>Rolling WR</th><th>Rolling Exp</th><th>Drawdown</th><th>Health</th></tr></thead><tbody id="sl-live-body"><tr><td colspan="9" class="muted">No live shadow instances yet.</td></tr></tbody></table></div>
+        <div id="strategy-lifecycle-wrap"></div>
       </section>
 
       <section class="panel tab-panel" data-panel="pattern-review">

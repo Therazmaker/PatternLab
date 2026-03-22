@@ -20,6 +20,7 @@ import {
   loadFuturesPolicySnapshots,
   loadLiveShadowState,
   loadStrategyRuns,
+  loadStrategyLifecycle,
   loadNotes,
   loadPatternVersionsRegistry,
   loadPromotedPatterns,
@@ -40,6 +41,7 @@ import {
   saveFuturesPolicySnapshots,
   saveLiveShadowState,
   saveStrategyRuns,
+  saveStrategyLifecycle,
   saveMetaFeedback,
   saveNotes,
   savePatternVersionsRegistry,
@@ -123,6 +125,7 @@ import { runStrategyBacktest } from "./modules/strategyBacktest.js";
 import { getSavedStrategyRuns, persistStrategyRun } from "./modules/strategyPersistence.js";
 import { compareStrategyRuns } from "./modules/strategyRunCompare.js";
 import { validateRuleBasedStrategyDefinition } from "./modules/strategyJson.js";
+import { addValidationResult, computeLiveMetrics, createStrategyVersion, detectDegradation, ensureVersionFromDefinition, getVersionLineage, normalizeLifecycleState, promoteVersionToLiveShadow, updateLiveInstanceMetrics, updateVersionStatus } from "./modules/strategyLifecycle.js";
 import { RlEnvironmentAdapter } from "./modules/rlEnvironmentAdapter.js";
 import {
   applyMetaFeedbackBias,
@@ -171,9 +174,9 @@ const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
   jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
   includeDuplicates: document.getElementById("import-allow-duplicates"), importReport: document.getElementById("import-report"),
-  feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterSource: document.getElementById("filter-source"), filterStrategy: document.getElementById("filter-strategy"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), filterNearSupport: document.getElementById("filter-near-support"), filterNearResistance: document.getElementById("filter-near-resistance"), filterHasOHLC: document.getElementById("filter-has-ohlc"), filterHasExcursion: document.getElementById("filter-has-excursion"), filterHasSession: document.getElementById("filter-has-session"), filterMfeMin: document.getElementById("filter-mfe-min"), filterMaeMax: document.getElementById("filter-mae-max"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
+  feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterSource: document.getElementById("filter-source"), filterStrategy: document.getElementById("filter-strategy"), filterStrategyVersion: document.getElementById("filter-strategy-version"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), filterNearSupport: document.getElementById("filter-near-support"), filterNearResistance: document.getElementById("filter-near-resistance"), filterHasOHLC: document.getElementById("filter-has-ohlc"), filterHasExcursion: document.getElementById("filter-has-excursion"), filterHasSession: document.getElementById("filter-has-session"), filterMfeMin: document.getElementById("filter-mfe-min"), filterMaeMax: document.getElementById("filter-mae-max"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
   modal: document.getElementById("review-modal"), reviewDetails: document.getElementById("review-details"), reviewStatus: document.getElementById("review-status"), reviewComment: document.getElementById("review-comment"), reviewExpiryClose: document.getElementById("review-expiry-close"), reviewLabels: document.getElementById("review-labels"), reviewExecutionError: document.getElementById("review-execution-error"), reviewLateEntry: document.getElementById("review-late-entry"), reviewNearSupport: document.getElementById("review-near-support"), reviewNearResistance: document.getElementById("review-near-resistance"), reviewSrComment: document.getElementById("review-sr-comment"), reviewV3Toggle: document.getElementById("review-v3-toggle"), reviewOpen: document.getElementById("review-open"), reviewHigh: document.getElementById("review-high"), reviewLow: document.getElementById("review-low"), reviewClose: document.getElementById("review-close"), reviewMfe: document.getElementById("review-mfe"), reviewMae: document.getElementById("review-mae"), reviewExcursionUnit: document.getElementById("review-excursion-unit"), reviewSessionLink: document.getElementById("review-session-link"), reviewSessionCandle: document.getElementById("review-session-candle"), reviewV3Notes: document.getElementById("review-v3-notes"), reviewAutoExcursion: document.getElementById("btn-review-auto-excursion"), saveReviewBtn: document.getElementById("btn-save-review"), reviewNextBtn: document.getElementById("btn-review-next"), reviewPrevBtn: document.getElementById("btn-review-prev"),
-  statsOverview: document.getElementById("stats-overview"), v3SignalStats: document.getElementById("v3-signal-stats"), sessionStats: document.getElementById("session-stats"), topAssets: document.getElementById("top-assets"), topPatterns: document.getElementById("top-patterns"), directionDist: document.getElementById("direction-dist"), statsBySource: document.getElementById("stats-by-source"), statsByStrategy: document.getElementById("stats-by-strategy"), statsBySymbol: document.getElementById("stats-by-symbol"), statsByTimeframe: document.getElementById("stats-by-timeframe"), statsByAction: document.getElementById("stats-by-action"), statsByResult: document.getElementById("stats-by-result"), statsFilterSource: document.getElementById("stats-filter-source"), statsFilterStrategy: document.getElementById("stats-filter-strategy"), statsFilterSymbol: document.getElementById("stats-filter-symbol"), statsFilterTimeframe: document.getElementById("stats-filter-timeframe"), srAnalysisWrap: document.getElementById("sr-analysis-wrap"),
+  statsOverview: document.getElementById("stats-overview"), v3SignalStats: document.getElementById("v3-signal-stats"), sessionStats: document.getElementById("session-stats"), topAssets: document.getElementById("top-assets"), topPatterns: document.getElementById("top-patterns"), directionDist: document.getElementById("direction-dist"), statsBySource: document.getElementById("stats-by-source"), statsByStrategy: document.getElementById("stats-by-strategy"), statsBySymbol: document.getElementById("stats-by-symbol"), statsByTimeframe: document.getElementById("stats-by-timeframe"), statsByAction: document.getElementById("stats-by-action"), statsByResult: document.getElementById("stats-by-result"), statsFilterSource: document.getElementById("stats-filter-source"), statsFilterStrategy: document.getElementById("stats-filter-strategy"), statsFilterVersion: document.getElementById("stats-filter-version"), statsFilterSymbol: document.getElementById("stats-filter-symbol"), statsFilterTimeframe: document.getElementById("stats-filter-timeframe"), srAnalysisWrap: document.getElementById("sr-analysis-wrap"),
   rankingWrap: document.getElementById("ranking-wrap"), hourWrap: document.getElementById("hour-wrap"), assetWrap: document.getElementById("asset-wrap"),
   kpiTotal: document.getElementById("kpi-total"), kpiPending: document.getElementById("kpi-pending"), kpiWins: document.getElementById("kpi-wins"), kpiLosses: document.getElementById("kpi-losses"), kpiWinrate: document.getElementById("kpi-winrate"),
   tabs: [...document.querySelectorAll(".tab-btn")], panels: [...document.querySelectorAll(".tab-panel")],
@@ -264,6 +267,15 @@ els.slApprovedStatus = document.getElementById("sl-approved-status");
 els.slMetrics = document.getElementById("sl-metrics");
 els.slRunsBody = document.getElementById("sl-runs-body");
 els.slTradesBody = document.getElementById("sl-trades-body");
+els.slVersion = document.getElementById("sl-version");
+els.slVersionStatus = document.getElementById("sl-version-status");
+els.slVersionLineage = document.getElementById("sl-version-lineage");
+els.slValidateBtn = document.getElementById("btn-sl-validate");
+els.slPromoteLiveBtn = document.getElementById("btn-sl-promote-live");
+els.slCloneDegradingBtn = document.getElementById("btn-sl-clone-degrading");
+els.slValidationBody = document.getElementById("sl-validation-body");
+els.slLiveBody = document.getElementById("sl-live-body");
+els.strategyLifecycleWrap = document.getElementById("strategy-lifecycle-wrap");
 els.sessionEventStrip = document.getElementById("session-event-strip");
 els.sessionToggleStructure = document.getElementById("session-toggle-structure");
 els.sessionToggleMa = document.getElementById("session-toggle-ma");
@@ -274,6 +286,7 @@ const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "al
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
 const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
 const forwardConfig = { splitMode: "ratio", ratio: 0.7, splitDate: "" };
+let statsFilters = { source: "", strategyId: "", versionId: "", symbol: "", timeframe: "" };
 let notes = [];
 let lastRanking = [];
 let metaFeedback = { usefulHypothesisTypes: [], weakHypothesisTypes: [], dismissedHypothesisTypes: [], acceptedSuggestionTypes: [], ignoredSuggestionTypes: [], history: [] };
@@ -342,7 +355,6 @@ let selectedSeededNeurons = [];
 let seededPatternResult = null;
 let seededPatterns = [];
 let seededPatternResults = [];
-let statsFilters = { source: "", strategyId: "", symbol: "", timeframe: "" };
 const clusterMapFilters = { minEdgeWeight: 1, minNodeWeight: 1, session: "all" };
 let selectedPatternCandidateId = "";
 let selectedReviewCandidateId = "";
@@ -352,6 +364,8 @@ let livePatternSignals = [];
 let livePatternSummary = [];
 let importerMode = "research";
 let strategyRuns = [];
+let strategyLifecycleState = normalizeLifecycleState();
+let selectedStrategyVersionId = "";
 let latestStrategyResult = null;
 let latestStrategyBatchResults = [];
 let selectedStrategyRunId = "";
@@ -1231,6 +1245,7 @@ function refreshSharedOptions() {
   const assets = [...new Set(state.signals.map((s) => s.asset))].sort();
   const sources = [...new Set(state.signals.map((s) => s.source).filter(Boolean))].sort();
   const strategies = [...new Set(state.signals.map((s) => s.strategyId).filter(Boolean))].sort();
+  const strategyVersions = [...new Set(state.signals.map((s) => s.strategyVersionId || s.strategySignal?.versionId).filter(Boolean))].sort();
   const patterns = [...new Set([
     ...state.signals.map((s) => s.patternName),
     ...patternVersionsRegistry.filter((entry) => !entry.isArchived).map((entry) => entry.patternName),
@@ -1241,9 +1256,11 @@ function refreshSharedOptions() {
   renderFilterOptions(els.filterPattern, patterns, "Todos los patrones");
   renderFilterOptions(els.filterSource, sources, "Todas las fuentes");
   renderFilterOptions(els.filterStrategy, strategies, "Todas las estrategias");
+  renderFilterOptions(els.filterStrategyVersion, strategyVersions, "Todas las versiones");
   renderFilterOptions(els.filterTimeframe, timeframes, "Todos los TF");
   renderFilterOptions(els.statsFilterSource, sources, "Todas las fuentes");
   renderFilterOptions(els.statsFilterStrategy, strategies, "Todas las estrategias");
+  renderFilterOptions(els.statsFilterVersion, strategyVersions, "Todas las versiones");
   renderFilterOptions(els.statsFilterSymbol, assets, "Todos los símbolos");
   renderFilterOptions(els.statsFilterTimeframe, timeframes, "Todos los TF");
   renderFilterOptions(els.compareAsset, assets, "Todos los activos");
@@ -1308,6 +1325,7 @@ function refreshStats() {
   let scopedSignals = [...state.signals];
   if (statsFilters.source) scopedSignals = scopedSignals.filter((row) => row.source === statsFilters.source);
   if (statsFilters.strategyId) scopedSignals = scopedSignals.filter((row) => row.strategyId === statsFilters.strategyId);
+  if (statsFilters.versionId) scopedSignals = scopedSignals.filter((row) => (row.strategyVersionId || row.strategySignal?.versionId || "") === statsFilters.versionId);
   if (statsFilters.symbol) scopedSignals = scopedSignals.filter((row) => row.asset === statsFilters.symbol);
   if (statsFilters.timeframe) scopedSignals = scopedSignals.filter((row) => row.timeframe === statsFilters.timeframe);
   const stats = computeStats(scopedSignals);
@@ -1380,6 +1398,22 @@ function refreshVersions() {
     onArchive: handleArchivePatternVersion,
     onActivate: handleActivatePatternVersion,
   }, [...new Set(patternVersionsRegistry.map((entry) => entry.patternName))].sort());
+
+  if (els.versionsWrap) {
+    const grouped = Object.values((strategyLifecycleState.versions || []).reduce((acc, row) => {
+      if (!acc[row.strategyId]) acc[row.strategyId] = { strategyId: row.strategyId, name: row.name, rows: [] };
+      acc[row.strategyId].rows.push(row);
+      return acc;
+    }, {}));
+    const lifecycleHtml = grouped.length
+      ? grouped.map((group) => {
+        const lineage = getVersionLineage(group.rows, group.strategyId);
+        const rows = group.rows.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((row) => `<li>${row.versionId} · ${row.status} · ${new Date(row.createdAt).toLocaleString()}</li>`).join("");
+        return `<article class="panel-soft"><h3>${group.name} <span class="tiny muted">(${group.strategyId})</span></h3><p class="tiny muted">${lineage || "-"}</p><ul class="tiny">${rows}</ul></article>`;
+      }).join("")
+      : '<div class="panel-soft muted tiny">No strategy lifecycle versions yet.</div>';
+    els.versionsWrap.insertAdjacentHTML("beforeend", `<h3>Strategy Lifecycle Versions</h3>${lifecycleHtml}`);
+  }
 }
 
 function refreshConfidenceEvolution() {
@@ -1666,12 +1700,62 @@ function buildStrategyRuntimeContext(symbol, timeframe) {
   };
 }
 
+function persistStrategyLifecycle() { saveStrategyLifecycle(strategyLifecycleState).catch((error) => console.error("[Storage] saveStrategyLifecycle failed", error)); }
+
+function getStrategyVersions(strategyId) {
+  return (strategyLifecycleState.versions || []).filter((row) => row.strategyId === strategyId).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+}
+
+function getSelectedStrategyVersion(strategyId) {
+  const versions = getStrategyVersions(strategyId);
+  return versions.find((row) => row.versionId === selectedStrategyVersionId) || versions[versions.length - 1] || null;
+}
+
+function buildVersionDefinitionFromConfig(strategyId, parsedInput) {
+  return {
+    strategyId,
+    jsonMode: parsedInput?.mode || strategyLabJsonMode,
+    strategyDefinition: parsedInput?.strategyDefinition || null,
+    paramsPayload: parsedInput?.paramsPayload || {},
+  };
+}
+
+function ensureLifecycleVersion(strategyId, parsedInput, status = "draft") {
+  const strategy = getStrategyById(strategyId);
+  const payload = {
+    strategyId,
+    name: parsedInput?.strategyDefinition?.name || strategy?.name || strategyId,
+    description: parsedInput?.strategyDefinition?.description || `Lifecycle version for ${strategyId}`,
+    definition: buildVersionDefinitionFromConfig(strategyId, parsedInput),
+    status,
+    parentVersionId: selectedStrategyVersionId || null,
+  };
+  const result = ensureVersionFromDefinition(strategyLifecycleState, payload);
+  strategyLifecycleState = result.state;
+  selectedStrategyVersionId = result.version.versionId;
+  persistStrategyLifecycle();
+  return result.version;
+}
+
 function renderStrategyLab() {
   const strategies = listStrategies();
   if (els.slStrategy && !els.slStrategy.options.length) {
     els.slStrategy.innerHTML = strategies.map((row) => `<option value="${row.id}">${row.name} (${row.type})</option>`).join("");
     els.slStrategy.value = strategyLabConfig.strategyId;
   }
+  const strategyId = els.slStrategy?.value || strategyLabConfig.strategyId;
+  const versions = getStrategyVersions(strategyId);
+  if (els.slVersion) {
+    const current = selectedStrategyVersionId;
+    els.slVersion.innerHTML = versions.length
+      ? versions.map((row) => `<option value="${row.versionId}">${row.versionId} · ${row.status}</option>`).join("")
+      : '<option value="">v1 (new)</option>';
+    els.slVersion.value = versions.some((row) => row.versionId === current) ? current : (versions[versions.length - 1]?.versionId || "");
+    selectedStrategyVersionId = els.slVersion.value || selectedStrategyVersionId;
+  }
+  const selectedVersion = getSelectedStrategyVersion(strategyId);
+  if (els.slVersionStatus) els.slVersionStatus.textContent = selectedVersion ? `${selectedVersion.versionId} · ${selectedVersion.status} · ${new Date(selectedVersion.createdAt).toLocaleString()}` : "No strategy version yet.";
+  if (els.slVersionLineage) els.slVersionLineage.textContent = versions.length ? `Lineage: ${getVersionLineage(versions, strategyId)}` : "Lineage: -";
 
   if (els.slSymbol) {
     const previous = els.slSymbol.value;
@@ -1736,13 +1820,34 @@ function renderStrategyLab() {
 
   const compareRows = compareStrategyRuns(strategyRuns).slice(0, 20);
   els.slRunsBody.innerHTML = compareRows.length
-    ? compareRows.map((row) => `<tr data-strategy-run="${row.id}"><td><input type="radio" name="sl-run-select" ${selectedStrategyRunId === row.id ? "checked" : ""} /></td><td>${new Date(row.timestamp).toLocaleString()}</td><td>${row.strategyId}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td>${row.totalTrades}</td><td>${(row.winRate * 100).toFixed(1)}%</td><td>${formatNumber(row.netPnl, 2)}</td><td>${formatNumber(row.maxDrawdown, 2)}</td><td>${row.approvedForLiveShadow ? '<span class="badge call">approved</span>' : '<span class="muted tiny">-</span>'}</td></tr>`).join("")
-    : '<tr><td colspan="10" class="muted">No runs saved.</td></tr>';
+    ? compareRows.map((row) => `<tr data-strategy-run="${row.id}"><td><input type="radio" name="sl-run-select" ${selectedStrategyRunId === row.id ? "checked" : ""} /></td><td>${new Date(row.timestamp).toLocaleString()}</td><td>${row.strategyId}</td><td>${row.versionId || "v1"}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td>${row.totalTrades}</td><td>${(row.winRate * 100).toFixed(1)}%</td><td>${formatNumber(row.netPnl, 2)}</td><td>${formatNumber(row.maxDrawdown, 2)}</td><td>${row.approvedForLiveShadow ? '<span class="badge call">approved</span>' : '<span class="muted tiny">-</span>'}</td></tr>`).join("")
+    : '<tr><td colspan="11" class="muted">No runs saved.</td></tr>';
 
   const trades = latestStrategyResult?.trades || [];
   els.slTradesBody.innerHTML = trades.length
     ? trades.slice(0, 200).map((t) => `<tr><td>${new Date(t.entryTimestamp).toLocaleString()}</td><td>${new Date(t.exitTimestamp).toLocaleString()}</td><td><span class="badge ${t.side === "LONG" ? "call" : "put"}">${t.side}</span></td><td>${t.reason || "-"}<div class="muted tiny">Structure ${t.structureDecision || "allow"}${(t.structureReasons || []).length ? ` · ${(t.structureReasons || []).slice(0, 1).join(" ")}` : ""}</div></td><td>${t.outcomeType}</td><td>${formatNumber(t.pnl, 2)}</td><td>${formatNumber(t.rMultiple, 2)}</td><td>${t.holdBars}</td></tr>`).join("")
     : '<tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr>';
+
+  const validations = (strategyLifecycleState.validations || []).filter((row) => row.strategyId === strategyId).slice(0, 20);
+  if (els.slValidationBody) {
+    els.slValidationBody.innerHTML = validations.length
+      ? validations.map((row) => `<tr><td>${new Date(row.timestamp).toLocaleString()}</td><td>${row.versionId}</td><td>${row.range?.from || "-"} → ${row.range?.to || "-"}</td><td>${((row.metrics?.winRate || 0) * 100).toFixed(1)}%</td><td>${formatNumber(row.metrics?.maxDrawdown || 0, 2)}</td><td><span class="badge ${row.pass ? "call" : "put"}">${row.pass ? "pass" : "fail"}</span></td></tr>`).join("")
+      : '<tr><td colspan="6" class="muted">No out-of-sample validations yet.</td></tr>';
+  }
+
+  const liveInstances = (strategyLifecycleState.liveInstances || []).filter((row) => row.strategyId === strategyId).slice(0, 20);
+  if (els.slLiveBody) {
+    els.slLiveBody.innerHTML = liveInstances.length
+      ? liveInstances.map((row) => `<tr><td>${row.instanceId}</td><td>${row.versionId}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td>${row.status}</td><td>${((row.liveMetrics?.rollingWinrate || 0) * 100).toFixed(1)}%</td><td>${formatNumber(row.liveMetrics?.rollingExpectancy || 0, 2)}</td><td>${formatNumber(row.liveMetrics?.drawdown || 0, 2)}</td><td>${row.degrading ? '<span class="badge put">degrading</span>' : '<span class="badge call">ok</span>'}</td></tr>`).join("")
+      : '<tr><td colspan="9" class="muted">No live shadow instances yet.</td></tr>';
+  }
+
+  if (els.strategyLifecycleWrap) {
+    const alerts = (strategyLifecycleState.degradationAlerts || []).slice(0, 5);
+    els.strategyLifecycleWrap.innerHTML = alerts.length
+      ? alerts.map((row) => `<div class="panel-soft tiny"><strong>${row.strategyId} ${row.versionId}</strong> · ${new Date(row.timestamp).toLocaleString()} · ${row.message}</div>`).join("")
+      : '<div class="panel-soft muted tiny">No degradation alerts.</div>';
+  }
 }
 
 async function runStrategyLabBacktest() {
@@ -1752,6 +1857,7 @@ async function runStrategyLabBacktest() {
     const timeframe = els.slTimeframe?.value || marketDataMeta.selectedTimeframe;
     const rangeBars = Number(els.slRangeBars?.value || 500);
     const parsedInput = parseStrategyLabJsonInput();
+    const lifecycleVersion = ensureLifecycleVersion(parsedInput.strategyDefinition?.strategyId || selectedStrategyId, parsedInput, "draft");
     let runtime = buildStrategyRuntimeContext(symbol, timeframe);
     let candles = runtime.candles.slice(-Math.max(100, rangeBars));
     if (candles.length < 100) {
@@ -1801,7 +1907,7 @@ async function runStrategyLabBacktest() {
     strategyLabConfig = best?.config || strategyLabConfig;
     strategyLabRlProbe = new RlEnvironmentAdapter({ candles, features, windowSize: 20 });
     const firstState = strategyLabRlProbe.reset();
-    setStrategyLabStatus(`Backtest completed (${latestStrategyBatchResults.length} run${latestStrategyBatchResults.length > 1 ? "s" : ""}). ${parsedInput.summary} Best: ${best?.label || best?.strategyId} · ${best?.trades?.length || 0} trades · RL state window ${firstState?.candlesWindow?.length || 0}.`, "success");
+    setStrategyLabStatus(`Backtest completed (${latestStrategyBatchResults.length} run${latestStrategyBatchResults.length > 1 ? "s" : ""}). ${parsedInput.summary} Best: ${best?.label || best?.strategyId} · version ${lifecycleVersion?.versionId || selectedStrategyVersionId} · ${best?.trades?.length || 0} trades · RL state window ${firstState?.candlesWindow?.length || 0}.`, "success");
     renderStrategyLab();
   } catch (error) {
     console.error("[StrategyLab] run failed", error);
@@ -1817,6 +1923,7 @@ async function handleSaveStrategyRun() {
   const strategy = getStrategyById(strategyLabConfig.strategyId);
   const run = await persistStrategyRun({
     strategyId: strategyLabConfig.strategyId,
+    versionId: selectedStrategyVersionId || "v1",
     strategyName: strategyLabConfig.customStrategyDefinition?.name || strategy?.name || strategyLabConfig.strategyId,
     strategyType: strategyLabConfig.customStrategyDefinition ? "rule-based-json" : strategy?.type,
     parameters: strategyLabConfig,
@@ -1832,6 +1939,8 @@ async function handleSaveStrategyRun() {
   });
   strategyRuns = [run, ...strategyRuns.filter((row) => row.id !== run.id)].slice(0, 200);
   await saveStrategyRuns(strategyRuns);
+  strategyLifecycleState = updateVersionStatus(strategyLifecycleState, run.strategyId, run.versionId || selectedStrategyVersionId || "v1", "tested");
+  persistStrategyLifecycle();
   if (strategyLabConfig.customStrategyDefinition) {
     const defs = Array.isArray(botCompilerState.strategyJsonDefinitions) ? botCompilerState.strategyJsonDefinitions : [];
     const nextDefs = [
@@ -1861,8 +1970,98 @@ function handleLoadStrategyRun() {
   if (els.slTimeframe) els.slTimeframe.value = row.timeframe;
   if (els.slRangeBars) els.slRangeBars.value = String(row.candleRange?.bars || 500);
   if (els.slParams) els.slParams.value = JSON.stringify(strategyLabConfig, null, 2);
+  selectedStrategyVersionId = row.versionId || selectedStrategyVersionId;
   if (els.slRunNotes) els.slRunNotes.value = row.notes || "";
   setStrategyLabStatus(`Loaded run ${row.id}.`, "success");
+  renderStrategyLab();
+}
+
+async function handleValidateStrategyVersion() {
+  const strategyId = els.slStrategy?.value || strategyLabConfig.strategyId;
+  const versionId = selectedStrategyVersionId;
+  if (!versionId) {
+    setStrategyLabStatus("Select a strategy version first.", "warn");
+    return;
+  }
+  const run = strategyRuns.find((row) => row.strategyId === strategyId && (row.versionId || "v1") === versionId);
+  if (!run) {
+    setStrategyLabStatus("Save an in-sample backtest run first.", "warn");
+    return;
+  }
+  const runtime = buildStrategyRuntimeContext(run.symbol, run.timeframe);
+  const candles = runtime.candles.slice(-(Number(els.slRangeBars?.value || 500)));
+  const split = Math.max(100, Math.floor(candles.length * 0.3));
+  const outSample = candles.slice(-split);
+  if (outSample.length < 60) {
+    setStrategyLabStatus("Need at least 60 out-of-sample candles.", "warn");
+    return;
+  }
+  const features = buildStrategyFeatures(outSample, { ...runtime, candles: outSample });
+  const result = runStrategyBacktest({ strategyId, candles: outSample, features, strategyConfig: run.parameters || strategyLabConfig, runtimeContext: runtime });
+  const back = run.metrics || {};
+  const metrics = result.metrics || {};
+  const pass = (metrics.winRate || 0) >= 0.45
+    && (back.winRate ? (metrics.winRate >= Math.max(0, back.winRate - 0.12)) : true)
+    && Math.abs(Number(metrics.maxDrawdown || 0)) <= Math.abs(Number(back.maxDrawdown || 0)) * 1.25;
+
+  const validationResult = addValidationResult(strategyLifecycleState, {
+    strategyId,
+    versionId,
+    range: { from: outSample[0]?.timestamp || null, to: outSample[outSample.length - 1]?.timestamp || null },
+    metrics,
+    pass,
+    comparedBacktest: back,
+  });
+  strategyLifecycleState = validationResult.state;
+  persistStrategyLifecycle();
+  setStrategyLabStatus(`Validation ${pass ? "passed" : "failed"} for ${strategyId} ${versionId}.`, pass ? "success" : "warn");
+  renderStrategyLab();
+}
+
+async function handlePromoteStrategyVersionLive() {
+  const strategyId = els.slStrategy?.value || strategyLabConfig.strategyId;
+  const versionId = selectedStrategyVersionId;
+  const validated = (strategyLifecycleState.validations || []).find((row) => row.strategyId === strategyId && row.versionId === versionId && row.pass);
+  if (!validated) {
+    setStrategyLabStatus("Only validated strategy versions can be promoted.", "warn");
+    return;
+  }
+  const baselineBacktest = strategyRuns.find((row) => row.strategyId === strategyId && (row.versionId || "v1") === versionId)?.metrics || null;
+  const promoted = promoteVersionToLiveShadow(strategyLifecycleState, {
+    strategyId,
+    versionId,
+    symbol: els.slSymbol?.value || marketDataMeta.selectedSymbol,
+    timeframe: els.slTimeframe?.value || marketDataMeta.selectedTimeframe,
+    baselineBacktest,
+    baselineValidation: validated.metrics,
+  });
+  strategyLifecycleState = promoted.state;
+  persistStrategyLifecycle();
+  setStrategyLabStatus(`Promoted ${strategyId} ${versionId} to Live Shadow.`, "success");
+  renderStrategyLab();
+}
+
+function handleCloneDegradingVersion() {
+  const degrading = (strategyLifecycleState.liveInstances || []).find((row) => row.degrading);
+  if (!degrading) {
+    setStrategyLabStatus("No degrading live version detected.", "warn");
+    return;
+  }
+  const base = (strategyLifecycleState.versions || []).find((row) => row.strategyId === degrading.strategyId && row.versionId === degrading.versionId);
+  if (!base) return;
+  const created = createStrategyVersion(strategyLifecycleState, {
+    strategyId: base.strategyId,
+    name: base.name,
+    description: `${base.description || ""} (clone from degrading ${base.versionId})`.trim(),
+    definition: base.definition,
+    parentVersionId: base.versionId,
+    status: "draft",
+  });
+  strategyLifecycleState = created.state;
+  selectedStrategyVersionId = created.version.versionId;
+  persistStrategyLifecycle();
+  if (els.slParams) els.slParams.value = JSON.stringify(base.definition?.paramsPayload || strategyLabConfig, null, 2);
+  setStrategyLabStatus(`Cloned ${base.versionId} into ${created.version.versionId}.`, "success");
   renderStrategyLab();
 }
 
@@ -1877,6 +2076,8 @@ async function handleApproveStrategyRun() {
     ? { ...run, approvedForLiveShadow: true, approvedAt }
     : run);
   await saveStrategyRuns(strategyRuns);
+  strategyLifecycleState = updateVersionStatus(strategyLifecycleState, row.strategyId, row.versionId || "v1", "approved");
+  persistStrategyLifecycle();
   setStrategyLabStatus(`Run ${row.id} approved for Live Shadow.`, "success");
   renderStrategyLab();
 }
@@ -2545,6 +2746,10 @@ function setupEvents() {
   });
   els.slRunBtn?.addEventListener("click", runStrategyLabBacktest);
   els.slSaveBtn?.addEventListener("click", handleSaveStrategyRun);
+  els.slVersion?.addEventListener("change", () => { selectedStrategyVersionId = els.slVersion.value || ""; renderStrategyLab(); });
+  els.slValidateBtn?.addEventListener("click", handleValidateStrategyVersion);
+  els.slPromoteLiveBtn?.addEventListener("click", handlePromoteStrategyVersionLive);
+  els.slCloneDegradingBtn?.addEventListener("click", handleCloneDegradingVersion);
   els.slLoadBtn?.addEventListener("click", handleLoadStrategyRun);
   els.slApproveBtn?.addEventListener("click", handleApproveStrategyRun);
   els.slRunsBody?.addEventListener("click", (event) => {
@@ -2579,6 +2784,7 @@ function setupEvents() {
   els.filterPattern.addEventListener("change", (e) => { setFilter("patternName", e.target.value); refreshFeed(); });
   els.filterSource?.addEventListener("change", (e) => { setFilter("source", e.target.value); refreshFeed(); });
   els.filterStrategy?.addEventListener("change", (e) => { setFilter("strategyId", e.target.value); refreshFeed(); });
+  els.filterStrategyVersion?.addEventListener("change", (e) => { setFilter("strategyVersionId", e.target.value); refreshFeed(); });
   els.filterStatus.addEventListener("change", (e) => { setFilter("status", e.target.value); refreshFeed(); });
   els.filterTimeframe.addEventListener("change", (e) => { setFilter("timeframe", e.target.value); refreshFeed(); });
   els.filterNearSupport.addEventListener("change", (e) => { setFilter("nearSupport", e.target.value); refreshFeed(); });
@@ -2590,6 +2796,7 @@ function setupEvents() {
   els.filterMaeMax?.addEventListener("input", (e) => { setFilter("maeMax", e.target.value); refreshFeed(); });
   els.statsFilterSource?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, source: e.target.value || "" }; refreshStats(); });
   els.statsFilterStrategy?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, strategyId: e.target.value || "" }; refreshStats(); });
+  els.statsFilterVersion?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, versionId: e.target.value || "" }; refreshStats(); });
   els.statsFilterSymbol?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, symbol: e.target.value || "" }; refreshStats(); });
   els.statsFilterTimeframe?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, timeframe: e.target.value || "" }; refreshStats(); });
   els.saveReviewBtn.addEventListener("click", saveReviewChanges);
@@ -3650,6 +3857,43 @@ function renderLiveShadowPanel() {
   }
 }
 
+function refreshLifecycleLiveMonitoring() {
+  let next = strategyLifecycleState;
+  (strategyLifecycleState.liveInstances || []).forEach((instance) => {
+    if (instance.status !== "active") return;
+    const related = state.signals.filter((row) => row.strategyId === instance.strategyId && (row.strategyVersionId || row.strategySignal?.versionId || row.patternVersion) === instance.versionId).slice(-80);
+    const liveMetrics = computeLiveMetrics(related);
+    const baseline = instance.baselineValidation || instance.baselineBacktest || {};
+    const degrading = liveMetrics.sampleSize >= 8 ? detectDegradation(liveMetrics, baseline) : false;
+    next = updateLiveInstanceMetrics(next, {
+      instanceId: instance.instanceId,
+      strategyId: instance.strategyId,
+      versionId: instance.versionId,
+      liveMetrics,
+      degrading,
+      lastSignalAt: related.at(-1)?.timestamp || null,
+    });
+  });
+  strategyLifecycleState = next;
+  persistStrategyLifecycle();
+}
+
+function emitLifecycleLiveSignalsFromRecord(record) {
+  const active = (strategyLifecycleState.liveInstances || []).filter((row) => row.status === "active" && row.symbol === record.symbol && row.timeframe === record.timeframe);
+  let changed = false;
+  active.forEach((instance) => {
+    const injected = {
+      ...record,
+      id: `${record.id}:${instance.strategyId}:${instance.versionId}`,
+      strategyId: instance.strategyId,
+      versionId: instance.versionId,
+      strategyName: instance.strategyId,
+    };
+    changed = importStrategyRecordToSignals(injected, { strategyId: instance.strategyId, strategyName: instance.strategyId, versionId: instance.versionId }) || changed;
+  });
+  return changed;
+}
+
 async function applyLiveFuturesPolicyOnClose(closedCandle) {
   if (!closedCandle || !futuresPolicyConfig?.enabled) return;
   const record = liveShadowMonitor.createSnapshot({
@@ -3666,7 +3910,8 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
   const latestRecords = liveShadowMonitor.getRecords();
   let signalsChanged = false;
   if (liveShadowAutoIngest && record) {
-    signalsChanged = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" }) || signalsChanged;
+    signalsChanged = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" }) || signalsChanged;
+    signalsChanged = emitLifecycleLiveSignalsFromRecord(record) || signalsChanged;
   }
   futuresPolicySnapshots = latestRecords.slice(0, 300).map((row) => ({
     id: row.id,
@@ -3683,6 +3928,7 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
     replay: row.outcome,
     policyVersion: row._meta?.policyVersion,
   }));
+  refreshLifecycleLiveMonitoring();
   await Promise.all([saveFuturesPolicySnapshots(futuresPolicySnapshots), persistLiveShadowState(), signalsChanged ? persist() : Promise.resolve()]);
   renderLiveShadowPanel();
 }
@@ -3770,7 +4016,7 @@ function refreshMarketDataUI() {
   const newlyResolved = liveShadowMonitor.resolvePending({ candles: marketDataCandles, maxHoldBars: Number(futuresPolicyConfig.maxHoldBars || 24) });
   let signalsChanged = false;
   if (liveShadowAutoIngest && newlyResolved.length) {
-    signalsChanged = syncLiveShadowToUnifiedPipeline(newlyResolved, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" });
+    signalsChanged = syncLiveShadowToUnifiedPipeline(newlyResolved, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" });
   }
   if (signalsChanged) persist();
   if (newlyResolved.length) persistLiveShadowState();
@@ -4060,7 +4306,7 @@ function setupMarketDataEvents() {
   els.mdLiveShadowImportSelectedBtn?.addEventListener("click", async () => {
     const record = liveShadowMonitor.getRecords().find((row) => row.id === liveShadowSelectedId);
     if (!record) return;
-    const changed = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" });
+    const changed = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" });
     if (changed) {
       persist();
       rerender();
@@ -4166,10 +4412,16 @@ async function init() {
   seededPatternResults = loadSeededPatternResults();
   replaceSignals(loadedSignals);
   if (liveShadowAutoIngest) {
-    const synced = syncLiveShadowToUnifiedPipeline(liveShadowMonitor.getRecords(), { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" });
+    const synced = syncLiveShadowToUnifiedPipeline(liveShadowMonitor.getRecords(), { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" });
     if (synced) persist();
   }
   strategyRuns = getSavedStrategyRuns();
+  strategyLifecycleState = normalizeLifecycleState(loadStrategyLifecycle());
+  if (!strategyLifecycleState.versions.length) {
+    const seeded = createStrategyVersion(strategyLifecycleState, { strategyId: "rsi-pullback", name: "RSI Pullback", description: "Initial strategy seed", definition: { paramsPayload: { params: getDefaultParams("rsi-pullback") } }, status: "draft" });
+    strategyLifecycleState = seeded.state;
+    persistStrategyLifecycle();
+  }
   selectedStrategyRunId = strategyRuns[0]?.id || "";
   livePatternSignals = loadLivePatternSignals();
   livePatternSummary = loadLivePatternSummary();

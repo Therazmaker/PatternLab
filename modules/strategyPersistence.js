@@ -17,6 +17,7 @@ export async function persistStrategyRun(runPayload = {}) {
     id: runPayload.id || uuid(),
     strategyId: runPayload.strategyId,
     strategyName: runPayload.strategyName,
+    versionId: runPayload.versionId || "v1",
     strategyType: runPayload.strategyType,
     parameters: runPayload.parameters || {},
     symbol: runPayload.symbol,

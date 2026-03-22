@@ -82,6 +82,7 @@ function mapStrategyOutcome(outcome = {}, action = "") {
 export function normalizeStrategySignal(record = {}, options = {}) {
   const strategyId = options.strategyId || record.strategyId || "live-shadow-policy";
   const strategyName = options.strategyName || record.strategyName || "Live Shadow Policy";
+  const versionId = options.versionId || record.versionId || "live";
   const action = String(record?.policy?.action || "NO_TRADE").toUpperCase();
   const timestamp = record.timestamp || Date.now();
 
@@ -92,7 +93,7 @@ export function normalizeStrategySignal(record = {}, options = {}) {
     timeframe: record.timeframe || options.timeframe || "5m",
     direction: mapStrategyActionToDirection(action),
     patternName: strategyName,
-    patternVersion: "strategy-live",
+    patternVersion: versionId,
     timestamp,
     entryPrice: record?.plan?.referencePrice,
     stopLoss: record?.plan?.stopLoss,
@@ -104,6 +105,7 @@ export function normalizeStrategySignal(record = {}, options = {}) {
       source: record.source,
       strategyId,
       strategyName,
+      versionId,
       action,
       stateSummary: record.stateSummary || {},
     },
@@ -159,11 +161,13 @@ export function normalizeStrategySignal(record = {}, options = {}) {
   normalized.strategyId = strategyId;
   normalized.strategyName = strategyName;
   normalized.strategyAction = action;
+  normalized.strategyVersionId = versionId;
   normalized.strategySignal = {
     id: normalized.id,
     source: "strategy-live-shadow",
     strategyId,
     strategyName,
+    versionId,
     symbol: normalized.asset,
     timeframe: normalized.timeframe,
     timestamp: normalized.timestamp,

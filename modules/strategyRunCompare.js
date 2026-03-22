@@ -5,6 +5,7 @@ export function compareStrategyRuns(runs = []) {
       id: run.id,
       timestamp: run.timestamp,
       strategyId: run.strategyId,
+      versionId: run.versionId || "v1",
       symbol: run.symbol,
       timeframe: run.timeframe,
       netPnl: run.metrics?.netPnl || 0,
