@@ -63,6 +63,13 @@ export function runStrategyBacktest({ strategyId, candles = [], features = [], s
       structureBias: decision.evidence?.structure?.features?.structureBias || null,
       structureEntryLocationScore: decision.evidence?.structure?.features?.entryLocationScore ?? null,
       structureSpaceToTargetScore: decision.evidence?.structure?.features?.spaceToTargetScore ?? null,
+      bullishScore: toNumber(decision.scoreSnapshot?.bullishScore, 0),
+      bearishScore: toNumber(decision.scoreSnapshot?.bearishScore, 0),
+      neutralScore: toNumber(decision.scoreSnapshot?.neutralScore, 0),
+      probabilityBias: decision.scoreSnapshot?.bias || "neutral",
+      probabilityConfidence: toNumber(decision.scoreSnapshot?.confidence, 0),
+      regime: decision.featureSnapshot?.regimeClassification?.regime || decision.featureSnapshot?.marketRegime || "ranging",
+      scoreExplanation: decision.scoreSnapshot?.explanation || "",
     });
 
     for (let cursor = i; cursor <= exitIndex; cursor += 1) {

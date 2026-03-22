@@ -1,5 +1,8 @@
 import { calculateRSI } from "./indicators.js";
 import { computeStructureFeatures } from "./structureFilter.js";
+import { computeFeatureSnapshot } from "./featureEngine.js";
+import { classifyMarketRegime } from "./marketRegime.js";
+import { computeProbabilityScores } from "./probabilityEngine.js";
 
 function num(value, fallback = 0) {
   const n = Number(value);
@@ -11,26 +14,6 @@ function sma(values, index, period) {
   let sum = 0;
   for (let i = index - period + 1; i <= index; i += 1) sum += num(values[i], 0);
   return sum / period;
-}
-
-function atr(candles, index, period = 14) {
-  if (index < 1) return null;
-  const start = Math.max(1, index - period + 1);
-  let sum = 0;
-  let count = 0;
-  for (let i = start; i <= index; i += 1) {
-    const c = candles[i] || {};
-    const prev = candles[i - 1] || {};
-    const tr = Math.max(
-      num(c.high, 0) - num(c.low, 0),
-      Math.abs(num(c.high, 0) - num(prev.close, 0)),
-      Math.abs(num(c.low, 0) - num(prev.close, 0)),
-    );
-    if (!Number.isFinite(tr)) continue;
-    sum += tr;
-    count += 1;
-  }
-  return count ? sum / count : null;
 }
 
 function buildNeuronIndex(neuronActivations = []) {
@@ -45,7 +28,7 @@ function buildNeuronIndex(neuronActivations = []) {
 
 /**
  * Builds per-candle strategy features.
- * Reuses PatternLab context maps when available; only computes missing indicator primitives locally.
+ * Reuses PatternLab context maps when available and appends deterministic pseudo-ML features.
  */
 export function buildStrategyFeatures(candles = [], context = {}) {
   const rows = Array.isArray(candles) ? candles : [];
@@ -62,7 +45,6 @@ export function buildStrategyFeatures(candles = [], context = {}) {
     const sma50 = sma(closes, index, 50);
     const prevSma20 = sma(closes, index - 1, 20);
     const trendSlope = Number.isFinite(sma20) && Number.isFinite(prevSma20) ? sma20 - prevSma20 : 0;
-    const atr14 = atr(rows, index, 14);
     const activeNeurons = neuronByIndex.get(index) || [];
     const neuronBias = activeNeurons.length
       ? activeNeurons.reduce((acc, id) => {
@@ -77,6 +59,10 @@ export function buildStrategyFeatures(candles = [], context = {}) {
     const sr = supportResistanceByTs.get(candle.timestamp) || {};
     const structure = computeStructureFeatures({ candles: rows, candleIndex: index, action: neuronBias >= 0 ? "LONG" : "SHORT", entryPrice: num(candle.close, 0) });
 
+    const pseudoMlFeature = computeFeatureSnapshot(rows, index);
+    const marketRegime = classifyMarketRegime(pseudoMlFeature);
+    const probability = computeProbabilityScores({ feature: pseudoMlFeature, regime: marketRegime });
+
     return {
       index,
       timestamp: candle.timestamp,
@@ -85,10 +71,10 @@ export function buildStrategyFeatures(candles = [], context = {}) {
       low: num(candle.low, 0),
       close: num(candle.close, 0),
       volume: num(candle.volume, 0),
-      rsi14: num(rsi14[index], 50),
+      rsi14: num(rsi14[index], pseudoMlFeature.rsi),
       sma20: num(sma20, num(candle.close, 0)),
       sma50: num(sma50, num(candle.close, 0)),
-      atr14: num(atr14, 0),
+      atr14: num(pseudoMlFeature.atr, 0),
       smaSlope: trendSlope,
       trendSlope,
       avgVolume20: num(sma(volumes, index, 20), num(candle.volume, 0)),
@@ -98,11 +84,20 @@ export function buildStrategyFeatures(candles = [], context = {}) {
       neuronBias,
       contextScore: num(contextSignal.contextScore, 50),
       radarScore: num(contextSignal.radarScore, 50),
-      marketRegime: contextSignal.marketRegime || "unclear",
+      marketRegime: contextSignal.marketRegime || marketRegime.regime,
       nearSupport: Boolean(sr.nearSupport || contextSignal?.srContext?.nearSupport),
       nearResistance: Boolean(sr.nearResistance || contextSignal?.srContext?.nearResistance),
       seededComboMatches: seededMatchesByIndex.get(index) || [],
       structure,
+      pseudoMlFeature,
+      regimeClassification: marketRegime,
+      probability,
+      bullishScore: probability.bullishScore,
+      bearishScore: probability.bearishScore,
+      neutralScore: probability.neutralScore,
+      probabilityBias: probability.bias,
+      probabilityConfidence: probability.confidence,
+      probabilityExplanation: probability.explanation,
     };
   });
 }
