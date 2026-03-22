@@ -14,6 +14,7 @@ export const LEGACY_KEYS = {
   livePatternSummary: "patternlab.livePatternSummary.v1",
   futuresPolicyConfig: "patternlab.futuresPolicyConfig.v1",
   futuresPolicySnapshots: "patternlab.futuresPolicySnapshots.v1",
+  liveShadowState: "patternlab.liveShadowState.v1",
 };
 
 function parseJson(raw, fallback) {
@@ -41,6 +42,7 @@ export function readLegacySnapshot() {
     livePatternSummary: parseJson(localStorage.getItem(LEGACY_KEYS.livePatternSummary), []),
     futuresPolicyConfig: parseJson(localStorage.getItem(LEGACY_KEYS.futuresPolicyConfig), null),
     futuresPolicySnapshots: parseJson(localStorage.getItem(LEGACY_KEYS.futuresPolicySnapshots), []),
+    liveShadowState: parseJson(localStorage.getItem(LEGACY_KEYS.liveShadowState), null),
   };
 }
 
