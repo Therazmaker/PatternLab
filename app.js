@@ -94,6 +94,7 @@ import { applyReview } from "./modules/review.js";
 import { buildSrContextFromQuickAdd, buildSrInsights, computeSrStats, normalizeSrContext } from "./modules/sr.js";
 import { computeSessionStats, deriveCandleColor, normalizeSession } from "./modules/sessions.js";
 import { buildSessionCandleExplanations, getDefaultSessionAnalysisConfig } from "./modules/sessionAnalysis.js";
+import { buildSessionCandleAnalysis } from "./modules/sessionCandleAnalysis.js";
 import { computeExcursionFromSignal, deriveColorHint, formatExcursion, normalizeCandleData, normalizeExcursion, normalizeOHLCInput, normalizeSessionRef, normalizeV3Meta, validateOHLCConsistency } from "./modules/v3.js";
 import { computeStats } from "./modules/stats.js";
 import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, computePatternRanking, withCompareFilters } from "./modules/analytics.js";
@@ -256,6 +257,11 @@ els.slStatus = document.getElementById("sl-status");
 els.slMetrics = document.getElementById("sl-metrics");
 els.slRunsBody = document.getElementById("sl-runs-body");
 els.slTradesBody = document.getElementById("sl-trades-body");
+els.sessionEventStrip = document.getElementById("session-event-strip");
+els.sessionToggleStructure = document.getElementById("session-toggle-structure");
+els.sessionToggleMa = document.getElementById("session-toggle-ma");
+els.sessionToggleLiveAnnotations = document.getElementById("session-toggle-live-annotations");
+els.sessionWindowSize = document.getElementById("session-window-size");
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
@@ -279,8 +285,18 @@ let sessionReplayTimer = null;
 let editingSessionCandleIndex = null;
 let sessionCandleDraft = null;
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
-const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v1";
-let sessionAnalysisPrefs = { showOverlay: true, showNarratives: true, showNear: true, showMetrics: true, replayMode: false };
+const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
+let sessionAnalysisPrefs = {
+  showOverlay: true,
+  showNarratives: true,
+  showNear: true,
+  showMetrics: true,
+  replayMode: false,
+  showStructure: true,
+  showMa: true,
+  showLiveAnnotations: true,
+  windowSize: 80,
+};
 
 let robustnessState = { overfit: null, stress: null, monteCarlo: { simulations: 0, insight: "Ejecuta simulación para ver resultados." }, summary: null };
 let pendingMemoryImport = null;
@@ -584,6 +600,10 @@ function loadSessionAnalysisPrefs() {
       showNear: parsed?.showNear !== false,
       showMetrics: parsed?.showMetrics !== false,
       replayMode: Boolean(parsed?.replayMode),
+      showStructure: parsed?.showStructure !== false,
+      showMa: parsed?.showMa !== false,
+      showLiveAnnotations: parsed?.showLiveAnnotations !== false,
+      windowSize: [40, 60, 80, 120].includes(Number(parsed?.windowSize)) ? Number(parsed.windowSize) : 80,
     };
   } catch {
     sessionAnalysisPrefs = { ...sessionAnalysisPrefs };
@@ -600,6 +620,10 @@ function syncSessionAnalysisToggleUI() {
   if (els.sessionToggleNear) els.sessionToggleNear.checked = sessionAnalysisPrefs.showNear;
   if (els.sessionToggleMetrics) els.sessionToggleMetrics.checked = sessionAnalysisPrefs.showMetrics;
   if (els.sessionToggleReplay) els.sessionToggleReplay.checked = sessionAnalysisPrefs.replayMode;
+  if (els.sessionToggleStructure) els.sessionToggleStructure.checked = sessionAnalysisPrefs.showStructure;
+  if (els.sessionToggleMa) els.sessionToggleMa.checked = sessionAnalysisPrefs.showMa;
+  if (els.sessionToggleLiveAnnotations) els.sessionToggleLiveAnnotations.checked = sessionAnalysisPrefs.showLiveAnnotations;
+  if (els.sessionWindowSize) els.sessionWindowSize.value = String(sessionAnalysisPrefs.windowSize || 80);
 }
 
 function getSessionRecordedSignal(session, candleIndex) {
@@ -763,13 +787,104 @@ function renderSessionHeader() {
   els.sessionActiveHeader.innerHTML = `<div class="note-head"><h3>${active.date}</h3><span class="badge">${active.status}</span></div><p class="muted">${active.asset || "-"} · ${active.tf || "-"} · started ${new Date(active.startedAt).toLocaleString()}</p>`;
 }
 
-function drawSessionCandles(session, explanations = []) {
+function getSessionMarketView() {
+  const source = getSelectedMarketDataSource();
+  const symbol = getSelectedMarketDataSymbol();
+  const timeframe = getSelectedMarketDataTimeframe();
+  const rows = (marketDataCandles || [])
+    .filter((row) => {
+      const rowSymbol = row.symbol || row.asset || marketDataMeta?.selectedSymbol;
+      const rowTf = row.timeframe || marketDataMeta?.selectedTimeframe;
+      const rowSource = row.source || marketDataMeta?.source;
+      return rowSymbol === symbol && rowTf === timeframe && rowSource === source;
+    })
+    .slice(-Math.max(30, Number(sessionAnalysisPrefs.windowSize || 80)))
+    .map((row, index) => ({
+      index: index + 1,
+      timestamp: row.timestamp,
+      timeLabel: new Date(row.timestamp).toLocaleTimeString(),
+      open: row.open,
+      high: row.high,
+      low: row.low,
+      close: row.close,
+      closed: row.closed !== false,
+    }));
+  const liveStatus = marketDataMeta?.liveStatus || {};
+  return {
+    source,
+    symbol,
+    timeframe,
+    candles: rows,
+    connected: Boolean(liveStatus.connected),
+    openCandle: marketDataOpenCandle && (marketDataOpenCandle.symbol || marketDataMeta?.selectedSymbol) === symbol && (marketDataOpenCandle.timeframe || marketDataMeta?.selectedTimeframe) === timeframe
+      ? marketDataOpenCandle
+      : null,
+  };
+}
+
+function renderSessionMarketAnalysisPanel(analysis, marketView) {
+  if (!els.sessionAnalysisPanel) return;
+  if (!analysis || !analysis.candleCount) {
+    els.sessionAnalysisPanel.innerHTML = '<p class="muted">Load market candles to activate the live analyst workspace.</p>';
+    return;
+  }
+  const policy = liveShadowMonitor.getRecords().find((row) => row.symbol === marketView.symbol && row.timeframe === marketView.timeframe) || null;
+  const policyAction = policy?.policy?.action || "NO_TRADE";
+  const policyConfidence = formatConfidence(policy?.policy?.confidence || 0);
+  const pendingAgainstPlan = policy?.outcome?.status === "pending"
+    ? ((policyAction === "LONG" && analysis.overlays.currentPrice < policy.plan.referencePrice) || (policyAction === "SHORT" && analysis.overlays.currentPrice > policy.plan.referencePrice))
+    : null;
+  els.sessionAnalysisPanel.innerHTML = `
+    <div class="session-analysis-header">
+      <h3>${analysis.symbol} · ${analysis.timeframe} · ${analysis.source}</h3>
+      <span class="badge session-state ${analysis.bias === "bullish" ? "call" : analysis.bias === "bearish" ? "put" : "none"}">${analysis.bias.toUpperCase()}</span>
+    </div>
+    <div class="session-analysis-grid">
+      <div class="cell"><strong>Last candle</strong><p class="muted tiny">${analysis.lastCandleSummary}</p></div>
+      <div class="cell"><strong>Volatility</strong><p class="muted tiny">${analysis.volatilityCondition}</p></div>
+      <div class="cell"><strong>Momentum</strong><p class="muted tiny">${analysis.momentumCondition}</p></div>
+      <div class="cell"><strong>Price behavior</strong><p class="muted tiny">${analysis.pushState}</p></div>
+      <div class="cell"><strong>Latest candle effect</strong><p class="muted tiny">${analysis.latestConfirmsMove ? "confirms recent move" : "weakens/does not confirm"}</p></div>
+      <div class="cell"><strong>Continuation context</strong><p class="muted tiny">${analysis.continuationContext}</p></div>
+    </div>
+    <div class="session-analysis-tags">
+      <span class="badge">Policy: ${policyAction}</span>
+      <span class="badge">Confidence: ${policyConfidence}</span>
+      ${pendingAgainstPlan !== null ? `<span class="badge">${pendingAgainstPlan ? "Against shadow plan" : "Aligned with shadow plan"}</span>` : ""}
+      ${(policy?.policy?.thesisTags || []).slice(0, 3).map((tag) => `<span class="badge">${tag}</span>`).join("")}
+    </div>
+    <div class="session-analysis-block">
+      <h4>Market reading</h4>
+      <ul class="mini-list">${analysis.observations.map((item) => `<li><span>${item}</span></li>`).join("")}</ul>
+    </div>
+  `;
+}
+
+function renderSessionEventStrip(events = []) {
+  if (!els.sessionEventStrip) return;
+  if (!sessionAnalysisPrefs.showLiveAnnotations) {
+    els.sessionEventStrip.innerHTML = '<span class="muted tiny">Live annotations hidden.</span>';
+    return;
+  }
+  if (!events.length) {
+    els.sessionEventStrip.innerHTML = '<span class="muted tiny">No recent market events.</span>';
+    return;
+  }
+  els.sessionEventStrip.innerHTML = events.map((event) => `<span class="session-event-chip ${event.type || ""}">${event.label}</span>`).join("");
+}
+
+// Core binding: this renderer is called from refreshSessionCandlesTab and paints either
+// historical session candles or the live market candles from the active source/symbol/timeframe.
+function drawSessionCandles(session, explanations = [], marketAnalysis = null) {
   if (!els.sessionSvg) return;
-  if (!session || !session.candles.length) {
+  const marketRows = marketAnalysis?.marketView?.candles || [];
+  const useMarket = marketRows.length > 0;
+  const rows = useMarket ? marketRows : (session?.candles || []);
+  if (!rows.length) {
     els.sessionSvg.innerHTML = '<div class="muted">Agrega velas para visualizarlas.</div>';
     return;
   }
-  const candles = session.candles;
+  const candles = rows;
   const highs = candles.map((c) => c.high).filter((v) => typeof v === "number");
   const lows = candles.map((c) => c.low).filter((v) => typeof v === "number");
   const max = Math.max(...highs);
@@ -793,6 +908,7 @@ function drawSessionCandles(session, explanations = []) {
     const endX = 18 + context.endCandleIndex * 34 - 14;
     contextBand = `<rect x="${startX}" y="8" width="${Math.max(10, endX - startX)}" height="${height - 16}" fill="rgba(96,165,250,0.08)" stroke="rgba(147,197,253,0.5)" stroke-dasharray="4 4" rx="6" />`;
   }
+  const overlays = marketAnalysis?.analysis?.overlays || {};
   const bodies = candles.map((candle, i) => {
     if ([candle.open, candle.high, candle.low, candle.close].some((v) => typeof v !== "number")) return "";
     const x = 18 + i * 34;
@@ -809,9 +925,36 @@ function drawSessionCandles(session, explanations = []) {
     const showMarker = sessionAnalysisPrefs.showOverlay && (sessionAnalysisPrefs.showNear || !String(stateValue).startsWith("near"));
     const marker = showMarker && stateValue !== "none" ? `<circle cx="${x + 8}" cy="${lowY + 8}" r="3.5" fill="${markerColor(stateValue)}" />` : "";
     const selectedStroke = selectedSessionCandleIndex === candle.index ? '#93c5fd' : 'transparent';
-    return `<g data-candle-index="${candle.index}"><line x1="${x + 8}" x2="${x + 8}" y1="${highY}" y2="${lowY}" stroke="${fill}" /><rect x="${x + 2}" y="${bodyTop}" width="12" height="${bodyH}" fill="${fill}" stroke="${selectedStroke}" stroke-width="1.5" rx="2"><title>#${candle.index} O:${candle.open} H:${candle.high} L:${candle.low} C:${candle.close}${explanation ? ` | ${signalBadgeLabel(explanation.signalState)}` : ""}</title></rect>${marker}</g>`;
+    const isOpen = candle.closed === false;
+    return `<g data-candle-index="${candle.index}"><line x1="${x + 8}" x2="${x + 8}" y1="${highY}" y2="${lowY}" stroke="${fill}" stroke-opacity="${isOpen ? 0.65 : 1}" /><rect x="${x + 2}" y="${bodyTop}" width="12" height="${bodyH}" fill="${fill}" fill-opacity="${isOpen ? 0.45 : 0.95}" stroke="${isOpen ? "#fbbf24" : selectedStroke}" stroke-width="${isOpen ? 1.2 : 1.5}" rx="2"><title>#${candle.index} O:${candle.open} H:${candle.high} L:${candle.low} C:${candle.close}${explanation ? ` | ${signalBadgeLabel(explanation.signalState)}` : ""}</title></rect>${marker}</g>`;
   }).join("");
-  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${bodies}</svg>`;
+  const emaFast = sessionAnalysisPrefs.showMa && Array.isArray(overlays.emaFast)
+    ? overlays.emaFast.map((value, i) => (typeof value === "number" ? `${18 + i * 34 + 8},${y(value)}` : null)).filter(Boolean).join(" ")
+    : "";
+  const emaSlow = sessionAnalysisPrefs.showMa && Array.isArray(overlays.emaSlow)
+    ? overlays.emaSlow.map((value, i) => (typeof value === "number" ? `${18 + i * 34 + 8},${y(value)}` : null)).filter(Boolean).join(" ")
+    : "";
+  const swingHighs = sessionAnalysisPrefs.showStructure ? (overlays.swings?.highs || []).map((item) => {
+    const x = 18 + (item.index - 1) * 34 + 8;
+    return `<circle cx="${x}" cy="${y(item.price)}" r="2.8" fill="#fb7185" />`;
+  }).join("") : "";
+  const swingLows = sessionAnalysisPrefs.showStructure ? (overlays.swings?.lows || []).map((item) => {
+    const x = 18 + (item.index - 1) * 34 + 8;
+    return `<circle cx="${x}" cy="${y(item.price)}" r="2.8" fill="#34d399" />`;
+  }).join("") : "";
+  const timeStep = Math.max(1, Math.floor(candles.length / 8));
+  const timeMarkers = candles.map((candle, i) => {
+    if (i % timeStep !== 0) return "";
+    const label = candle.timeLabel || (candle.timestamp ? new Date(candle.timestamp).toLocaleTimeString() : `${candle.index}`);
+    return `<text x="${18 + i * 34 + 8}" y="${height - 6}" fill="#94a3b8" font-size="9" text-anchor="middle">${label}</text>`;
+  }).join("");
+  const currentPriceLine = typeof overlays.currentPrice === "number"
+    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.currentPrice)}" y2="${y(overlays.currentPrice)}" stroke="rgba(148,163,184,.5)" stroke-dasharray="4 4" />`
+    : "";
+  const rangeLines = sessionAnalysisPrefs.showStructure && typeof overlays.recentHigh === "number" && typeof overlays.recentLow === "number"
+    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.recentHigh)}" y2="${y(overlays.recentHigh)}" stroke="rgba(239,68,68,.35)" stroke-dasharray="3 5" /><line x1="10" x2="${width - 12}" y1="${y(overlays.recentLow)}" y2="${y(overlays.recentLow)}" stroke="rgba(16,185,129,.35)" stroke-dasharray="3 5" />`
+    : "";
+  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${rangeLines}${currentPriceLine}${emaSlow ? `<polyline points="${emaSlow}" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity=".7" />` : ""}${emaFast ? `<polyline points="${emaFast}" fill="none" stroke="#f59e0b" stroke-width="1.2" opacity=".8" />` : ""}${bodies}${swingHighs}${swingLows}${timeMarkers}</svg>`;
   els.sessionSvg.querySelectorAll('[data-candle-index]').forEach((node) => {
     node.addEventListener('mouseenter', () => {
       selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
@@ -948,7 +1091,9 @@ function renderSessionSummary(session) {
   if (!els.sessionSummary) return;
   if (!session) { els.sessionSummary.innerHTML = '<p class="muted">Sin sesión activa.</p>'; return; }
   const stats = computeSessionStats(session.candles);
-  els.sessionSummary.innerHTML = `<ul class="mini-list"><li><span>Total candles</span><strong>${stats.totalCandles}</strong></li><li><span>Green/Red/Doji</span><strong>${stats.greenCandles}/${stats.redCandles}/${stats.dojiCandles}</strong></li><li><span>High/Low</span><strong>${stats.highOfSession ?? "-"} / ${stats.lowOfSession ?? "-"}</strong></li><li><span>Range</span><strong>${stats.highOfSession !== null && stats.lowOfSession !== null ? (stats.highOfSession - stats.lowOfSession).toFixed(5) : "-"}</strong></li><li><span>Status</span><strong>${session.status}</strong></li></ul>`;
+  const marketView = getSessionMarketView();
+  const live = marketDataMeta?.liveStatus || {};
+  els.sessionSummary.innerHTML = `<ul class="mini-list"><li><span>Total candles</span><strong>${stats.totalCandles}</strong></li><li><span>Green/Red/Doji</span><strong>${stats.greenCandles}/${stats.redCandles}/${stats.dojiCandles}</strong></li><li><span>High/Low</span><strong>${stats.highOfSession ?? "-"} / ${stats.lowOfSession ?? "-"}</strong></li><li><span>Range</span><strong>${stats.highOfSession !== null && stats.lowOfSession !== null ? (stats.highOfSession - stats.lowOfSession).toFixed(5) : "-"}</strong></li><li><span>Status</span><strong>${session.status}</strong></li><li><span>Live source</span><strong>${marketView.source} · ${marketView.symbol} ${marketView.timeframe}</strong></li><li><span>Live stream</span><strong>${live.connected ? "connected" : "offline/history only"}</strong></li></ul>`;
 }
 
 function renderPastSessions() {
@@ -974,12 +1119,31 @@ function refreshSessionCandlesTab() {
   const active = getActiveSession();
   const viewed = state.sessions.find((s) => s.id === sessionHistoryId) || active;
   const explanations = viewed ? buildSessionCandleExplanations(viewed.candles, sessionAnalysisConfig) : [];
+  const marketView = getSessionMarketView();
+  const latestPolicy = liveShadowMonitor.getRecords().find((row) => row.symbol === marketView.symbol && row.timeframe === marketView.timeframe) || null;
+  const marketAnalysis = {
+    marketView,
+    analysis: buildSessionCandleAnalysis(marketView.candles, {
+      symbol: marketView.symbol,
+      timeframe: marketView.timeframe,
+      source: marketView.source,
+      policy: latestPolicy ? { action: latestPolicy.policy?.action, confidence: latestPolicy.policy?.confidence, timestamp: latestPolicy.timestamp } : null,
+      shadow: latestPolicy ? { status: latestPolicy.outcome?.status, action: latestPolicy.policy?.action, timestamp: latestPolicy.timestamp } : null,
+    }),
+  };
   if (viewed?.candles?.length && !selectedSessionCandleIndex) selectedSessionCandleIndex = viewed.candles[viewed.candles.length - 1].index;
   if (!viewed?.candles?.some((c) => c.index === selectedSessionCandleIndex)) selectedSessionCandleIndex = viewed?.candles?.[viewed.candles.length - 1]?.index || null;
   renderSessionHeader();
-  drawSessionCandles(viewed, explanations);
+  drawSessionCandles(viewed, explanations, marketAnalysis);
   renderSessionTable(viewed, explanations);
-  renderSessionAnalysisPanel(viewed, explanations);
+  if (marketView.candles.length) {
+    // Analysis summary is computed from active market candles and intelligence context.
+    renderSessionMarketAnalysisPanel(marketAnalysis.analysis, marketView);
+  } else {
+    renderSessionAnalysisPanel(viewed, explanations);
+  }
+  // Compact timeline strip with policy/rejection/volatility events from recent candles.
+  renderSessionEventStrip(marketAnalysis.analysis?.events || []);
   renderSessionSummary(viewed);
   renderPastSessions();
   if (els.sessionPrevBtn) els.sessionPrevBtn.disabled = !viewed?.candles?.length;
@@ -2241,6 +2405,26 @@ function setupEvents() {
     saveSessionAnalysisPrefs();
     refreshSessionCandlesTab();
   });
+  els.sessionToggleStructure?.addEventListener("change", () => {
+    sessionAnalysisPrefs.showStructure = Boolean(els.sessionToggleStructure.checked);
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionToggleMa?.addEventListener("change", () => {
+    sessionAnalysisPrefs.showMa = Boolean(els.sessionToggleMa.checked);
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionToggleLiveAnnotations?.addEventListener("change", () => {
+    sessionAnalysisPrefs.showLiveAnnotations = Boolean(els.sessionToggleLiveAnnotations.checked);
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
+  els.sessionWindowSize?.addEventListener("change", () => {
+    sessionAnalysisPrefs.windowSize = Number(els.sessionWindowSize.value) || 80;
+    saveSessionAnalysisPrefs();
+    refreshSessionCandlesTab();
+  });
   els.sessionPrevBtn?.addEventListener("click", () => {
     const viewed = state.sessions.find((row) => row.id === sessionHistoryId) || getActiveSession();
     if (!viewed?.candles?.length) return;
@@ -3120,6 +3304,7 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
 }
 
 async function handleLiveCandleUpdate(candle) {
+  // Live tick path: keep the open candle mutable so Session Candle can repaint intra-bar updates.
   marketDataOpenCandle = candle;
   const idx = marketDataCandles.findIndex((row) => row.id === candle.id);
   if (idx >= 0) {
@@ -3132,6 +3317,7 @@ async function handleLiveCandleUpdate(candle) {
 }
 
 async function handleLiveCandleClose(candle) {
+  // Candle-close path: mark the candle as closed/final so Session Candle renders it as finalized structure.
   marketDataOpenCandle = null;
   const existingIdx = marketDataCandles.findIndex((row) => row.id === candle.id);
   if (existingIdx >= 0) {
@@ -3225,6 +3411,7 @@ function refreshMarketDataUI() {
   renderNeuronGraphPanel();
   refreshClusterMapPanel();
   renderSeededPatternLab();
+  refreshSessionCandlesTab();
 
   if (!els.mdPreviewBody) return;
   const preview = marketDataCandles.slice(-20);
