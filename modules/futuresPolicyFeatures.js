@@ -1,5 +1,6 @@
 import { calculateEMA } from "./indicators.js";
 import { getSessionTag } from "./neuronEngine.js";
+import { computeStructureFeatures } from "./structureFilter.js";
 
 function toNumber(value, fallback = null) {
   const n = Number(value);
@@ -168,11 +169,20 @@ export function buildFuturesPolicyFeatures(input = {}, options = {}) {
     nearResistance: Boolean(sr.nearResistance),
   };
 
+  const structure = computeStructureFeatures({
+    candles,
+    candleIndex,
+    action: directionBias >= 0 ? "LONG" : "SHORT",
+    entryPrice: priceRef,
+  });
+
   const conflictFlags = [];
   if (directionBias > 0.25 && srProximity.nearResistance) conflictFlags.push("bullish-bias-near-resistance");
   if (directionBias < -0.25 && srProximity.nearSupport) conflictFlags.push("bearish-bias-near-support");
   if (Math.abs(directionBias) > 0.35 && robustnessScore < 45) conflictFlags.push("strong-bias-low-robustness");
   if (contextScore < 42 && Math.abs(directionBias) > 0.3) conflictFlags.push("bias-vs-weak-context");
+  if (structure.structureBreakState === "broken") conflictFlags.push("structure-broken");
+  if (structure.structureBreakState === "weakening") conflictFlags.push("structure-weakening");
 
   const state = {
     symbol: signal.asset || candle.asset || "",
@@ -216,6 +226,7 @@ export function buildFuturesPolicyFeatures(input = {}, options = {}) {
     },
     conflictFlags,
     priceRef,
+    structure,
   };
 
   const explanation = {
@@ -229,6 +240,7 @@ export function buildFuturesPolicyFeatures(input = {}, options = {}) {
     warnings: conflictFlags,
     seededReadiness: seededMatches.map((m) => `${m.patternId}: overlap ${(m.overlapScore * 100).toFixed(0)}% · win ${(m.winRate * 100).toFixed(1)}%`),
     volatilityRead: `ATR14 ${atr14?.toFixed?.(5) || "n/a"} · spread ${(candleSpreadPct * 100).toFixed(2)}%`,
+    structureRead: `${structure.structureBias} · ${structure.structureBreakState} · support ${structure.supportQualityScore.toFixed(0)} / resistance ${structure.resistanceQualityScore.toFixed(0)}`,
   };
 
   const stateHash = hashString(JSON.stringify({

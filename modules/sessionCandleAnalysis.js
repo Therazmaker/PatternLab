@@ -1,3 +1,5 @@
+import { computeStructureFeatures } from "./structureFilter.js";
+
 function asNumber(value, fallback = null) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -108,6 +110,13 @@ export function buildSessionCandleAnalysis(candles = [], context = {}) {
   const swings = getLocalSwings(rows);
   const recentHigh = rows.length ? Math.max(...rows.slice(-20).map((row) => asNumber(row.high, -Infinity))) : null;
   const recentLow = rows.length ? Math.min(...rows.slice(-20).map((row) => asNumber(row.low, Infinity))) : null;
+  const structure = computeStructureFeatures({
+    candles: rows,
+    candleIndex: rows.length - 1,
+    action: bias === "bearish" ? "SHORT" : "LONG",
+    entryPrice: asNumber(last?.close, null),
+    targetPrice: bias === "bearish" ? asNumber(last?.close, 0) - Math.max(avgRange, 0) : asNumber(last?.close, 0) + Math.max(avgRange, 0),
+  });
 
   const observations = [];
   if (bias === "bullish") observations.push("Recent structure leans bullish with higher close pressure.");
@@ -116,6 +125,7 @@ export function buildSessionCandleAnalysis(candles = [], context = {}) {
   if (volCondition === "expanding") observations.push("Range is expanding; movement has broadened.");
   if (momentum === "fading") observations.push("Momentum is fading versus the recent impulse.");
   if (sequenceFlags.length) observations.push(`Sequence notes: ${sequenceFlags.slice(0, 3).join(", ")}.`);
+  observations.push(`Structure ${structure.structureBias}/${structure.structureBreakState} · supportQ ${structure.supportQualityScore.toFixed(0)} · resistanceQ ${structure.resistanceQualityScore.toFixed(0)}.`);
   if (!observations.length) observations.push("Recent structure is mixed with no dominant sequence.");
 
   const events = [];
@@ -156,6 +166,18 @@ export function buildSessionCandleAnalysis(candles = [], context = {}) {
       recentHigh,
       recentLow,
       currentPrice: asNumber(last?.close),
+      nearestSupport: structure.nearestSupportPrice,
+      nearestResistance: structure.nearestResistancePrice,
+      structureSummary: {
+        bias: structure.structureBias,
+        breakState: structure.structureBreakState,
+        supportQuality: structure.supportQualityScore,
+        resistanceQuality: structure.resistanceQualityScore,
+        roomForTp: structure.spaceToTargetScore,
+        entryQuality: structure.entryLocationScore,
+      },
+      supportZones: (structure.levels?.supportCandidates || []).slice(0, 3),
+      resistanceZones: (structure.levels?.resistanceCandidates || []).slice(0, 3),
       currentOpenPrice: !last?.closed ? asNumber(last?.open) : null,
       isLastOpen: Boolean(last && last.closed === false),
       timeframeMs: tfMs,

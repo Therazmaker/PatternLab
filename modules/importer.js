@@ -99,7 +99,7 @@ export function normalizeStrategySignal(record = {}, options = {}) {
     takeProfit: record?.plan?.takeProfit,
     confidence: record?.policy?.confidence,
     notes: record?.policy?.reason || "",
-    autoTags: ["strategy-live-shadow", ...(record?.policy?.thesisTags || [])],
+    autoTags: ["strategy-live-shadow", ...(record?.policy?.thesisTags || []), `structure:${record?.policy?.structureDecision || "allow"}`],
     context: {
       source: record.source,
       strategyId,
@@ -120,6 +120,8 @@ export function normalizeStrategySignal(record = {}, options = {}) {
         thesis: record?.policy?.reason || "",
         thesisTags: record?.policy?.thesisTags || [],
         stateSummary: record?.stateSummary || {},
+        structureDecision: record?.policy?.structureDecision || "allow",
+        structureReasons: record?.policy?.structureReasons || [],
         metadata: {
           recordSource: record.source || "",
           candleIndex: record.candleIndex ?? null,
@@ -174,6 +176,8 @@ export function normalizeStrategySignal(record = {}, options = {}) {
     thesis: record?.policy?.reason || "",
     thesisTags: record?.policy?.thesisTags || [],
     stateSummary: record?.stateSummary || {},
+    structureDecision: record?.policy?.structureDecision || "allow",
+    structureReasons: record?.policy?.structureReasons || [],
     status: status === "pending" ? "pending" : "resolved",
     outcome: record?.outcome || null,
     metadata: {

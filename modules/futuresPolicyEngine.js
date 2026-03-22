@@ -1,4 +1,5 @@
 import { buildFuturesExecutionPlan, getDefaultFuturesRiskConfig } from "./futuresRisk.js";
+import { evaluateStructureFilter } from "./structureFilter.js";
 
 export const FUTURES_POLICY_VERSION = "phase1-shadow-v1";
 
@@ -50,7 +51,29 @@ export function evaluateFuturesPolicy(input = {}, overrides = {}) {
   const runnerUp = scored[1];
   const confidence = clamp((winner.score - runnerUp.score) / (Math.abs(winner.score) + 1), 0, 1);
 
-  const action = winner.action;
+  let action = winner.action;
+  const previewExecutionPlan = action === "NO_TRADE"
+    ? null
+    : buildFuturesExecutionPlan(action, state, {
+      candles: input.candles || [],
+      candleIndex: state.candleIndex,
+      entryPrice: state.priceRef,
+    }, config);
+
+  const structure = evaluateStructureFilter({
+    candles: input.candles || [],
+    candleIndex: state.candleIndex,
+    action,
+    entryPrice: previewExecutionPlan?.entryPrice ?? state.priceRef,
+    targetPrice: previewExecutionPlan?.takeProfit ?? null,
+  });
+
+  let adjustedConfidence = confidence;
+  if (action !== "NO_TRADE") {
+    adjustedConfidence = clamp(confidence + (structure.scoreAdjustment / 200), 0, 1);
+    if (structure.decision === "block") action = "NO_TRADE";
+  }
+
   const evidence = {
     alignedNeurons: (state.activeNeuronIds || []).filter((id) => {
       const key = String(id || "").toLowerCase();
@@ -66,7 +89,7 @@ export function evaluateFuturesPolicy(input = {}, overrides = {}) {
     }),
     supportingPatterns: (state.seededMatches || []).map((row) => row.patternId),
     regimeFlags: [state.marketRegime || "unclear", `trend:${state.trend?.structure || "flat"}`],
-    warningFlags: state.conflictFlags || [],
+    warningFlags: [...(state.conflictFlags || []), ...(structure.reasons || [])],
     robustnessFlags: [
       `robustness:${state.robustness?.robustnessScore ?? "n/a"}`,
       `overfit:${state.robustness?.overfitRisk || "low"}`,
@@ -77,7 +100,14 @@ export function evaluateFuturesPolicy(input = {}, overrides = {}) {
       freshnessScore: state.freshnessScore,
       neuronCount: state.neuronCount,
       directionBias: state.directionBias,
+      structureDecision: structure.decision,
+      structureBias: structure.features?.structureBias,
+      structureBreakState: structure.features?.structureBreakState,
+      entryLocationScore: structure.features?.entryLocationScore,
+      spaceToTargetScore: structure.features?.spaceToTargetScore,
+      invalidationRiskScore: structure.features?.invalidationRiskScore,
     },
+    structure,
   };
 
   const executionPlan = action === "NO_TRADE"
@@ -99,12 +129,14 @@ export function evaluateFuturesPolicy(input = {}, overrides = {}) {
     }, config);
 
   const reason = action === "NO_TRADE"
-    ? `No trade: evidence weak/conflicted (${(state.conflictFlags || []).length} conflict flags).`
-    : `${action} chosen from bias ${Number(state.directionBias || 0).toFixed(2)}, context ${state.contextScore}, robustness ${state.robustness?.robustnessScore ?? "n/a"}.`;
+    ? (structure.decision === "block"
+      ? `No trade: structure blocked setup (${(structure.reasons || []).slice(0, 2).join(" ")}).`
+      : `No trade: evidence weak/conflicted (${(state.conflictFlags || []).length} conflict flags).`)
+    : `${action} chosen from bias ${Number(state.directionBias || 0).toFixed(2)}, context ${state.contextScore}, robustness ${state.robustness?.robustnessScore ?? "n/a"}${structure.decision !== "allow" ? ` · structure ${structure.decision}` : ""}.`;
 
   return {
     action,
-    confidence,
+    confidence: adjustedConfidence,
     actionScores,
     executionPlan,
     reason,
