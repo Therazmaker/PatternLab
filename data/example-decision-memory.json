@@ -1,0 +1,32 @@
+{
+  "decisionId": "decision_20260322_0003",
+  "timestamp": "2026-03-22T11:15:00.000Z",
+  "symbol": "BTCUSDT",
+  "context20": {
+    "candles": [
+      { "open": 84450.3, "high": 84460.8, "low": 84390.1, "close": 84400.2, "volume": 118.1, "timestamp": "2026-03-22T11:05:00.000Z" }
+    ],
+    "features": {
+      "ema_fast": 84395.7,
+      "ema_slow": 84402.4,
+      "ema_slope": -6.8,
+      "rsi": 46.3,
+      "atr": 88.1,
+      "momentum": -24.9,
+      "volatility_state": "high",
+      "compression": false,
+      "expansion": true
+    },
+    "structure": null,
+    "regime": "volatile"
+  },
+  "signal": {
+    "direction": "SHORT",
+    "confidence": 36.5
+  },
+  "operatorAction": "veto",
+  "marketOutcome": {
+    "moved": "down",
+    "moveStrength": 0.62
+  }
+}

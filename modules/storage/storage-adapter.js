@@ -26,6 +26,8 @@ const STORAGE_KEYS = [
   "liveShadowState",
   "strategyRuns",
   "strategyLifecycle",
+  "tradeMemories",
+  "decisionMemories",
 ];
 
 const defaultMetaFeedback = {
@@ -40,6 +42,7 @@ let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
   marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" }, autoIngestToSignals: true }, strategyRuns: [], strategyLifecycle: { versions: [], validations: [], liveInstances: [], degradationAlerts: [] },
+  tradeMemories: [], decisionMemories: [],
 };
 
 function enqueueWrite(task) {
@@ -76,6 +79,8 @@ function normalizeCache(snapshot = {}) {
     liveShadowState: snapshot.liveShadowState && typeof snapshot.liveShadowState === "object" ? { ...cache.liveShadowState, ...snapshot.liveShadowState } : { ...cache.liveShadowState },
     strategyRuns: Array.isArray(snapshot.strategyRuns) ? snapshot.strategyRuns : [],
     strategyLifecycle: snapshot.strategyLifecycle && typeof snapshot.strategyLifecycle === "object" ? { versions: Array.isArray(snapshot.strategyLifecycle.versions) ? snapshot.strategyLifecycle.versions : [], validations: Array.isArray(snapshot.strategyLifecycle.validations) ? snapshot.strategyLifecycle.validations : [], liveInstances: Array.isArray(snapshot.strategyLifecycle.liveInstances) ? snapshot.strategyLifecycle.liveInstances : [], degradationAlerts: Array.isArray(snapshot.strategyLifecycle.degradationAlerts) ? snapshot.strategyLifecycle.degradationAlerts : [] } : { versions: [], validations: [], liveInstances: [], degradationAlerts: [] },
+    tradeMemories: Array.isArray(snapshot.tradeMemories) ? snapshot.tradeMemories : [],
+    decisionMemories: Array.isArray(snapshot.decisionMemories) ? snapshot.decisionMemories : [],
   };
 }
 
@@ -104,6 +109,8 @@ function writeLegacyByDomain(domain) {
     case "liveShadowState": writeLegacyValue(LEGACY_KEYS.liveShadowState, cache.liveShadowState); break;
     case "strategyRuns": writeLegacyValue(LEGACY_KEYS.strategyRuns, cache.strategyRuns); break;
     case "strategyLifecycle": writeLegacyValue("patternlab.strategyLifecycle.v1", cache.strategyLifecycle); break;
+    case "tradeMemories": writeLegacyValue(LEGACY_KEYS.tradeMemories, cache.tradeMemories); break;
+    case "decisionMemories": writeLegacyValue(LEGACY_KEYS.decisionMemories, cache.decisionMemories); break;
     default: break;
   }
 }
@@ -172,6 +179,8 @@ export function getStorageStatus() {
       liveShadowRecords: (cache.liveShadowState?.records || []).length,
       strategyRuns: (cache.strategyRuns || []).length,
       strategyVersions: (cache.strategyLifecycle?.versions || []).length,
+      tradeMemories: (cache.tradeMemories || []).length,
+      decisionMemories: (cache.decisionMemories || []).length,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -309,6 +318,18 @@ export function saveStrategyLifecycle(value) {
   return enqueueWrite(() => persistDomain("strategyLifecycle"));
 }
 
+export function loadTradeMemories() { return cache.tradeMemories || []; }
+export function saveTradeMemories(rows) {
+  cache.tradeMemories = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("tradeMemories"));
+}
+
+export function loadDecisionMemories() { return cache.decisionMemories || []; }
+export function saveDecisionMemories(rows) {
+  cache.decisionMemories = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("decisionMemories"));
+}
+
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -361,6 +382,8 @@ export function exportMemory() {
       liveShadowState: cache.liveShadowState || { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" } },
       strategyRuns: cache.strategyRuns || [],
       strategyLifecycle: cache.strategyLifecycle || { versions: [], validations: [], liveInstances: [], degradationAlerts: [] },
+      tradeMemories: cache.tradeMemories || [],
+      decisionMemories: cache.decisionMemories || [],
     },
   };
 }
@@ -390,6 +413,8 @@ export function validateMemoryPayload(payload) {
       livePatternSignals: Array.isArray(payload.data.livePatternSignals) ? payload.data.livePatternSignals.length : 0,
       livePatternSummary: Array.isArray(payload.data.livePatternSummary) ? payload.data.livePatternSummary.length : 0,
       liveShadowRecords: Array.isArray(payload.data.liveShadowState?.records) ? payload.data.liveShadowState.records.length : 0,
+      tradeMemories: Array.isArray(payload.data.tradeMemories) ? payload.data.tradeMemories.length : 0,
+      decisionMemories: Array.isArray(payload.data.decisionMemories) ? payload.data.decisionMemories.length : 0,
     },
   };
 }
@@ -422,11 +447,13 @@ export async function importMemory(payload, mode = "replace") {
     futuresPolicySnapshots: payload.data.futuresPolicySnapshots || cache.futuresPolicySnapshots,
     liveShadowState: payload.data.liveShadowState || cache.liveShadowState,
     strategyLifecycle: payload.data.strategyLifecycle || cache.strategyLifecycle,
+    tradeMemories: payload.data.tradeMemories || [],
+    decisionMemories: payload.data.decisionMemories || [],
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 

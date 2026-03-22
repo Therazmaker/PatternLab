@@ -1,0 +1,57 @@
+{
+  "tradeId": "trade_20260322_0001",
+  "timestamp": "2026-03-22T10:00:00.000Z",
+  "symbol": "BTCUSDT",
+  "timeframe": "5m",
+  "preTradeContext": {
+    "context20": {
+      "candles": [
+        { "open": 84210.5, "high": 84244.2, "low": 84180.1, "close": 84230.7, "volume": 122.4, "timestamp": "2026-03-22T08:25:00.000Z" },
+        { "open": 84230.7, "high": 84295.8, "low": 84220.2, "close": 84290.4, "volume": 140.8, "timestamp": "2026-03-22T08:30:00.000Z" }
+      ],
+      "features": {
+        "ema_fast": 84255.12,
+        "ema_slow": 84210.87,
+        "ema_slope": 11.34,
+        "rsi": 58.2,
+        "atr": 73.5,
+        "momentum": 44.7,
+        "volatility_state": "medium",
+        "compression": false,
+        "expansion": false
+      },
+      "structure": {
+        "distance_to_support": 0.42,
+        "distance_to_resistance": 0.88,
+        "swing_structure": "HH_HL"
+      },
+      "regime": "trending_up"
+    }
+  },
+  "signal": {
+    "direction": "LONG",
+    "bullishScore": 68.2,
+    "bearishScore": 24.1,
+    "confidence": 44.1,
+    "reasonCodes": ["ema_alignment", "momentum_positive", "support_nearby"],
+    "policyVersion": "futures_policy_v1.4"
+  },
+  "operator": {
+    "action": "approve",
+    "note": "Aligned with NY open continuation setup"
+  },
+  "execution": {
+    "entryPrice": 84290.4,
+    "stopLoss": 84190.4,
+    "takeProfit": 84490.4,
+    "positionSize": 0.05
+  },
+  "outcome": {
+    "result": "win",
+    "pnl": 10,
+    "pnlR": 2,
+    "barsHeld": 7,
+    "mfe": 220,
+    "mae": 35
+  }
+}
