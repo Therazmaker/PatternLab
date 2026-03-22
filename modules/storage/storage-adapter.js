@@ -36,7 +36,7 @@ let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
-  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [],
+  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [],
 };
 
 function enqueueWrite(task) {
@@ -48,7 +48,7 @@ function enqueueWrite(task) {
 }
 
 function normalizeCache(snapshot = {}) {
-  const defaultMarketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
+  const defaultMarketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null };
   cache = {
     ...cache,
     signals: Array.isArray(snapshot.signals) ? dedupeSignals(snapshot.signals.map(migrateStoredSignal)) : [],
@@ -221,7 +221,7 @@ export function saveMarketData(candles) {
   return enqueueWrite(() => persistDomain("marketData"));
 }
 
-const defaultMarketDataMetaValue = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
+const defaultMarketDataMetaValue = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null };
 export function loadMarketDataMeta() { return cache.marketDataMeta || { ...defaultMarketDataMetaValue }; }
 export function saveMarketDataMeta(meta) {
   cache.marketDataMeta = meta && typeof meta === "object" ? { ...defaultMarketDataMetaValue, ...meta } : { ...defaultMarketDataMetaValue };

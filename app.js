@@ -55,6 +55,13 @@ import {
   importCandlesFromFile,
   runMarketDataIntegrityCheck,
   enrichCandles,
+  loadHistoricalCandles,
+  subscribeLiveCandles,
+  unsubscribeLiveCandles,
+  getAvailableSymbols,
+  getSourceStatus,
+  resyncLatestCandles,
+  MARKET_DATA_SOURCES,
 } from "./modules/marketData.js";
 import {
   NEURON_DEFINITIONS,
@@ -101,6 +108,9 @@ import { computeMonteCarloSummary, runMonteCarlo } from "./modules/montecarlo.js
 import { buildRobustnessInsight, computeRobustnessScore } from "./modules/robustness.js";
 import { filterNotes, upsertNote } from "./modules/journal.js";
 import { enrichSignals } from "./modules/intelligence.js";
+import { buildFuturesPolicyFeatures } from "./modules/futuresPolicyFeatures.js";
+import { evaluateFuturesPolicy } from "./modules/futuresPolicyEngine.js";
+import { replayFuturesDecision } from "./modules/futuresReplay.js";
 import {
   applyMetaFeedbackBias,
   buildErrorClusters,
@@ -170,7 +180,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
+  mdSource: document.getElementById("md-source"), mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdLiveStatus: document.getElementById("md-live-status"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
 };
 
 els.seededNeuronSelect = document.getElementById("seeded-neuron-select");
@@ -252,7 +262,17 @@ let pendingMemoryImport = null;
 let storageStatus = null;
 
 let marketDataCandles = [];
-let marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
+let marketDataMeta = {
+  lastSyncAt: null,
+  lastCandleTimestamp: null,
+  source: MARKET_DATA_SOURCES.YAHOO,
+  selectedSymbol: "EURUSD=X",
+  selectedTimeframe: "5m",
+  liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" },
+  lastLiveCandleCloseAt: null,
+};
+let marketDataLiveToken = null;
+let marketDataOpenCandle = null;
 let futuresPolicyConfig = { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true, maxHoldBars: 24 };
 let futuresPolicySnapshots = [];
 let marketDataDiagnostics = null;
@@ -2727,6 +2747,185 @@ async function handleDiscoverPatterns() {
   setMarketDataStatus(`Pattern discovery complete: ${patternDiscoveryResult.summary.candidatesRanked} ranked candidates (${elapsed.toFixed(1)}ms).`, "success");
 }
 
+
+function getSelectedMarketDataSource() {
+  return (els.mdSource?.value || marketDataMeta?.source || MARKET_DATA_SOURCES.YAHOO);
+}
+
+function getSelectedMarketDataSymbol() {
+  return (els.mdAsset?.value || marketDataMeta?.selectedSymbol || "EURUSD=X").trim();
+}
+
+function getSelectedMarketDataTimeframe() {
+  return (els.mdTimeframe?.value || marketDataMeta?.selectedTimeframe || "5m").trim();
+}
+
+
+function refreshMarketDataTimeframes() {
+  if (!els.mdTimeframe) return;
+  const source = getSelectedMarketDataSource();
+  const isBinance = source === MARKET_DATA_SOURCES.BINANCE_FUTURES;
+  const options = isBinance
+    ? ["1m", "3m", "5m", "15m", "1h"]
+    : ["1m", "2m", "5m", "15m", "30m", "1h", "1d"];
+  const selected = marketDataMeta?.selectedTimeframe || getSelectedMarketDataTimeframe();
+  els.mdTimeframe.innerHTML = options.map((value) => `<option value="${value}">${value}</option>`).join("");
+  els.mdTimeframe.value = options.includes(selected) ? selected : (options.includes("5m") ? "5m" : options[0]);
+  marketDataMeta = { ...marketDataMeta, selectedTimeframe: els.mdTimeframe.value };
+}
+
+async function refreshMarketDataSymbols() {
+  const source = getSelectedMarketDataSource();
+  refreshMarketDataTimeframes();
+  const symbols = await getAvailableSymbols({ source });
+  if (!els.mdAsset) return;
+  const current = marketDataMeta?.selectedSymbol || getSelectedMarketDataSymbol();
+  els.mdAsset.innerHTML = symbols.map((row) => `<option value="${row.symbol}">${row.symbol}</option>`).join("");
+  const next = symbols.some((row) => row.symbol === current) ? current : (symbols[0]?.symbol || current);
+  els.mdAsset.value = next;
+  marketDataMeta = { ...marketDataMeta, selectedSymbol: next };
+}
+
+function renderMarketLiveStatus() {
+  if (!els.mdLiveStatus) return;
+  const status = getSourceStatus({ source: getSelectedMarketDataSource() });
+  const live = marketDataMeta?.liveStatus || {};
+  const connected = Boolean(status?.connected || live.connected);
+  const reconnectAttempts = Number(status?.reconnectAttempts ?? live.reconnectAttempts ?? 0);
+  const lastMessage = status?.lastMessageAt || live.lastMessageAt;
+  const lastClose = marketDataMeta?.lastLiveCandleCloseAt;
+  els.mdLiveStatus.className = `quick-add-feedback ${connected ? "success" : "muted"}`;
+  els.mdLiveStatus.innerHTML = `Live ${connected ? "connected" : "idle/disconnected"} · reconnects ${reconnectAttempts} · last tick ${lastMessage ? new Date(lastMessage).toLocaleTimeString() : "-"} · last close ${lastClose ? new Date(lastClose).toLocaleTimeString() : "-"}`;
+}
+
+async function applyLiveFuturesPolicyOnClose(closedCandle) {
+  if (!closedCandle || !futuresPolicyConfig?.enabled) return;
+  const candleIndex = marketDataCandles.findIndex((row) => row.id === closedCandle.id);
+  if (candleIndex < 0) return;
+
+  const liveSignal = {
+    id: `live_shadow_${closedCandle.id}`,
+    timestamp: closedCandle.timestamp,
+    asset: closedCandle.asset,
+    timeframe: closedCandle.timeframe,
+    direction: "CALL",
+    marketRegime: "live-observer",
+    entryPrice: closedCandle.close,
+    contextScore: 50,
+    radarScore: 50,
+    freshnessScore: 50,
+    patternMeta: { robustness: { robustnessScore: 55, overfitRisk: "low" } },
+  };
+
+  const features = buildFuturesPolicyFeatures({
+    signal: liveSignal,
+    candles: marketDataCandles,
+    neuronActivations,
+    seededPatterns,
+    candleIndex,
+  });
+  const decision = evaluateFuturesPolicy({
+    state: features.state,
+    candles: marketDataCandles,
+    config: futuresPolicyConfig,
+  });
+  const replay = replayFuturesDecision(decision, marketDataCandles, candleIndex, futuresPolicyConfig);
+  const snapshot = {
+    id: `live-policy-${closedCandle.id}`,
+    type: "live-shadow-decision",
+    timestamp: closedCandle.timestamp,
+    source: closedCandle.source,
+    asset: closedCandle.asset,
+    timeframe: closedCandle.timeframe,
+    action: decision.action,
+    confidence: decision.confidence,
+    reason: decision.reason,
+    executionPlan: decision.executionPlan,
+    evidence: decision.evidence,
+    replay,
+    policyVersion: decision.policyVersion,
+  };
+
+  futuresPolicySnapshots = [snapshot, ...futuresPolicySnapshots].slice(0, 300);
+  await saveFuturesPolicySnapshots(futuresPolicySnapshots);
+}
+
+async function handleLiveCandleUpdate(candle) {
+  marketDataOpenCandle = candle;
+  const idx = marketDataCandles.findIndex((row) => row.id === candle.id);
+  if (idx >= 0) {
+    marketDataCandles[idx] = { ...marketDataCandles[idx], ...candle, closed: false };
+  } else {
+    marketDataCandles = [...marketDataCandles, candle].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+  marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), source: candle.source };
+  refreshMarketDataUI();
+}
+
+async function handleLiveCandleClose(candle) {
+  marketDataOpenCandle = null;
+  const existingIdx = marketDataCandles.findIndex((row) => row.id === candle.id);
+  if (existingIdx >= 0) {
+    marketDataCandles[existingIdx] = { ...marketDataCandles[existingIdx], ...candle, closed: true };
+  } else {
+    marketDataCandles = mergeCandles(marketDataCandles, [{ ...candle, closed: true }]);
+  }
+
+  marketDataMeta = {
+    ...marketDataMeta,
+    source: candle.source,
+    lastSyncAt: new Date().toISOString(),
+    lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles),
+    lastLiveCandleCloseAt: candle.timestamp,
+  };
+
+  neuronActivations = calculateNeuronActivations(marketDataCandles);
+  neuronSummary = summarizeNeuronActivations(neuronActivations);
+  patternDiscoveryResult = null;
+  selectedPatternCandidateId = "";
+  selectedReviewCandidateId = "";
+  patternReviewDecisions = {};
+
+  await applyLiveFuturesPolicyOnClose(candle);
+  await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+  refreshMarketDataUI();
+}
+
+async function ensureLiveSubscription() {
+  const source = getSelectedMarketDataSource();
+  unsubscribeLiveCandles();
+  marketDataLiveToken = null;
+  if (source !== MARKET_DATA_SOURCES.BINANCE_FUTURES) {
+    renderMarketLiveStatus();
+    return;
+  }
+  const symbol = getSelectedMarketDataSymbol();
+  const timeframe = getSelectedMarketDataTimeframe();
+  const result = await subscribeLiveCandles({ source, symbol, timeframe }, {
+    onCandleUpdate: handleLiveCandleUpdate,
+    onCandleClose: handleLiveCandleClose,
+    onStatus: async (status) => {
+      marketDataMeta = {
+        ...marketDataMeta,
+        liveStatus: {
+          connected: Boolean(status.connected),
+          reconnectAttempts: Number(status.reconnectAttempts || 0),
+          lastMessageAt: status.at ? new Date(status.at).toISOString() : marketDataMeta?.liveStatus?.lastMessageAt || null,
+          statusType: status.type,
+        },
+      };
+      if (status.type === "open" && marketDataCandles.length) {
+        const resynced = await resyncLatestCandles({ source, symbol, timeframe, limit: 3 });
+        marketDataCandles = mergeCandles(marketDataCandles, resynced);
+      }
+      saveMarketDataMeta(marketDataMeta);
+      renderMarketLiveStatus();
+    },
+  });
+  marketDataLiveToken = result?.token || null;
+  renderMarketLiveStatus();
+}
+
 function refreshMarketDataUI() {
   const total = marketDataCandles.length;
   const first = getEarliestCandleTimestamp(marketDataCandles);
@@ -2735,6 +2934,7 @@ function refreshMarketDataUI() {
 
   if (!els.mdStatus) return;
   const infoLines = [
+    `Source: ${marketDataMeta?.source || "yahoo"}`,
     `Velas almacenadas: ${total}`,
     first ? `Primera: ${new Date(first).toLocaleString()}` : "Primera: -",
     last ? `Última: ${new Date(last).toLocaleString()}` : "Última: -",
@@ -2743,6 +2943,7 @@ function refreshMarketDataUI() {
   els.mdStatus.className = "quick-add-feedback muted";
   els.mdStatus.innerHTML = infoLines.join(" &nbsp;·&nbsp; ");
 
+  renderMarketLiveStatus();
   renderMarketDataDiagnostics();
   renderNeuronSummaryPanel();
   renderNeuronLatestPreview();
@@ -2768,20 +2969,19 @@ function refreshMarketDataUI() {
 }
 
 async function handleMarketDataFetch() {
-  const symbol = (els.mdAsset?.value || "EURUSD=X").trim();
-  const interval = els.mdTimeframe?.value || "5m";
+  const source = getSelectedMarketDataSource();
+  const symbol = getSelectedMarketDataSymbol();
+  const timeframe = getSelectedMarketDataTimeframe();
   const range = els.mdRange?.value || "5d";
 
   setMarketDataStatus("Obteniendo velas...", "muted");
   try {
-    const raw = await fetchYahooCandles({ symbol, interval, range });
-    const { candles, errors } = normalizeYahooCandles(raw, { symbol, interval });
-    if (errors.length) console.warn("[MarketData] Normalize warnings:", errors);
+    const candles = await loadHistoricalCandles({ source, symbol, timeframe, interval: timeframe, range, limit: source === MARKET_DATA_SOURCES.BINANCE_FUTURES ? 1000 : undefined });
     if (candles.length === 0) {
       setMarketDataStatus("Sin velas válidas en la respuesta.", "warning");
       return;
     }
-    marketDataCandles = mergeCandles(marketDataCandles, candles);
+    marketDataCandles = mergeCandles([], candles);
     neuronActivations = [];
     neuronSummary = null;
     neuronGraph = null;
@@ -2791,10 +2991,18 @@ async function handleMarketDataFetch() {
     selectedPatternCandidateId = "";
     selectedReviewCandidateId = "";
     patternReviewDecisions = {};
-    marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
+    marketDataMeta = {
+      ...marketDataMeta,
+      source,
+      selectedSymbol: symbol,
+      selectedTimeframe: timeframe,
+      lastSyncAt: new Date().toISOString(),
+      lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles),
+    };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+    await ensureLiveSubscription();
     refreshMarketDataUI();
-    setMarketDataStatus(`✓ ${candles.length} velas recibidas, ${marketDataCandles.length} total almacenadas.`, "success");
+    setMarketDataStatus(`✓ ${candles.length} velas recibidas (${source}).`, "success");
   } catch (err) {
     console.error("[MarketData] Fetch error:", err);
     setMarketDataStatus(`Error: ${err.message}`, "error");
@@ -2802,14 +3010,13 @@ async function handleMarketDataFetch() {
 }
 
 async function handleMarketDataSync() {
-  const symbol = (els.mdAsset?.value || "EURUSD=X").trim();
-  const interval = els.mdTimeframe?.value || "5m";
+  const source = getSelectedMarketDataSource();
+  const symbol = getSelectedMarketDataSymbol();
+  const timeframe = getSelectedMarketDataTimeframe();
 
   setMarketDataStatus("Sincronizando velas más recientes...", "muted");
   try {
-    const raw = await fetchYahooCandles({ symbol, interval, range: "1d" });
-    const { candles, errors } = normalizeYahooCandles(raw, { symbol, interval });
-    if (errors.length) console.warn("[MarketData] Sync normalize warnings:", errors);
+    const candles = await resyncLatestCandles({ source, symbol, timeframe, interval: timeframe, range: source === MARKET_DATA_SOURCES.BINANCE_FUTURES ? undefined : "1d", limit: 250 });
     if (candles.length === 0) {
       setMarketDataStatus("Sin velas nuevas en el sync.", "warning");
       return;
@@ -2826,8 +3033,16 @@ async function handleMarketDataSync() {
     selectedPatternCandidateId = "";
     selectedReviewCandidateId = "";
     patternReviewDecisions = {};
-    marketDataMeta = { ...marketDataMeta, lastSyncAt: new Date().toISOString(), lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles), source: "yahoo" };
+    marketDataMeta = {
+      ...marketDataMeta,
+      source,
+      selectedSymbol: symbol,
+      selectedTimeframe: timeframe,
+      lastSyncAt: new Date().toISOString(),
+      lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles),
+    };
     await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+    await ensureLiveSubscription();
     refreshMarketDataUI();
     setMarketDataStatus(`✓ Sync completado. ${added} velas nuevas agregadas (${marketDataCandles.length} total).`, "success");
   } catch (err) {
@@ -2892,7 +3107,8 @@ function handleMarketDataExport() {
 async function handleMarketDataClear() {
   if (!window.confirm("¿Borrar todas las velas de market data almacenadas?")) return;
   marketDataCandles = [];
-  marketDataMeta = { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo" };
+  unsubscribeLiveCandles();
+  marketDataMeta = { ...marketDataMeta, lastSyncAt: null, lastCandleTimestamp: null, source: getSelectedMarketDataSource(), lastLiveCandleCloseAt: null };
   marketDataDiagnostics = null;
   neuronActivations = [];
   neuronSummary = null;
@@ -2948,6 +3164,26 @@ async function handleMarketDataImport(file) {
 }
 
 function setupMarketDataEvents() {
+  els.mdSource?.addEventListener("change", async () => {
+    await refreshMarketDataSymbols();
+    marketDataMeta = { ...marketDataMeta, source: getSelectedMarketDataSource(), selectedSymbol: getSelectedMarketDataSymbol(), selectedTimeframe: getSelectedMarketDataTimeframe() };
+    await saveMarketDataMeta(marketDataMeta);
+    await ensureLiveSubscription();
+    refreshMarketDataUI();
+  });
+  els.mdAsset?.addEventListener("change", async () => {
+    marketDataMeta = { ...marketDataMeta, selectedSymbol: getSelectedMarketDataSymbol() };
+    await saveMarketDataMeta(marketDataMeta);
+    await ensureLiveSubscription();
+    renderMarketLiveStatus();
+  });
+  els.mdTimeframe?.addEventListener("change", async () => {
+    marketDataMeta = { ...marketDataMeta, selectedTimeframe: getSelectedMarketDataTimeframe() };
+    await saveMarketDataMeta(marketDataMeta);
+    await ensureLiveSubscription();
+    renderMarketLiveStatus();
+  });
+
   els.mdFetchBtn?.addEventListener("click", handleMarketDataFetch);
   els.mdSyncBtn?.addEventListener("click", handleMarketDataSync);
   els.mdImportBtn?.addEventListener("click", () => els.mdImportFile?.click());
@@ -3026,7 +3262,9 @@ async function init() {
   syncSessionAnalysisToggleUI();
   if (els.sessionDate) els.sessionDate.value = new Date().toISOString().slice(0, 10);
   marketDataCandles = loadMarketData();
-  marketDataMeta = loadMarketDataMeta();
+  marketDataMeta = { ...marketDataMeta, ...(loadMarketDataMeta() || {}) };
+  if (els.mdSource) els.mdSource.value = marketDataMeta.source || MARKET_DATA_SOURCES.YAHOO;
+  if (els.mdTimeframe) els.mdTimeframe.value = marketDataMeta.selectedTimeframe || "5m";
   futuresPolicyConfig = { ...futuresPolicyConfig, ...(loadFuturesPolicyConfig() || {}) };
   futuresPolicySnapshots = loadFuturesPolicySnapshots();
   promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
@@ -3038,6 +3276,9 @@ async function init() {
   setupTabs();
   setupEvents();
   setupMarketDataEvents();
+  await refreshMarketDataSymbols();
+  if (els.mdAsset && marketDataMeta.selectedSymbol) els.mdAsset.value = marketDataMeta.selectedSymbol;
+  await ensureLiveSubscription();
   importerMode = els.importerMode?.value === "live" ? "live" : "research";
   applyImporterMode();
   refreshMarketDataUI();
@@ -3058,5 +3299,7 @@ async function init() {
     handleGenerateSchema();
   }
 }
+
+window.addEventListener("beforeunload", () => unsubscribeLiveCandles());
 
 init();

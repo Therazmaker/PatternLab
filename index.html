@@ -458,6 +458,12 @@
         <h2>Market Data <span class="hint" title="Recolector de velas históricas. Dominio separado de las señales.">ⓘ</span></h2>
         <p class="muted tiny">Datos de mercado raw para análisis y backtesting. No se mezclan con las señales.</p>
         <div class="filters">
+          <label>Source
+            <select id="md-source">
+              <option value="yahoo" selected>Yahoo (legacy)</option>
+              <option value="binance-futures">Binance Futures (USDⓈ-M)</option>
+            </select>
+          </label>
           <label>Asset
             <select id="md-asset">
               <option value="EURUSD=X">EURUSD</option>
@@ -498,6 +504,7 @@
           <button id="btn-md-clear" class="danger">Clear candles</button>
         </div>
         <p id="md-status" class="quick-add-feedback muted"></p>
+        <p id="md-live-status" class="quick-add-feedback muted">Live idle.</p>
         <div id="md-diagnostics" class="panel-soft muted tiny">Integrity check pendiente.</div>
         <div id="md-neuron-summary" class="panel-soft muted tiny">Neuron summary pendiente.</div>
         <div id="md-pattern-summary" class="panel-soft muted tiny">Pattern discovery pendiente.</div>
