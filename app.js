@@ -308,6 +308,8 @@ let sessionReplayTimer = null;
 let editingSessionCandleIndex = null;
 let sessionCandleDraft = null;
 let _sessionChart = null; // SessionChart Canvas instance
+const SESSION_SR_KEY = 'patternlab.sessionManualSR.v1';
+let _sessionManualSR = []; // [{id,price,type,label}]
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
 let sessionAnalysisPrefs = {
@@ -969,6 +971,10 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
         selectedSessionCandleIndex = idx;
         refreshSessionCandlesTab();
       },
+      onSRChange: (lines) => {
+        _sessionManualSR = lines;
+        try { localStorage.setItem(SESSION_SR_KEY, JSON.stringify(lines)); } catch {}
+      },
       onCandleHover: (idx) => {
         // Update toolbar OHLC bar
         const allC = candles;
@@ -1012,6 +1018,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
       showMa:        sessionAnalysisPrefs.showMa,
     },
   });
+  _sessionChart.setManualSR(_sessionManualSR);
 }
 function renderSessionTable(session, explanations = []) {
   if (!els.sessionCandlesBody) return;
@@ -4343,6 +4350,7 @@ async function init() {
   replaceSessions(loadSessions(normalizeSession));
   metaFeedback = loadMetaFeedback();
   botCompilerState = loadBotCompilerState();
+  try { _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_SR_KEY) || '[]') || []; } catch { _sessionManualSR = []; }
   const activeSession = state.sessions.find((session) => session.status === "active");
   setActiveSessionId(activeSession?.id || null);
   patternVersionsRegistry = loadPatternVersionsRegistry();
