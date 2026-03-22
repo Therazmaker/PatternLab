@@ -32,9 +32,10 @@ function renderFuturesBadge(signal) {
 function renderSourceBadge(signal) {
   if (signal.source !== "strategy-live-shadow") return '<span class="badge">Manual</span>';
   const strategy = signal.strategyName || signal.strategyId || "strategy";
+  const version = signal.strategyVersionId || signal.strategySignal?.versionId || signal.patternVersion || "-";
   const action = signal.strategyAction || signal.futuresPolicy?.action || "NO_TRADE";
   const confidence = signal.confidence;
-  return `<span class="badge tag">Live Shadow</span> <span class="badge">${strategy}</span> <span class="badge">${action}</span>${typeof confidence === "number" ? ` <span class="badge">${(confidence * 100).toFixed(0)}%</span>` : ""}`;
+  return `<span class="badge tag">Live Shadow</span> <span class="badge">${strategy}</span> <span class="badge">${version}</span> <span class="badge">${action}</span>${typeof confidence === "number" ? ` <span class="badge">${(confidence * 100).toFixed(0)}%</span>` : ""}`;
 }
 
 function renderV3Badges(signal) {
@@ -66,6 +67,7 @@ export function getFilteredSignals(signals, filters) {
     if (filters.patternName && s.patternName !== filters.patternName) return false;
     if (filters.source && s.source !== filters.source) return false;
     if (filters.strategyId && (s.strategyId || "") !== filters.strategyId) return false;
+    if (filters.strategyVersionId && (s.strategyVersionId || s.strategySignal?.versionId || "") !== filters.strategyVersionId) return false;
     if (filters.status && s.outcome.status !== filters.status) return false;
     if (filters.timeframe && s.timeframe !== filters.timeframe) return false;
     if (filters.hasOHLC === "only" && !hasOHLCComplete(s)) return false;

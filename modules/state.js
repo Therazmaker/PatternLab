@@ -6,6 +6,7 @@ export const state = {
     patternName: "",
     source: "",
     strategyId: "",
+    strategyVersionId: "",
     status: "",
     timeframe: "",
     search: "",
