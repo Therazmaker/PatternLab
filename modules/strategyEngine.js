@@ -1,4 +1,5 @@
 import { getStrategyById } from "./strategyRegistry.js";
+import { evaluateStructureFilter } from "./structureFilter.js";
 
 export const STRATEGY_ACTIONS = { NO_TRADE: "NO_TRADE", LONG: "LONG", SHORT: "SHORT" };
 
@@ -54,19 +55,43 @@ export function runStrategyDecisions({ strategyId, candles = [], features = [], 
 
     const evalResult = strategy.execute({ candle, candles, candleIndex: index, feature, features, params, config: strategyConfig, context }) || {};
     const action = Object.values(STRATEGY_ACTIONS).includes(evalResult.action) ? evalResult.action : STRATEGY_ACTIONS.NO_TRADE;
-    const executionPlan = evalResult.executionPlan || buildExecutionPlan({ action, feature, candle, riskConfig });
+    let executionPlan = evalResult.executionPlan || buildExecutionPlan({ action, feature, candle, riskConfig });
+    const structureEnabled = strategyConfig?.structureFilter?.enabled !== false;
+    const structureCheck = structureEnabled
+      ? evaluateStructureFilter({
+        candles,
+        candleIndex: index,
+        action,
+        entryPrice: executionPlan?.entryPrice || candle.close,
+        targetPrice: executionPlan?.takeProfit || null,
+      })
+      : { decision: "allow", scoreAdjustment: 0, reasons: [], features: feature.structure || null };
+
+    let finalAction = action;
+    let confidence = toNumber(evalResult.confidence, 0);
+    const structureNotes = structureCheck.reasons || [];
+    if (structureEnabled && action !== STRATEGY_ACTIONS.NO_TRADE) {
+      confidence = Math.max(0, Math.min(1, confidence + (structureCheck.scoreAdjustment / 200)));
+      if (structureCheck.decision === "block") {
+        finalAction = STRATEGY_ACTIONS.NO_TRADE;
+        executionPlan = null;
+      }
+    }
 
     return {
       index,
       timestamp: candle.timestamp,
       strategyId,
-      action,
-      confidence: toNumber(evalResult.confidence, 0),
-      reason: evalResult.reason || "",
+      action: finalAction,
+      confidence,
+      reason: [evalResult.reason || "", ...structureNotes].filter(Boolean).join(" "),
       featureSnapshot: feature,
       executionPlan,
       riskConfig,
-      evidence: evalResult.evidence || null,
+      evidence: {
+        ...(evalResult.evidence || {}),
+        structure: structureCheck,
+      },
     };
   });
 }

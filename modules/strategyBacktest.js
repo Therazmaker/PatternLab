@@ -58,6 +58,11 @@ export function runStrategyBacktest({ strategyId, candles = [], features = [], s
       maxFavorableExcursion: replay.maxFavorableExcursion,
       maxAdverseExcursion: replay.maxAdverseExcursion,
       explanation: `${decision.reason || "decision"} -> ${replay.outcomeType}`,
+      structureDecision: decision.evidence?.structure?.decision || "allow",
+      structureReasons: decision.evidence?.structure?.reasons || [],
+      structureBias: decision.evidence?.structure?.features?.structureBias || null,
+      structureEntryLocationScore: decision.evidence?.structure?.features?.entryLocationScore ?? null,
+      structureSpaceToTargetScore: decision.evidence?.structure?.features?.spaceToTargetScore ?? null,
     });
 
     for (let cursor = i; cursor <= exitIndex; cursor += 1) {

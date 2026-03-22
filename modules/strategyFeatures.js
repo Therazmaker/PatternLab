@@ -1,4 +1,5 @@
 import { calculateRSI } from "./indicators.js";
+import { computeStructureFeatures } from "./structureFilter.js";
 
 function num(value, fallback = 0) {
   const n = Number(value);
@@ -74,6 +75,7 @@ export function buildStrategyFeatures(candles = [], context = {}) {
 
     const contextSignal = contextByTs.get(candle.timestamp) || {};
     const sr = supportResistanceByTs.get(candle.timestamp) || {};
+    const structure = computeStructureFeatures({ candles: rows, candleIndex: index, action: neuronBias >= 0 ? "LONG" : "SHORT", entryPrice: num(candle.close, 0) });
 
     return {
       index,
@@ -100,6 +102,7 @@ export function buildStrategyFeatures(candles = [], context = {}) {
       nearSupport: Boolean(sr.nearSupport || contextSignal?.srContext?.nearSupport),
       nearResistance: Boolean(sr.nearResistance || contextSignal?.srContext?.nearResistance),
       seededComboMatches: seededMatchesByIndex.get(index) || [],
+      structure,
     };
   });
 }

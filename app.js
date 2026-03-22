@@ -857,6 +857,7 @@ function renderSessionMarketAnalysisPanel(analysis, marketView) {
       <span class="badge">Confidence: ${policyConfidence}</span>
       ${pendingAgainstPlan !== null ? `<span class="badge">${pendingAgainstPlan ? "Against shadow plan" : "Aligned with shadow plan"}</span>` : ""}
       ${(policy?.policy?.thesisTags || []).slice(0, 3).map((tag) => `<span class="badge">${tag}</span>`).join("")}
+      ${analysis.overlays?.structureSummary ? `<span class="badge">Structure ${analysis.overlays.structureSummary.bias}/${analysis.overlays.structureSummary.breakState}</span><span class="badge">SQ ${formatNumber(analysis.overlays.structureSummary.supportQuality, 0)} · RQ ${formatNumber(analysis.overlays.structureSummary.resistanceQuality, 0)}</span><span class="badge">TP room ${formatNumber(analysis.overlays.structureSummary.roomForTp, 0)}</span><span class="badge">Entry ${formatNumber(analysis.overlays.structureSummary.entryQuality, 0)}</span>` : ""}
     </div>
     <div class="session-analysis-block">
       <h4>Market reading</h4>
@@ -998,6 +999,12 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
   const rangeLines = sessionAnalysisPrefs.showStructure && typeof overlays.recentHigh === "number" && typeof overlays.recentLow === "number"
     ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.recentHigh)}" y2="${y(overlays.recentHigh)}" stroke="rgba(239,68,68,.35)" stroke-dasharray="3 5" /><line x1="10" x2="${width - 12}" y1="${y(overlays.recentLow)}" y2="${y(overlays.recentLow)}" stroke="rgba(16,185,129,.35)" stroke-dasharray="3 5" />`
     : "";
+  const nearestSupportLine = sessionAnalysisPrefs.showStructure && typeof overlays.nearestSupport === "number"
+    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.nearestSupport)}" y2="${y(overlays.nearestSupport)}" stroke="rgba(34,197,94,.6)" stroke-width="1.2" /><text x="14" y="${Math.max(12, y(overlays.nearestSupport) - 4)}" fill="rgba(34,197,94,.9)" font-size="10">Support ${formatNumber(overlays.nearestSupport, 4)}</text>`
+    : "";
+  const nearestResistanceLine = sessionAnalysisPrefs.showStructure && typeof overlays.nearestResistance === "number"
+    ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.nearestResistance)}" y2="${y(overlays.nearestResistance)}" stroke="rgba(239,68,68,.6)" stroke-width="1.2" /><text x="14" y="${Math.max(12, y(overlays.nearestResistance) - 4)}" fill="rgba(239,68,68,.9)" font-size="10">Resistance ${formatNumber(overlays.nearestResistance, 4)}</text>`
+    : "";
   const liveStatus = resolveLivePlanStatus(livePlanRecord);
   const liveColor = liveStatus === "win" ? "#22c55e" : liveStatus === "loss" ? "#ef4444" : liveStatus === "skipped" ? "#94a3b8" : "#a78bfa";
   const liveStroke = livePlanRecord?.policy?.action === "LONG" ? "#38bdf8" : "#f97316";
@@ -1013,7 +1020,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
   const statusBadge = livePlanRecord
     ? `<rect x="14" y="10" width="230" height="24" rx="7" fill="rgba(15,23,42,.74)" stroke="${liveColor}" /><text x="22" y="26" fill="${liveColor}" font-size="11">${livePlanRecord.policy?.action} · ${liveStatus.toUpperCase()} · ${formatTs(livePlanRecord.timestamp)}</text>`
     : "";
-  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${rangeLines}${currentPriceLine}${emaSlow ? `<polyline points="${emaSlow}" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity=".7" />` : ""}${emaFast ? `<polyline points="${emaFast}" fill="none" stroke="#f59e0b" stroke-width="1.2" opacity=".8" />` : ""}${entryLine}${stopLine}${tpLine}${statusBadge}${bodies}${swingHighs}${swingLows}${timeMarkers}</svg>`;
+  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${rangeLines}${currentPriceLine}${emaSlow ? `<polyline points="${emaSlow}" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity=".7" />` : ""}${emaFast ? `<polyline points="${emaFast}" fill="none" stroke="#f59e0b" stroke-width="1.2" opacity=".8" />` : ""}${nearestSupportLine}${nearestResistanceLine}${entryLine}${stopLine}${tpLine}${statusBadge}${bodies}${swingHighs}${swingLows}${timeMarkers}</svg>`;
   els.sessionSvg.querySelectorAll('[data-candle-index]').forEach((node) => {
     node.addEventListener('mouseenter', () => {
       selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
@@ -1566,7 +1573,7 @@ function renderStrategyLab() {
 
   if (els.slParams && !els.slParams.value) {
     const defaults = getDefaultParams(strategyLabConfig.strategyId);
-    els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
+    els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution, structureFilter: { enabled: true } }, null, 2);
   }
 
   const approvedRuns = strategyRuns.filter((row) => row.approvedForLiveShadow).sort((a, b) => new Date(b.approvedAt || 0) - new Date(a.approvedAt || 0));
@@ -1600,7 +1607,7 @@ function renderStrategyLab() {
 
   const trades = latestStrategyResult?.trades || [];
   els.slTradesBody.innerHTML = trades.length
-    ? trades.slice(0, 200).map((t) => `<tr><td>${new Date(t.entryTimestamp).toLocaleString()}</td><td>${new Date(t.exitTimestamp).toLocaleString()}</td><td><span class="badge ${t.side === "LONG" ? "call" : "put"}">${t.side}</span></td><td>${t.reason || "-"}</td><td>${t.outcomeType}</td><td>${formatNumber(t.pnl, 2)}</td><td>${formatNumber(t.rMultiple, 2)}</td><td>${t.holdBars}</td></tr>`).join("")
+    ? trades.slice(0, 200).map((t) => `<tr><td>${new Date(t.entryTimestamp).toLocaleString()}</td><td>${new Date(t.exitTimestamp).toLocaleString()}</td><td><span class="badge ${t.side === "LONG" ? "call" : "put"}">${t.side}</span></td><td>${t.reason || "-"}<div class="muted tiny">Structure ${t.structureDecision || "allow"}${(t.structureReasons || []).length ? ` · ${(t.structureReasons || []).slice(0, 1).join(" ")}` : ""}</div></td><td>${t.outcomeType}</td><td>${formatNumber(t.pnl, 2)}</td><td>${formatNumber(t.rMultiple, 2)}</td><td>${t.holdBars}</td></tr>`).join("")
     : '<tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr>';
 }
 
@@ -3425,7 +3432,7 @@ function renderLiveShadowPanel() {
 
   if (els.mdLiveShadowPolicy) {
     els.mdLiveShadowPolicy.innerHTML = latest
-      ? `<p><span class="badge ${latest.policy.action === "LONG" ? "call" : latest.policy.action === "SHORT" ? "put" : "tag"}">${latest.policy.action}</span> <span class="badge">${formatConfidence(latest.policy.confidence)}</span> ${Number.isFinite(latest.plan.riskReward) ? `<span class="badge">RR ${formatNumber(latest.plan.riskReward, 2)}</span>` : ""}</p><p class="muted">${latest.policy.reason || "-"}</p><p class="muted">Ref ${formatNumber(latest.plan.referencePrice, 4)} · SL ${formatNumber(latest.plan.stopLoss, 4)} · TP ${formatNumber(latest.plan.takeProfit, 4)}</p><p>${(latest.policy.thesisTags || []).slice(0, 4).map((tag) => `<span class="badge">${tag}</span>`).join(" ")}</p>`
+      ? `<p><span class="badge ${latest.policy.action === "LONG" ? "call" : latest.policy.action === "SHORT" ? "put" : "tag"}">${latest.policy.action}</span> <span class="badge">${formatConfidence(latest.policy.confidence)}</span> ${Number.isFinite(latest.plan.riskReward) ? `<span class="badge">RR ${formatNumber(latest.plan.riskReward, 2)}</span>` : ""} <span class="badge">Structure ${latest.policy.structureDecision || "allow"}</span></p><p class="muted">${latest.policy.reason || "-"}</p><p class="muted">Ref ${formatNumber(latest.plan.referencePrice, 4)} · SL ${formatNumber(latest.plan.stopLoss, 4)} · TP ${formatNumber(latest.plan.takeProfit, 4)}</p><p class="muted">${(latest.policy.structureReasons || []).slice(0, 2).join(" ") || "Structure aligned."}</p><p>${(latest.policy.thesisTags || []).slice(0, 4).map((tag) => `<span class="badge">${tag}</span>`).join(" ")}</p>`
       : `<p class="muted">No policy decisions yet.</p>`;
   }
 
@@ -3448,7 +3455,7 @@ function renderLiveShadowPanel() {
   const selected = filtered.find((row) => row.id === liveShadowSelectedId) || latest;
   if (els.mdLiveShadowDetail) {
     els.mdLiveShadowDetail.innerHTML = selected
-      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
+      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
       : `<p class="muted">Select a live decision row to inspect full details.</p>`;
   }
 }

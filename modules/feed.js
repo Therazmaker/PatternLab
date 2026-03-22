@@ -25,7 +25,8 @@ function renderFuturesBadge(signal) {
   const tone = policy.action === "LONG" ? "call" : policy.action === "SHORT" ? "put" : "tag";
   const rr = policy.executionPlan?.riskReward;
   const replay = policy.replay?.outcomeType;
-  return `<span class="badge ${tone}">Futures ${policy.action} ${(Number(policy.confidence || 0) * 100).toFixed(0)}%</span>${rr ? ` <span class="badge">RR ${rr.toFixed(2)}</span>` : ""}${replay ? ` <span class="badge">${replay}</span>` : ""}`;
+  const structureDecision = signal?.strategySignal?.structureDecision || policy?.evidence?.structure?.decision;
+  return `<span class="badge ${tone}">Futures ${policy.action} ${(Number(policy.confidence || 0) * 100).toFixed(0)}%</span>${rr ? ` <span class="badge">RR ${rr.toFixed(2)}</span>` : ""}${replay ? ` <span class="badge">${replay}</span>` : ""}${structureDecision ? ` <span class="badge">Structure ${structureDecision}</span>` : ""}`;
 }
 
 function renderSourceBadge(signal) {

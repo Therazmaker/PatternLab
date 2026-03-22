@@ -174,6 +174,8 @@ export function createLiveShadowMonitor(options = {}) {
         thesisTags: decision.evidence?.regimeFlags || [],
         warnings: decision.evidence?.warningFlags || [],
         supportingEvidence: decision.evidence || {},
+        structureDecision: decision.evidence?.structure?.decision || "allow",
+        structureReasons: decision.evidence?.structure?.reasons || [],
       },
       plan: {
         entryType: decision.action === "NO_TRADE" ? null : "shadow-close",
@@ -193,6 +195,11 @@ export function createLiveShadowMonitor(options = {}) {
         seededMatches: features.state?.seededMatches || [],
         nearSupport: typeof features.state?.nearSupport === "boolean" ? features.state.nearSupport : null,
         nearResistance: typeof features.state?.nearResistance === "boolean" ? features.state.nearResistance : null,
+        structureBias: features.state?.structure?.structureBias || null,
+        structureBreakState: features.state?.structure?.structureBreakState || null,
+        entryLocationScore: features.state?.structure?.entryLocationScore ?? null,
+        supportDistancePct: features.state?.structure?.nearestSupportDistancePct ?? null,
+        resistanceDistancePct: features.state?.structure?.nearestResistanceDistancePct ?? null,
       },
       outcome: buildDefaultOutcome(decision.action),
       _meta: {
