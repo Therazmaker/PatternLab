@@ -299,6 +299,21 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
 .bot-historical-lab { margin-top: .8rem; }
 #session-live-plan { margin-bottom: .6rem; }
 .session-live-plan-head { display:flex; flex-wrap: wrap; gap:.35rem; margin-bottom: .35rem; }
+.session-operator-feedback { margin-bottom: .7rem; }
+#session-operator-actions button { transition: all .12s ease; }
+#session-operator-feedback-status.success { color: var(--win); }
+#session-operator-feedback-status.warning { color: var(--skip); }
+#session-operator-feedback-status.error { color: var(--loss); }
+.operator-influence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  color: #cfe0ff;
+  border: 1px solid rgba(79, 141, 246, 0.45);
+  border-radius: 999px;
+  padding: .1rem .45rem;
+  font-size: .72rem;
+}
 
 /* ── Session Chart toolbar ─────────────────────────────────────────────── */
 .session-chart-toolbar {

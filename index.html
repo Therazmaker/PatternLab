@@ -553,6 +553,29 @@
         <div id="session-summary" class="panel-soft"></div>
         <div id="session-candle-status" class="quick-add-feedback muted"></div>
         <div id="session-live-plan" class="panel-soft muted tiny">No live trade plan for current symbol/timeframe.</div>
+        <article class="panel-soft session-operator-feedback">
+          <h4>Operator Feedback Layer</h4>
+          <p class="muted tiny">Inline human-in-the-loop controls: adjust live decision using operator input and recalculate instantly.</p>
+          <div id="session-operator-actions" class="button-row compact">
+            <button type="button" class="ghost" data-operator-action="approve">approve</button>
+            <button type="button" class="ghost" data-operator-action="veto">veto</button>
+            <button type="button" class="ghost" data-operator-action="still_short">still_short</button>
+            <button type="button" class="ghost" data-operator-action="still_long">still_long</button>
+            <button type="button" class="ghost" data-operator-action="pullback_only">pullback_only</button>
+            <button type="button" class="ghost" data-operator-action="reversal_confirmed">reversal_confirmed</button>
+            <button type="button" class="ghost" data-operator-action="needs_confirmation">needs_confirmation</button>
+            <button type="button" class="ghost" data-operator-action="resistance_active">resistance_active</button>
+            <button type="button" class="ghost" data-operator-action="support_active">support_active</button>
+          </div>
+          <label>Operator note
+            <textarea id="session-operator-note" rows="2" placeholder="Optional: resistance active, waiting confirmation, pullback only, etc."></textarea>
+          </label>
+          <div class="button-row compact">
+            <button id="btn-session-operator-recalculate" type="button" class="primary">Recalculate with operator feedback</button>
+          </div>
+          <div id="session-operator-feedback-status" class="muted tiny">Operator feedback ready.</div>
+          <div id="session-operator-decision" class="panel-soft muted tiny">Decision After Operator Input will appear here after recalculation.</div>
+        </article>
         <div class="table-wrap"><table><thead><tr><th>index</th><th>time</th><th>open</th><th>high</th><th>low</th><th>close</th><th>color</th><th>analytical read</th><th>recorded signal</th><th>actions</th></tr></thead><tbody id="session-candles-body"></tbody></table></div>
         <h3>Past Sessions</h3><div id="past-sessions" class="stack"></div>
       </section>
