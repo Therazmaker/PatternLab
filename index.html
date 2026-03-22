@@ -463,12 +463,21 @@
               <option value="500" selected>Last 500 bars</option><option value="1000">Last 1000 bars</option><option value="2000">Last 2000 bars</option><option value="5000">Last 5000 bars</option>
             </select>
             <select id="sl-strategy"></select>
+            <select id="sl-json-mode">
+              <option value="parameters" selected>Parameters</option>
+              <option value="strategy">Strategy JSON</option>
+            </select>
             <input id="sl-run-notes" placeholder="Run notes (optional)" />
           </div>
+          <div class="button-row compact">
+            <button id="btn-sl-load-history">Fetch historical candles</button>
+          </div>
+          <div id="sl-data-status" class="panel-soft muted tiny">No dataset loaded yet.</div>
           <details open>
-            <summary>Strategy parameters (JSON)</summary>
+            <summary>Strategy JSON editor</summary>
             <p class="muted tiny">Single run: <code>{"params":{},"risk":{},"execution":{}}</code> · Multi-run: add <code>"variants": [{"label":"A","params":{}},{"label":"B","params":{},"strategyId":"breakout_atr"}]</code>.</p>
             <textarea id="sl-params" style="min-height:120px" placeholder='{"params":{},"risk":{},"execution":{},"variants":[]}'></textarea>
+            <p id="sl-json-status" class="quick-add-feedback muted">Parameter JSON mode: tune selected registered strategy.</p>
           </details>
           <div class="button-row">
             <button id="btn-sl-run" class="primary">Run historical backtest</button>

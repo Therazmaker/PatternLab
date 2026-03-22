@@ -1,5 +1,5 @@
 import { getStrategyById } from "./strategyRegistry.js";
-import { evaluateStructureFilter } from "./structureFilter.js";
+import { evaluateJsonRuleStrategy } from "./strategyJson.js";
 
 export const STRATEGY_ACTIONS = { NO_TRADE: "NO_TRADE", LONG: "LONG", SHORT: "SHORT" };
 
@@ -32,7 +32,14 @@ function buildExecutionPlan({ action, feature, candle, riskConfig = {} }) {
  * Generic strategy evaluator per candle.
  */
 export function runStrategyDecisions({ strategyId, candles = [], features = [], strategyConfig = {}, runtimeContext = {} }) {
-  const strategy = getStrategyById(strategyId);
+  const customDefinition = strategyConfig.customStrategyDefinition;
+  const strategy = customDefinition
+    ? {
+      id: customDefinition.strategyId || strategyId || "json_rule_strategy",
+      riskDefaults: { maxHoldBars: Number(customDefinition.exit?.maxBarsInTrade || 24), stopAtrMult: Number(customDefinition.risk?.stopLossAtr || 1), takeProfitAtrMult: Number(customDefinition.risk?.takeProfitAtr || 1.8), riskPerTradePct: 1.0 },
+      execute: (ctx) => evaluateJsonRuleStrategy({ ...ctx, definition: customDefinition }),
+    }
+    : getStrategyById(strategyId);
   if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`);
 
   const params = { ...(strategyConfig.params || {}) };
