@@ -121,6 +121,10 @@ import { createLiveShadowTimeline } from "./modules/liveShadowTimeline.js";
 import { computeLiveShadowStats } from "./modules/liveShadowStats.js";
 import { formatConfidence, formatNumber, formatPct, formatTs, getOutcomeBadgeClass } from "./modules/liveShadowFormatters.js";
 import { getOperatorActions } from "./modules/operatorFeedback.js";
+import { computeOperatorModifier } from "./modules/operatorModifierEngine.js";
+import { combineFinalDecision } from "./modules/finalDecisionCombiner.js";
+import { logOperatorAction } from "./modules/operatorActionLogger.js";
+import { buildOperatorActionRecord, createSessionOperatorState } from "./modules/operatorFeedbackPanel.js";
 import { listStrategies, getDefaultParams, getStrategyById } from "./modules/strategyRegistry.js";
 import { buildStrategyFeatures } from "./modules/strategyFeatures.js";
 import { runStrategyBacktest } from "./modules/strategyBacktest.js";
@@ -253,6 +257,11 @@ els.mdOperatorActions = document.getElementById("md-operator-actions");
 els.mdOperatorNote = document.getElementById("md-operator-note");
 els.mdOperatorRecalculateBtn = document.getElementById("btn-operator-recalculate");
 els.mdOperatorFeedbackStatus = document.getElementById("md-operator-feedback-status");
+els.sessionOperatorActions = document.getElementById("session-operator-actions");
+els.sessionOperatorNote = document.getElementById("session-operator-note");
+els.sessionOperatorRecalculateBtn = document.getElementById("btn-session-operator-recalculate");
+els.sessionOperatorFeedbackStatus = document.getElementById("session-operator-feedback-status");
+els.sessionOperatorDecision = document.getElementById("session-operator-decision");
 
 els.slSymbol = document.getElementById("sl-symbol");
 els.slTimeframe = document.getElementById("sl-timeframe");
@@ -354,6 +363,7 @@ let liveShadowAutoIngest = true;
 let liveShadowStats = computeLiveShadowStats([]);
 let liveShadowSelectedId = "";
 const OPERATOR_FEEDBACK_ACTIONS = getOperatorActions();
+let sessionOperatorState = createSessionOperatorState();
 let marketDataDiagnostics = null;
 let neuronActivations = [];
 let neuronSummary = null;
@@ -1206,6 +1216,7 @@ function refreshSessionCandlesTab() {
   drawSessionCandles(viewed, explanations, marketAnalysis, livePlanRecord);
   renderSessionTable(viewed, explanations);
   renderSessionLivePlanPanel(livePlanRecord, marketView);
+  updateSessionOperatorContext(marketAnalysis.analysis, marketView, livePlanRecord);
   if (marketView.candles.length) {
     // Analysis summary is computed from active market candles and intelligence context.
     renderSessionMarketAnalysisPanel(marketAnalysis.analysis, marketView);
@@ -2932,6 +2943,95 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     if (prev?.close !== null && prev?.close !== undefined) els.sessionCandleOpen.value = prev.close;
   });
   els.sessionClearCandleBtn?.addEventListener("click", () => { [els.sessionCandleTime, els.sessionCandleOpen, els.sessionCandleHigh, els.sessionCandleLow, els.sessionCandleClose].forEach((el) => { if (el) el.value = ""; }); });
+  els.sessionOperatorActions?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-operator-action]");
+    if (!btn) return;
+    const action = btn.dataset.operatorAction;
+    if (!OPERATOR_FEEDBACK_ACTIONS.includes(action)) return;
+    btn.classList.toggle("operator-action-active");
+    sessionOperatorState.operatorSelection = getSelectedSessionOperatorActions();
+  });
+  els.sessionOperatorRecalculateBtn?.addEventListener("click", () => {
+    const machineSignal = sessionOperatorState.currentSignal;
+    const currentContext = sessionOperatorState.currentContext;
+    if (!machineSignal || !currentContext) {
+      setSessionOperatorFeedbackStatus("No live signal snapshot available to recalculate.", "error");
+      return;
+    }
+    const actions = getSelectedSessionOperatorActions();
+    if (!actions.length) {
+      setSessionOperatorFeedbackStatus("Choose at least one operator action.", "warning");
+      return;
+    }
+    const operatorNote = String(els.sessionOperatorNote?.value || "").trim();
+    sessionOperatorState.operatorSelection = actions;
+    sessionOperatorState.operatorNote = operatorNote;
+    console.debug("Operator input captured", { actions, note: operatorNote, signal: machineSignal, context: currentContext });
+
+    const operatorPatternSummary = {};
+    const perActionModifiers = actions.map((type) => computeOperatorModifier(machineSignal, currentContext, operatorPatternSummary, { type, note: operatorNote }));
+    const combinedModifierScore = perActionModifiers.reduce((acc, row) => acc + Number(row.modifierScore || 0), 0);
+    const strongestEffect = perActionModifiers.find((row) => ["block", "require_confirmation"].includes(row.effectOnDecision))
+      || perActionModifiers.find((row) => row.effectOnDecision !== "none")
+      || { effectOnDecision: "none" };
+    const operatorModifier = {
+      modifierScore: Math.max(-0.45, Math.min(0.45, combinedModifierScore)),
+      effectOnDecision: strongestEffect.effectOnDecision,
+      summaryText: perActionModifiers.map((row) => row.summaryText).join(" "),
+    };
+    console.debug("Operator modifier computed", {
+      machineScore: machineSignal.confidence,
+      structureScore: currentContext?.structure?.entryQuality,
+      operatorModifier,
+    });
+
+    const structureFilterResult = { decision: sessionOperatorState.currentSignal?.baseDecision?.finalDecision || "WARN" };
+    const recalculated = combineFinalDecision(machineSignal, structureFilterResult, operatorModifier);
+    const explanation = `${machineSignal.direction} signal ${operatorModifier.modifierScore < -0.1 ? "weakened" : operatorModifier.modifierScore > 0.1 ? "reinforced" : "adjusted"} due to ${actions.join(" + ")}. ${operatorModifier.summaryText}`;
+    sessionOperatorState.recalculatedDecision = recalculated;
+    sessionOperatorState.recalculatedDecisionExplanation = explanation;
+    console.debug("Decision recalculated", {
+      machineScore: recalculated.decisionBreakdown?.machineComponent,
+      structureScore: recalculated.decisionBreakdown?.structureComponent,
+      operatorModifier: recalculated.decisionBreakdown?.operatorComponent,
+      finalDecision: recalculated.finalDecision,
+    });
+
+    const now = new Date().toISOString();
+    const actionId = `session_operator_${Date.now()}`;
+    const linkedTrade = liveShadowMonitor.getRecords().find((row) => row.symbol === currentContext.symbol && row.timeframe === currentContext.timeframe && row.outcome?.status === "pending") || null;
+    const actionRecord = buildOperatorActionRecord({
+      actionId,
+      timestamp: now,
+      symbol: currentContext.symbol,
+      timeframe: currentContext.timeframe,
+      currentSignal: machineSignal,
+      currentContext: {
+        symbol: currentContext.symbol,
+        timeframe: currentContext.timeframe,
+        source: currentContext.source,
+        regime: currentContext.regime,
+        structure: currentContext.structure,
+        volatilityCondition: currentContext.volatilityCondition,
+      },
+      operatorAction: { type: actions[0], note: operatorNote, actions },
+      decisionBefore: machineSignal.baseDecision || {},
+      decisionAfter: recalculated,
+      linkedTradeId: linkedTrade?.tradeId || linkedTrade?.id || null,
+      linkedDecisionId: linkedTrade?.id || `session_decision_${Date.now()}`,
+    });
+    const loggedAction = logOperatorAction(actionRecord);
+    sessionOperatorState.lastOperatorActionId = loggedAction?.actionId || actionId;
+    console.debug("Operator action logged", {
+      actionId: sessionOperatorState.lastOperatorActionId,
+      machineScore: recalculated.decisionBreakdown?.machineComponent,
+      structureScore: recalculated.decisionBreakdown?.structureComponent,
+      operatorModifier: recalculated.decisionBreakdown?.operatorComponent,
+      finalDecision: recalculated.finalDecision,
+    });
+    setSessionOperatorFeedbackStatus("Recalculated · Applied to decision · Operator action logged.", "success");
+    renderSessionOperatorDecisionPanel();
+  });
   els.sessionAddCandleBtn?.addEventListener("click", () => {
     const active = getActiveSession();
     if (!active || active.status !== "active") return;
@@ -2948,6 +3048,9 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     if (!check.valid) { window.alert(check.message); return; }
     candle.colorHint = deriveCandleColor(candle);
     replaceSessions(state.sessions.map((s) => s.id === active.id ? normalizeSession({ ...s, candles: [...s.candles, candle] }) : s));
+    sessionOperatorState = createSessionOperatorState();
+    syncSessionOperatorActionButtons([]);
+    if (els.sessionOperatorNote) els.sessionOperatorNote.value = "";
     persist();
     refreshSessionCandlesTab();
   });
@@ -3799,6 +3902,95 @@ function syncOperatorActionButtons(selectedActions = []) {
   els.mdOperatorActions.querySelectorAll("[data-operator-action]").forEach((btn) => {
     btn.classList.toggle("operator-action-active", active.has(btn.dataset.operatorAction));
   });
+}
+
+function getSelectedSessionOperatorActions() {
+  if (!els.sessionOperatorActions) return [];
+  return [...els.sessionOperatorActions.querySelectorAll("[data-operator-action].operator-action-active")]
+    .map((btn) => String(btn.dataset.operatorAction || "").trim())
+    .filter(Boolean);
+}
+
+function syncSessionOperatorActionButtons(selectedActions = []) {
+  if (!els.sessionOperatorActions) return;
+  const active = new Set(selectedActions);
+  els.sessionOperatorActions.querySelectorAll("[data-operator-action]").forEach((btn) => {
+    btn.classList.toggle("operator-action-active", active.has(btn.dataset.operatorAction));
+  });
+}
+
+function setSessionOperatorFeedbackStatus(message, kind = "muted") {
+  if (!els.sessionOperatorFeedbackStatus) return;
+  els.sessionOperatorFeedbackStatus.className = `${kind} tiny`;
+  els.sessionOperatorFeedbackStatus.textContent = message;
+}
+
+function renderSessionOperatorDecisionPanel() {
+  if (!els.sessionOperatorDecision) return;
+  const before = sessionOperatorState.currentSignal;
+  const recalculated = sessionOperatorState.recalculatedDecision;
+  if (!before) {
+    els.sessionOperatorDecision.innerHTML = `<span class="muted tiny">Waiting for live Session Candle signal context.</span>`;
+    return;
+  }
+  if (!recalculated) {
+    els.sessionOperatorDecision.innerHTML = `<p class="muted tiny">Decision snapshot loaded. Select actions and click recalculate.</p><p class="muted tiny">Machine snapshot → ${before.direction} · confidence ${formatConfidence(before.confidence || 0)} · B ${formatNumber(before.bullishScore, 1)} / Br ${formatNumber(before.bearishScore, 1)}</p>`;
+    return;
+  }
+  const beforeDecision = before.baseDecision || {};
+  const breakdown = recalculated.decisionBreakdown || {};
+  const changed = beforeDecision.finalDecision !== recalculated.finalDecision || beforeDecision.finalBias !== recalculated.finalBias;
+  els.sessionOperatorDecision.innerHTML = `
+    <div class="session-live-plan-head">
+      <span class="badge">Decision After Operator Input</span>
+      ${changed ? '<span class="operator-influence-badge">Operator Influence Applied</span>' : ""}
+      <span class="badge">Before ${beforeDecision.finalDecision || "WARN"} / ${beforeDecision.finalBias || "NONE"} · ${formatConfidence(beforeDecision.confidence || 0)}</span>
+      <span class="badge">After ${recalculated.finalDecision} / ${recalculated.finalBias} · ${formatConfidence(recalculated.confidence)}</span>
+    </div>
+    <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)}</p>
+    <p class="muted tiny">${recalculated.summaryText || "Decision recalculated with operator layer."}</p>
+    <p class="muted tiny">${sessionOperatorState.recalculatedDecisionExplanation || ""}</p>
+  `;
+}
+
+function updateSessionOperatorContext(analysis, marketView, livePlanRecord = null) {
+  if (!analysis?.pseudoMl?.probability || !analysis?.overlays?.structureSummary) {
+    sessionOperatorState = createSessionOperatorState();
+    if (els.sessionOperatorNote) els.sessionOperatorNote.value = "";
+    syncSessionOperatorActionButtons([]);
+    setSessionOperatorFeedbackStatus("Operator feedback ready.", "muted");
+    renderSessionOperatorDecisionPanel();
+    return;
+  }
+  const machineSignal = {
+    direction: analysis.pseudoMl.probability.bias === "bullish" ? "LONG" : analysis.pseudoMl.probability.bias === "bearish" ? "SHORT" : "NONE",
+    bullishScore: Number(analysis.pseudoMl.probability.bullishScore || 0),
+    bearishScore: Number(analysis.pseudoMl.probability.bearishScore || 0),
+    confidence: Number(analysis.pseudoMl.probability.confidence || 0),
+    reasonCodes: analysis.observations || [],
+  };
+  const structureFilterResult = {
+    decision: livePlanRecord?.policy?.structureDecision || "ALLOW",
+  };
+  const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, { modifierScore: 0, effectOnDecision: "none" });
+  sessionOperatorState.currentSignal = { ...machineSignal, baseDecision };
+  sessionOperatorState.currentContext = {
+    symbol: marketView.symbol,
+    timeframe: marketView.timeframe,
+    source: marketView.source,
+    regime: analysis.pseudoMl.regime?.regime || "unknown",
+    volatilityCondition: analysis.volatilityCondition || "normal",
+    structure: {
+      bias: analysis.overlays.structureSummary.bias,
+      breakState: analysis.overlays.structureSummary.breakState,
+      supportQuality: analysis.overlays.structureSummary.supportQuality,
+      resistanceQuality: analysis.overlays.structureSummary.resistanceQuality,
+      entryQuality: analysis.overlays.structureSummary.entryQuality,
+    },
+    context20Snapshot: marketView.candles.slice(-20),
+  };
+  if (!sessionOperatorState.recalculatedDecision) setSessionOperatorFeedbackStatus("Operator feedback ready.", "muted");
+  renderSessionOperatorDecisionPanel();
 }
 
 // UI subscription point for live updates from the shadow monitor.

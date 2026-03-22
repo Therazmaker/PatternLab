@@ -34,6 +34,9 @@ function normalizeActionRecord(actionRecord = {}) {
     },
     operatorAction: {
       type: normalizeOperatorActionType(actionRecord?.operatorAction?.type, "none"),
+      actions: Array.isArray(actionRecord?.operatorAction?.actions)
+        ? actionRecord.operatorAction.actions.map((row) => normalizeOperatorActionType(row, "none")).filter((row) => row !== "none")
+        : [],
       note: actionRecord?.operatorAction?.note == null ? null : String(actionRecord.operatorAction.note),
     },
     context20: {
