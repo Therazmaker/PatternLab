@@ -38,6 +38,45 @@ function sanitizePattern(value) {
   return String(value || "Unspecified pattern").trim() || "Unspecified pattern";
 }
 
+function normalizeFuturesPolicy(policy) {
+  const base = {
+    action: "NO_TRADE",
+    confidence: 0,
+    reason: "",
+    actionScores: { noTrade: 0, long: 0, short: 0 },
+    executionPlan: {
+      entryType: "market",
+      entryPrice: null,
+      entryZone: null,
+      stopLoss: null,
+      takeProfit: null,
+      riskReward: null,
+      leverageCap: null,
+      sizingMode: "disabled",
+      riskPct: null,
+    },
+    replay: {
+      outcomeType: "manual-no-trade",
+      pnlR: 0,
+      pnlPct: 0,
+      mfe: 0,
+      mae: 0,
+      barsToResolution: 0,
+    },
+    alignedWithOutcome: null,
+    policyVersion: "phase1-shadow-v1",
+    stateHash: "",
+  };
+  if (!policy || typeof policy !== "object") return { ...base };
+  return {
+    ...base,
+    ...policy,
+    actionScores: { ...base.actionScores, ...(policy.actionScores || {}) },
+    executionPlan: { ...base.executionPlan, ...(policy.executionPlan || {}) },
+    replay: { ...base.replay, ...(policy.replay || {}) },
+  };
+}
+
 export function normalizeSignal(input) {
   const base = {};
   for (const [target, aliases] of Object.entries(fieldMap)) base[target] = pick(input, aliases);
@@ -94,6 +133,7 @@ export function normalizeSignal(input) {
     excursion: normalizeExcursion(input.excursion),
     sessionRef: normalizeSessionRef(input.sessionRef),
     v3Meta: normalizeV3Meta(input.v3Meta),
+    futuresPolicy: normalizeFuturesPolicy(input.futuresPolicy),
   };
 
   normalized.id = normalized.id || makeSignalId(normalized);
@@ -147,6 +187,7 @@ export function migrateStoredSignal(signal) {
   base.excursion = normalizeExcursion(base.excursion);
   base.sessionRef = normalizeSessionRef(base.sessionRef);
   base.v3Meta = normalizeV3Meta(base.v3Meta);
+  base.futuresPolicy = normalizeFuturesPolicy(base.futuresPolicy);
   base.id = base.id || makeSignalId(base);
   return base;
 }

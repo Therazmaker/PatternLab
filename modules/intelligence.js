@@ -1,5 +1,9 @@
 import { clamp, toISODate } from "./utils.js";
 import { computePatternMeta, detectMarketRegime } from "./v4.js";
+import { buildFuturesPolicyFeatures } from "./futuresPolicyFeatures.js";
+import { evaluateFuturesPolicy } from "./futuresPolicyEngine.js";
+import { replayFuturesDecision } from "./futuresReplay.js";
+import { toBinanceShadowOrder } from "./futuresStateAdapters.js";
 
 export const RADAR_WEIGHTS = {
   pattern: 0.38,
@@ -114,7 +118,7 @@ export function contextLabel(value) {
   return CONTEXT_LABELS.find((item) => value >= item.min)?.label || "Weak";
 }
 
-export function enrichSignals(signals, patternRanking = []) {
+export function enrichSignals(signals, patternRanking = [], options = {}) {
   const reviewed = reviewedRows(signals, () => true);
   const recentCut = Date.now() - 14 * 24 * 60 * 60 * 1000;
   const reviewedRecent = reviewedRows(signals, (s) => new Date(s.timestamp).getTime() >= recentCut);
@@ -125,6 +129,13 @@ export function enrichSignals(signals, patternRanking = []) {
     patternStats: buildPerformanceMap(reviewed, (s) => s.patternName),
     directionStats: buildPerformanceMap(reviewed, (s) => s.direction),
     recentPatternStats: buildPerformanceMap(reviewedRecent, (s) => s.patternName),
+  };
+
+  const futuresConfig = options.futuresPolicyConfig || { enabled: false };
+  const futuresContext = {
+    candles: Array.isArray(options.marketDataCandles) ? options.marketDataCandles : [],
+    neuronActivations: Array.isArray(options.neuronActivations) ? options.neuronActivations : [],
+    seededPatterns: Array.isArray(options.seededPatterns) ? options.seededPatterns : [],
   };
 
   const patternScores = patternRanking.length
@@ -154,6 +165,41 @@ export function enrichSignals(signals, patternRanking = []) {
       freshnessScore >= 65 ? "Fresh Signal" : "Aged Signal",
     ];
 
+    let futuresPolicy = signal.futuresPolicy || null;
+    let futuresState = null;
+    if (futuresConfig.enabled !== false) {
+      const built = buildFuturesPolicyFeatures({
+        signal: { ...signal, contextScore, radarScore, freshnessScore, marketRegime },
+        candles: futuresContext.candles,
+        neuronActivations: futuresContext.neuronActivations,
+        seededPatterns: futuresContext.seededPatterns,
+      });
+      futuresState = built;
+      const decision = evaluateFuturesPolicy({ state: built.state, candles: futuresContext.candles, config: futuresConfig });
+      const replay = replayFuturesDecision(decision, futuresContext.candles, built.state.candleIndex, { maxBarsHold: futuresConfig.maxHoldBars || 24 });
+      futuresPolicy = {
+        action: decision.action,
+        confidence: decision.confidence,
+        reason: decision.reason,
+        actionScores: decision.actionScores,
+        executionPlan: decision.executionPlan,
+        evidence: decision.evidence,
+        replay,
+        alignedWithOutcome: ["win", "loss"].includes(signal.outcome?.status)
+          ? ((decision.action === "NO_TRADE" && signal.outcome.status === "loss")
+            || (decision.action !== "NO_TRADE" && ((decision.action === "LONG" && signal.outcome.status === "win") || (decision.action === "SHORT" && signal.outcome.status === "win"))))
+          : null,
+        policyVersion: decision.policyVersion,
+        stateHash: built.stateHash,
+        binanceShadow: toBinanceShadowOrder(decision, signal),
+        explanation: built.explanation,
+      };
+    }
+
+    const futuresBoost = futuresPolicy
+      ? ((futuresPolicy.action === "NO_TRADE" ? -6 : 6) + (Number(futuresPolicy.confidence || 0) * 12) + ((futuresPolicy.executionPlan?.riskReward || 0) >= 1.5 ? 3 : -3) - ((futuresPolicy.evidence?.warningFlags || []).length * 4))
+      : 0;
+
     return {
       ...signal,
       patternVersion: signal.patternVersion || "v1",
@@ -162,9 +208,12 @@ export function enrichSignals(signals, patternRanking = []) {
       autoTags,
       freshnessScore,
       radarScore,
+      radarFuturesScore: Math.round(clamp(radarScore + futuresBoost, 0, 100)),
       radarBadges: badges,
       marketRegime,
       radarInsight: buildRadarInsights({ ...signal, contextScore, autoTags, freshnessScore }),
+      futuresPolicy,
+      futuresState,
     };
   });
 
