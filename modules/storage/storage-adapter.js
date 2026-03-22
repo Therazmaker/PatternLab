@@ -24,6 +24,7 @@ const STORAGE_KEYS = [
   "futuresPolicyConfig",
   "futuresPolicySnapshots",
   "liveShadowState",
+  "strategyRuns",
 ];
 
 const defaultMetaFeedback = {
@@ -37,7 +38,7 @@ let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
-  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" } },
+  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" } }, strategyRuns: [],
 };
 
 function enqueueWrite(task) {
@@ -72,6 +73,7 @@ function normalizeCache(snapshot = {}) {
     futuresPolicyConfig: snapshot.futuresPolicyConfig && typeof snapshot.futuresPolicyConfig === "object" ? { ...cache.futuresPolicyConfig, ...snapshot.futuresPolicyConfig } : { ...cache.futuresPolicyConfig },
     futuresPolicySnapshots: Array.isArray(snapshot.futuresPolicySnapshots) ? snapshot.futuresPolicySnapshots : [],
     liveShadowState: snapshot.liveShadowState && typeof snapshot.liveShadowState === "object" ? { ...cache.liveShadowState, ...snapshot.liveShadowState } : { ...cache.liveShadowState },
+    strategyRuns: Array.isArray(snapshot.strategyRuns) ? snapshot.strategyRuns : [],
   };
 }
 
@@ -98,6 +100,7 @@ function writeLegacyByDomain(domain) {
     case "futuresPolicyConfig": writeLegacyValue(LEGACY_KEYS.futuresPolicyConfig, cache.futuresPolicyConfig); break;
     case "futuresPolicySnapshots": writeLegacyValue(LEGACY_KEYS.futuresPolicySnapshots, cache.futuresPolicySnapshots); break;
     case "liveShadowState": writeLegacyValue(LEGACY_KEYS.liveShadowState, cache.liveShadowState); break;
+    case "strategyRuns": writeLegacyValue(LEGACY_KEYS.strategyRuns, cache.strategyRuns); break;
     default: break;
   }
 }
@@ -164,6 +167,7 @@ export function getStorageStatus() {
       livePatternSummary: cache.livePatternSummary.length,
       futuresPolicySnapshots: cache.futuresPolicySnapshots.length,
       liveShadowRecords: (cache.liveShadowState?.records || []).length,
+      strategyRuns: (cache.strategyRuns || []).length,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -282,6 +286,13 @@ export function saveLiveShadowState(value) {
   return enqueueWrite(() => persistDomain("liveShadowState"));
 }
 
+
+export function loadStrategyRuns() { return cache.strategyRuns || []; }
+export function saveStrategyRuns(rows) {
+  cache.strategyRuns = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("strategyRuns"));
+}
+
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -332,6 +343,7 @@ export function exportMemory() {
       futuresPolicyConfig: cache.futuresPolicyConfig || {},
       futuresPolicySnapshots: cache.futuresPolicySnapshots || [],
       liveShadowState: cache.liveShadowState || { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" } },
+      strategyRuns: cache.strategyRuns || [],
     },
   };
 }
