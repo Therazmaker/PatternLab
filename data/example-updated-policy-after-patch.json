@@ -1,0 +1,39 @@
+{
+  "policyVersion": "live_v2",
+  "longEntry": {
+    "minBullishScore": 55,
+    "minConfidence": 0.56,
+    "requireTrendAlignment": false,
+    "maxDistanceToResistance": 0.95,
+    "minMomentum": 0.5
+  },
+  "shortEntry": {
+    "minBearishScore": 56,
+    "minConfidence": 0.57,
+    "requireTrendAlignment": false,
+    "maxDistanceToSupport": 0.92,
+    "minMomentum": 0.52
+  },
+  "filters": {
+    "blockInRange": false,
+    "blockLowVolatility": false,
+    "requireStructureConfirmation": true
+  },
+  "penalties": {
+    "resistanceProximityPenalty": 0.2,
+    "supportProximityPenalty": 0.2,
+    "lowMomentumPenalty": 0.15,
+    "countertrendPenalty": 0.12,
+    "noFollowThroughPenalty": 0.18,
+    "lateEntryPenalty": 0.15
+  },
+  "policyHistory": [
+    {
+      "previousVersion": "live_v1",
+      "newVersion": "live_v2",
+      "appliedProposalId": "proposal_1_fl0ogy1z_mn27ry0k",
+      "appliedAt": "2026-03-22T20:33:17.302Z",
+      "summary": "Require structure confirmation before entry"
+    }
+  ]
+}

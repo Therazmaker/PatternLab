@@ -1,0 +1,651 @@
+{
+  "runId": "policy_run_eyqpnguh_mn27ry0k",
+  "policyVersionBase": "live_v1",
+  "mode": "suggest_only",
+  "generatedAt": "2026-03-22T20:33:17.300Z",
+  "evidenceSummary": {
+    "totals": {
+      "totalTrades": 16,
+      "wins": 3,
+      "losses": 13,
+      "breakevens": 0,
+      "skippedDecisions": 12
+    },
+    "byReasonCode": {
+      "entered_into_resistance": {
+        "count": 6,
+        "losses": 6,
+        "wins": 0,
+        "breakevens": 0,
+        "avgStructureScore": 35,
+        "avgMomentumScore": 32,
+        "avgConfidenceScore": 45,
+        "directions": {
+          "LONG": 6,
+          "SHORT": 0
+        }
+      },
+      "no_followthrough": {
+        "count": 5,
+        "losses": 5,
+        "wins": 0,
+        "breakevens": 0,
+        "avgStructureScore": 35,
+        "avgMomentumScore": 32,
+        "avgConfidenceScore": 45,
+        "directions": {
+          "LONG": 3,
+          "SHORT": 2
+        }
+      },
+      "low_momentum_entry": {
+        "count": 3,
+        "losses": 3,
+        "wins": 0,
+        "breakevens": 0,
+        "avgStructureScore": 35,
+        "avgMomentumScore": 32,
+        "avgConfidenceScore": 45,
+        "directions": {
+          "LONG": 2,
+          "SHORT": 1
+        }
+      },
+      "late_entry": {
+        "count": 3,
+        "losses": 3,
+        "wins": 0,
+        "breakevens": 0,
+        "avgStructureScore": 35,
+        "avgMomentumScore": 32,
+        "avgConfidenceScore": 45,
+        "directions": {
+          "LONG": 2,
+          "SHORT": 1
+        }
+      },
+      "countertrend_entry": {
+        "count": 3,
+        "losses": 3,
+        "wins": 0,
+        "breakevens": 0,
+        "avgStructureScore": 35,
+        "avgMomentumScore": 32,
+        "avgConfidenceScore": 45,
+        "directions": {
+          "LONG": 2,
+          "SHORT": 1
+        }
+      },
+      "ranging_noise": {
+        "count": 3,
+        "losses": 3,
+        "wins": 0,
+        "breakevens": 0,
+        "avgStructureScore": 35,
+        "avgMomentumScore": 32,
+        "avgConfidenceScore": 45,
+        "directions": {
+          "LONG": 2,
+          "SHORT": 1
+        }
+      },
+      "trend_continuation": {
+        "count": 2,
+        "losses": 0,
+        "wins": 2,
+        "breakevens": 0,
+        "avgStructureScore": 71,
+        "avgMomentumScore": 69,
+        "avgConfidenceScore": 65.5,
+        "directions": {
+          "LONG": 1,
+          "SHORT": 1
+        }
+      },
+      "entered_into_support": {
+        "count": 4,
+        "losses": 4,
+        "wins": 0,
+        "breakevens": 0,
+        "avgStructureScore": 35,
+        "avgMomentumScore": 32,
+        "avgConfidenceScore": 45,
+        "directions": {
+          "LONG": 0,
+          "SHORT": 4
+        }
+      },
+      "breakdown_with_followthrough": {
+        "count": 1,
+        "losses": 0,
+        "wins": 1,
+        "breakevens": 0,
+        "avgStructureScore": 75,
+        "avgMomentumScore": 76,
+        "avgConfidenceScore": 69,
+        "directions": {
+          "LONG": 0,
+          "SHORT": 1
+        }
+      }
+    },
+    "byDirection": {
+      "LONG": {
+        "total": 9,
+        "wins": 1,
+        "losses": 8,
+        "breakevens": 0,
+        "reasonCodes": {
+          "entered_into_resistance": {
+            "count": 6,
+            "losses": 6,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 6,
+              "SHORT": 0
+            }
+          },
+          "no_followthrough": {
+            "count": 3,
+            "losses": 3,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 3,
+              "SHORT": 0
+            }
+          },
+          "low_momentum_entry": {
+            "count": 2,
+            "losses": 2,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 2,
+              "SHORT": 0
+            }
+          },
+          "late_entry": {
+            "count": 2,
+            "losses": 2,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 2,
+              "SHORT": 0
+            }
+          },
+          "countertrend_entry": {
+            "count": 2,
+            "losses": 2,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 2,
+              "SHORT": 0
+            }
+          },
+          "ranging_noise": {
+            "count": 2,
+            "losses": 2,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 2,
+              "SHORT": 0
+            }
+          },
+          "trend_continuation": {
+            "count": 1,
+            "losses": 0,
+            "wins": 1,
+            "breakevens": 0,
+            "avgStructureScore": 72,
+            "avgMomentumScore": 70,
+            "avgConfidenceScore": 66,
+            "directions": {
+              "LONG": 1,
+              "SHORT": 0
+            }
+          }
+        }
+      },
+      "SHORT": {
+        "total": 7,
+        "wins": 2,
+        "losses": 5,
+        "breakevens": 0,
+        "reasonCodes": {
+          "entered_into_support": {
+            "count": 4,
+            "losses": 4,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 4
+            }
+          },
+          "no_followthrough": {
+            "count": 2,
+            "losses": 2,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 2
+            }
+          },
+          "countertrend_entry": {
+            "count": 1,
+            "losses": 1,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 1
+            }
+          },
+          "ranging_noise": {
+            "count": 1,
+            "losses": 1,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 1
+            }
+          },
+          "low_momentum_entry": {
+            "count": 1,
+            "losses": 1,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 1
+            }
+          },
+          "breakdown_with_followthrough": {
+            "count": 1,
+            "losses": 0,
+            "wins": 1,
+            "breakevens": 0,
+            "avgStructureScore": 75,
+            "avgMomentumScore": 76,
+            "avgConfidenceScore": 69,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 1
+            }
+          },
+          "late_entry": {
+            "count": 1,
+            "losses": 1,
+            "wins": 0,
+            "breakevens": 0,
+            "avgStructureScore": 35,
+            "avgMomentumScore": 32,
+            "avgConfidenceScore": 45,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 1
+            }
+          },
+          "trend_continuation": {
+            "count": 1,
+            "losses": 0,
+            "wins": 1,
+            "breakevens": 0,
+            "avgStructureScore": 70,
+            "avgMomentumScore": 68,
+            "avgConfidenceScore": 65,
+            "directions": {
+              "LONG": 0,
+              "SHORT": 1
+            }
+          }
+        }
+      }
+    },
+    "operatorImpact": {
+      "vetoSavedLossCount": 10,
+      "vetoBlockedWinnerCount": 2,
+      "warningIgnoredLossCount": 0
+    },
+    "patternClusters": [
+      {
+        "clusterId": "cluster_long_entered_into_resistance_no_followthrough",
+        "direction": "LONG",
+        "repeatedReasonCodes": [
+          "entered_into_resistance",
+          "no_followthrough"
+        ],
+        "sampleSize": 9,
+        "winRate": 0,
+        "lossRate": 1,
+        "avgScores": {
+          "structureScore": 35,
+          "momentumScore": 32
+        }
+      },
+      {
+        "clusterId": "cluster_short_entered_into_support",
+        "direction": "SHORT",
+        "repeatedReasonCodes": [
+          "entered_into_support"
+        ],
+        "sampleSize": 4,
+        "winRate": 0,
+        "lossRate": 1,
+        "avgScores": {
+          "structureScore": 35,
+          "momentumScore": 32
+        }
+      }
+    ],
+    "debugSummary": {
+      "topLosingPatterns": [
+        {
+          "reasonCode": "entered_into_resistance",
+          "count": 6,
+          "losses": 6,
+          "wins": 0,
+          "winRate": 0
+        },
+        {
+          "reasonCode": "no_followthrough",
+          "count": 5,
+          "losses": 5,
+          "wins": 0,
+          "winRate": 0
+        },
+        {
+          "reasonCode": "entered_into_support",
+          "count": 4,
+          "losses": 4,
+          "wins": 0,
+          "winRate": 0
+        }
+      ],
+      "topWinningPatterns": [
+        {
+          "reasonCode": "trend_continuation",
+          "count": 2,
+          "losses": 0,
+          "wins": 2,
+          "winRate": 1
+        },
+        {
+          "reasonCode": "breakdown_with_followthrough",
+          "count": 1,
+          "losses": 0,
+          "wins": 1,
+          "winRate": 1
+        },
+        {
+          "reasonCode": "entered_into_resistance",
+          "count": 6,
+          "losses": 6,
+          "wins": 0,
+          "winRate": 0
+        }
+      ],
+      "strongestOperatorSaves": {
+        "vetoSavedLossCount": 10,
+        "warningIgnoredLossCount": 0
+      },
+      "likelyFieldsToTune": [
+        "longEntry.maxDistanceToResistance",
+        "shortEntry.maxDistanceToSupport"
+      ]
+    }
+  },
+  "proposals": [
+    {
+      "key": "enable_structure_confirmation",
+      "category": "filter",
+      "direction": "BOTH",
+      "title": "Require structure confirmation before entry",
+      "reason": "Operator vetoes are repeatedly preventing losses in weak-structure conditions.",
+      "basedOn": {
+        "reasonCodes": [
+          "veto_saved_loss",
+          "operator_context_correct"
+        ],
+        "sampleSize": 12,
+        "winRate": 0.833
+      },
+      "changes": [
+        {
+          "field": "filters.requireStructureConfirmation",
+          "oldValue": false,
+          "newValue": true,
+          "delta": 1
+        }
+      ],
+      "expectedEffect": "Should reduce structurally weak entries and align automation with repeated operator saves.",
+      "confidence": 0.912,
+      "autoApplicable": false,
+      "field": "filters.requireStructureConfirmation",
+      "proposalId": "proposal_1_fl0ogy1z_mn27ry0k"
+    },
+    {
+      "key": "tighten_long_resistance",
+      "category": "threshold",
+      "direction": "LONG",
+      "title": "Tighten LONG resistance proximity entry rule",
+      "reason": "Repeated LONG losses show entries are occurring too close to resistance.",
+      "basedOn": {
+        "reasonCodes": [
+          "entered_into_resistance"
+        ],
+        "sampleSize": 6,
+        "winRate": 0
+      },
+      "changes": [
+        {
+          "field": "longEntry.maxDistanceToResistance",
+          "oldValue": 0.95,
+          "newValue": 0.86,
+          "delta": -0.09
+        },
+        {
+          "field": "penalties.resistanceProximityPenalty",
+          "oldValue": 0.2,
+          "newValue": 0.262,
+          "delta": 0.062
+        }
+      ],
+      "expectedEffect": "Should reduce low-quality LONG entries taken too close to resistance.",
+      "confidence": 0.495,
+      "autoApplicable": false,
+      "field": "longEntry.maxDistanceToResistance",
+      "proposalId": "proposal_2_222x581x_mn27ry0k"
+    },
+    {
+      "key": "raise_momentum_long",
+      "category": "threshold",
+      "direction": "LONG",
+      "title": "Raise LONG momentum quality threshold",
+      "reason": "Repeated LONG losses show weak momentum and poor follow-through patterns.",
+      "basedOn": {
+        "reasonCodes": [
+          "low_momentum_entry",
+          "no_followthrough"
+        ],
+        "sampleSize": 5,
+        "winRate": 0
+      },
+      "changes": [
+        {
+          "field": "longEntry.minMomentum",
+          "oldValue": 0.5,
+          "newValue": 0.5452,
+          "delta": 0.0452
+        },
+        {
+          "field": "penalties.noFollowThroughPenalty",
+          "oldValue": 0.18,
+          "newValue": 0.2294,
+          "delta": 0.0494
+        }
+      ],
+      "expectedEffect": "Should filter weaker entries and improve continuation quality.",
+      "confidence": 0.472,
+      "autoApplicable": false,
+      "field": "longEntry.minMomentum",
+      "proposalId": "proposal_3_ofjvmkty_mn27ry0k"
+    }
+  ],
+  "debugSummary": {
+    "topLosingPatterns": [
+      {
+        "reasonCode": "entered_into_resistance",
+        "count": 6,
+        "losses": 6,
+        "wins": 0,
+        "winRate": 0
+      },
+      {
+        "reasonCode": "no_followthrough",
+        "count": 5,
+        "losses": 5,
+        "wins": 0,
+        "winRate": 0
+      },
+      {
+        "reasonCode": "entered_into_support",
+        "count": 4,
+        "losses": 4,
+        "wins": 0,
+        "winRate": 0
+      }
+    ],
+    "topWinningPatterns": [
+      {
+        "reasonCode": "trend_continuation",
+        "count": 2,
+        "losses": 0,
+        "wins": 2,
+        "winRate": 1
+      },
+      {
+        "reasonCode": "breakdown_with_followthrough",
+        "count": 1,
+        "losses": 0,
+        "wins": 1,
+        "winRate": 1
+      },
+      {
+        "reasonCode": "entered_into_resistance",
+        "count": 6,
+        "losses": 6,
+        "wins": 0,
+        "winRate": 0
+      }
+    ],
+    "strongestOperatorSaves": {
+      "vetoSavedLossCount": 10,
+      "warningIgnoredLossCount": 0
+    },
+    "fieldsMostLikelyToBenefit": [
+      "longEntry.maxDistanceToResistance",
+      "shortEntry.maxDistanceToSupport"
+    ]
+  },
+  "reviewPanelRows": [
+    {
+      "proposalId": "proposal_1_fl0ogy1z_mn27ry0k",
+      "title": "Require structure confirmation before entry",
+      "affectedFields": [
+        "filters.requireStructureConfirmation"
+      ],
+      "oldToNew": [
+        "false -> true"
+      ],
+      "reasonCodes": [
+        "veto_saved_loss",
+        "operator_context_correct"
+      ],
+      "sampleSize": 12,
+      "confidence": 0.912,
+      "expectedEffect": "Should reduce structurally weak entries and align automation with repeated operator saves.",
+      "status": "pending_review"
+    },
+    {
+      "proposalId": "proposal_2_222x581x_mn27ry0k",
+      "title": "Tighten LONG resistance proximity entry rule",
+      "affectedFields": [
+        "longEntry.maxDistanceToResistance",
+        "penalties.resistanceProximityPenalty"
+      ],
+      "oldToNew": [
+        "0.95 -> 0.86",
+        "0.2 -> 0.262"
+      ],
+      "reasonCodes": [
+        "entered_into_resistance"
+      ],
+      "sampleSize": 6,
+      "confidence": 0.495,
+      "expectedEffect": "Should reduce low-quality LONG entries taken too close to resistance.",
+      "status": "pending_review"
+    },
+    {
+      "proposalId": "proposal_3_ofjvmkty_mn27ry0k",
+      "title": "Raise LONG momentum quality threshold",
+      "affectedFields": [
+        "longEntry.minMomentum",
+        "penalties.noFollowThroughPenalty"
+      ],
+      "oldToNew": [
+        "0.5 -> 0.5452",
+        "0.18 -> 0.2294"
+      ],
+      "reasonCodes": [
+        "low_momentum_entry",
+        "no_followthrough"
+      ],
+      "sampleSize": 5,
+      "confidence": 0.472,
+      "expectedEffect": "Should filter weaker entries and improve continuation quality.",
+      "status": "pending_review"
+    }
+  ]
+}

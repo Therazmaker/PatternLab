@@ -1,0 +1,30 @@
+{
+  "key": "enable_structure_confirmation",
+  "category": "filter",
+  "direction": "BOTH",
+  "title": "Require structure confirmation before entry",
+  "reason": "Operator vetoes are repeatedly preventing losses in weak-structure conditions.",
+  "basedOn": {
+    "reasonCodes": [
+      "veto_saved_loss",
+      "operator_context_correct"
+    ],
+    "sampleSize": 12,
+    "winRate": 0.833
+  },
+  "changes": [
+    {
+      "field": "filters.requireStructureConfirmation",
+      "oldValue": false,
+      "newValue": true,
+      "delta": 1
+    }
+  ],
+  "expectedEffect": "Should reduce structurally weak entries and align automation with repeated operator saves.",
+  "confidence": 0.912,
+  "autoApplicable": false,
+  "field": "filters.requireStructureConfirmation",
+  "proposalId": "proposal_1_fl0ogy1z_mn27ry0k",
+  "approved": true,
+  "reviewStatus": "approved"
+}
