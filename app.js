@@ -372,6 +372,7 @@ let selectedStrategyRunId = "";
 let strategyLabJsonMode = "parameters";
 let strategyLabConfig = { strategyId: "sma_rsi_trend", params: {}, risk: {}, execution: { feeBps: 4, slippageBps: 2, initialEquity: 10000 } };
 let strategyLabRlProbe = null;
+let strategyLabCandles = [];
 let strategyLabDataState = { loading: false, lastLoadedCount: 0, lastLoadedSymbol: "", lastLoadedTimeframe: "", lastLoadedAt: null, error: "" };
 
 function setSettingsStatus(message, kind = "muted") {
@@ -1609,7 +1610,7 @@ function getStrategyLabDatasetSummary() {
   const symbol = els.slSymbol?.value || marketDataMeta.selectedSymbol;
   const timeframe = els.slTimeframe?.value || marketDataMeta.selectedTimeframe;
   const rangeBars = Number(els.slRangeBars?.value || 500);
-  const matchingCandles = (marketDataCandles || []).filter((row) => {
+  const matchingCandles = (strategyLabCandles || []).filter((row) => {
     const rowSymbol = row.symbol || row.asset || marketDataMeta.selectedSymbol;
     const rowTf = row.timeframe || marketDataMeta.selectedTimeframe;
     return rowSymbol === symbol && rowTf === timeframe;
@@ -1641,16 +1642,7 @@ async function loadStrategyLabHistory() {
       limit,
     });
     if (!Array.isArray(fetched) || !fetched.length) throw new Error("No candles received from Binance Futures loader.");
-    marketDataCandles = mergeCandles(marketDataCandles, fetched);
-    marketDataMeta = {
-      ...marketDataMeta,
-      source: MARKET_DATA_SOURCES.BINANCE_FUTURES,
-      selectedSymbol: symbol,
-      selectedTimeframe: timeframe,
-      lastSyncAt: new Date().toISOString(),
-      lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles),
-    };
-    await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+    strategyLabCandles = mergeCandles(strategyLabCandles, fetched);
     strategyLabDataState = {
       loading: false,
       error: "",
@@ -1681,7 +1673,12 @@ function buildStrategySignalContextMap() {
 }
 
 function buildStrategyRuntimeContext(symbol, timeframe) {
-  const sourceCandles = (marketDataCandles || []).filter((row) => {
+  const strategyRows = (strategyLabCandles || []).filter((row) => {
+    const rowSymbol = row.symbol || row.asset || marketDataMeta.selectedSymbol;
+    const rowTf = row.timeframe || marketDataMeta.selectedTimeframe;
+    return (!symbol || rowSymbol === symbol) && (!timeframe || rowTf === timeframe);
+  });
+  const sourceCandles = (strategyRows.length ? strategyRows : (marketDataCandles || [])).filter((row) => {
     const rowSymbol = row.symbol || row.asset || marketDataMeta.selectedSymbol;
     const rowTf = row.timeframe || marketDataMeta.selectedTimeframe;
     return (!symbol || rowSymbol === symbol) && (!timeframe || rowTf === timeframe);
@@ -1759,7 +1756,7 @@ function renderStrategyLab() {
 
   if (els.slSymbol) {
     const previous = els.slSymbol.value;
-    const symbolOptions = [...new Set((marketDataCandles || []).map((c) => c.symbol || c.asset || marketDataMeta.selectedSymbol).filter(Boolean))];
+    const symbolOptions = [...new Set([...(marketDataCandles || []), ...(strategyLabCandles || [])].map((c) => c.symbol || c.asset || marketDataMeta.selectedSymbol).filter(Boolean))];
     const all = symbolOptions.length ? symbolOptions : [...new Set([marketDataMeta.selectedSymbol || "BTCUSDT", "BTCUSDT", "ETHUSDT"])];
     els.slSymbol.innerHTML = all.map((symbol) => `<option value="${symbol}">${symbol}</option>`).join("");
     els.slSymbol.value = all.includes(previous) ? previous : (all.includes(marketDataMeta.selectedSymbol) ? marketDataMeta.selectedSymbol : all[0]);
