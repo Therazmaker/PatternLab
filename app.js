@@ -120,6 +120,7 @@ import { createLiveShadowMonitor } from "./modules/liveShadowMonitor.js";
 import { createLiveShadowTimeline } from "./modules/liveShadowTimeline.js";
 import { computeLiveShadowStats } from "./modules/liveShadowStats.js";
 import { formatConfidence, formatNumber, formatPct, formatTs, getOutcomeBadgeClass } from "./modules/liveShadowFormatters.js";
+import { getOperatorActions } from "./modules/operatorFeedback.js";
 import { listStrategies, getDefaultParams, getStrategyById } from "./modules/strategyRegistry.js";
 import { buildStrategyFeatures } from "./modules/strategyFeatures.js";
 import { runStrategyBacktest } from "./modules/strategyBacktest.js";
@@ -248,6 +249,10 @@ els.liveSaveBtn = document.getElementById("btn-live-save");
 els.liveImportBtn = document.getElementById("btn-live-import");
 els.liveValidateBtn = document.getElementById("btn-live-validate");
 els.liveClearBtn = document.getElementById("btn-live-clear");
+els.mdOperatorActions = document.getElementById("md-operator-actions");
+els.mdOperatorNote = document.getElementById("md-operator-note");
+els.mdOperatorRecalculateBtn = document.getElementById("btn-operator-recalculate");
+els.mdOperatorFeedbackStatus = document.getElementById("md-operator-feedback-status");
 
 els.slSymbol = document.getElementById("sl-symbol");
 els.slTimeframe = document.getElementById("sl-timeframe");
@@ -346,6 +351,7 @@ let liveShadowFilters = { symbol: "all", timeframe: "all", action: "all", result
 let liveShadowAutoIngest = true;
 let liveShadowStats = computeLiveShadowStats([]);
 let liveShadowSelectedId = "";
+const OPERATOR_FEEDBACK_ACTIONS = getOperatorActions();
 let marketDataDiagnostics = null;
 let neuronActivations = [];
 let neuronSummary = null;
@@ -1175,7 +1181,16 @@ function refreshSessionCandlesTab() {
       timeframe: marketView.timeframe,
       source: marketView.source,
       policy: latestPolicy ? { action: latestPolicy.policy?.action, confidence: latestPolicy.policy?.confidence, timestamp: latestPolicy.timestamp } : null,
-      shadow: latestPolicy ? { status: latestPolicy.outcome?.status, action: latestPolicy.policy?.action, timestamp: latestPolicy.timestamp } : null,
+      shadow: latestPolicy
+        ? {
+          status: latestPolicy.outcome?.status,
+          action: latestPolicy.policy?.action,
+          operatorAction: latestPolicy.decisionTrace?.operatorCorrected?.finalAction || null,
+          operatorState: latestPolicy.decisionTrace?.operatorCorrected?.finalState || null,
+          operatorInfluence: latestPolicy.decisionTrace?.operatorCorrected?.operatorInfluence || [],
+          timestamp: latestPolicy.timestamp,
+        }
+        : null,
     }),
   };
   if (viewed?.candles?.length && !selectedSessionCandleIndex) selectedSessionCandleIndex = viewed.candles[viewed.candles.length - 1].index;
@@ -3758,6 +3773,27 @@ function persistLiveShadowState() {
   });
 }
 
+function getSelectedOperatorActions() {
+  if (!els.mdOperatorActions) return [];
+  return [...els.mdOperatorActions.querySelectorAll("[data-operator-action].operator-action-active")]
+    .map((btn) => String(btn.dataset.operatorAction || "").trim())
+    .filter(Boolean);
+}
+
+function setOperatorFeedbackStatus(message, kind = "muted") {
+  if (!els.mdOperatorFeedbackStatus) return;
+  els.mdOperatorFeedbackStatus.className = `tiny ${kind}`;
+  els.mdOperatorFeedbackStatus.textContent = message;
+}
+
+function syncOperatorActionButtons(selectedActions = []) {
+  if (!els.mdOperatorActions) return;
+  const active = new Set(selectedActions);
+  els.mdOperatorActions.querySelectorAll("[data-operator-action]").forEach((btn) => {
+    btn.classList.toggle("operator-action-active", active.has(btn.dataset.operatorAction));
+  });
+}
+
 // UI subscription point for live updates from the shadow monitor.
 function renderLiveShadowPanel() {
   const allRecords = liveShadowMonitor.getRecords();
@@ -3794,8 +3830,9 @@ function renderLiveShadowPanel() {
   }
 
   if (els.mdLiveShadowPolicy) {
+    const corrected = latest?.decisionTrace?.operatorCorrected || null;
     els.mdLiveShadowPolicy.innerHTML = latest
-      ? `<p><span class="badge ${latest.policy.action === "LONG" ? "call" : latest.policy.action === "SHORT" ? "put" : "tag"}">${latest.policy.action}</span> <span class="badge">${formatConfidence(latest.policy.confidence)}</span> ${Number.isFinite(latest.plan.riskReward) ? `<span class="badge">RR ${formatNumber(latest.plan.riskReward, 2)}</span>` : ""} <span class="badge">Structure ${latest.policy.structureDecision || "allow"}</span></p><p><span class="badge">Regime ${latest.policy.regime || "ranging"} (${formatNumber(latest.policy.regimeStrength, 0)})</span> <span class="badge">Bull ${formatNumber(latest.policy.bullishScore, 1)} / Bear ${formatNumber(latest.policy.bearishScore, 1)}</span> <span class="badge">Bias ${latest.policy.probabilityBias || "neutral"} (${formatNumber(latest.policy.probabilityConfidence, 1)})</span></p><p class="muted">${latest.policy.reason || "-"}</p><p class="muted">${latest.policy.probabilityExplanation || ""}</p><p class="muted">Ref ${formatNumber(latest.plan.referencePrice, 4)} · SL ${formatNumber(latest.plan.stopLoss, 4)} · TP ${formatNumber(latest.plan.takeProfit, 4)}</p><p class="muted">${(latest.policy.structureReasons || []).slice(0, 2).join(" ") || "Structure aligned."}</p><p>${(latest.policy.thesisTags || []).slice(0, 4).map((tag) => `<span class="badge">${tag}</span>`).join(" ")}</p>`
+      ? `<p><span class="badge ${latest.policy.action === "LONG" ? "call" : latest.policy.action === "SHORT" ? "put" : "tag"}">Machine ${latest.policy.action}</span> ${corrected ? `<span class="badge ${corrected.finalAction === "LONG" ? "call" : corrected.finalAction === "SHORT" ? "put" : "tag"}">Operator ${corrected.finalAction}</span>` : ""} <span class="badge">${formatConfidence(latest.policy.confidence)}</span> ${Number.isFinite(latest.plan.riskReward) ? `<span class="badge">RR ${formatNumber(latest.plan.riskReward, 2)}</span>` : ""} <span class="badge">Structure ${latest.policy.structureDecision || "allow"}</span></p><p><span class="badge">Regime ${latest.policy.regime || "ranging"} (${formatNumber(latest.policy.regimeStrength, 0)})</span> <span class="badge">Bull ${formatNumber(latest.policy.bullishScore, 1)} / Bear ${formatNumber(latest.policy.bearishScore, 1)}</span> <span class="badge">Bias ${latest.policy.probabilityBias || "neutral"} (${formatNumber(latest.policy.probabilityConfidence, 1)})</span></p><p class="muted">${latest.policy.reason || "-"}</p><p class="muted">${latest.policy.probabilityExplanation || ""}</p><p class="muted">Ref ${formatNumber(latest.plan.referencePrice, 4)} · SL ${formatNumber(latest.plan.stopLoss, 4)} · TP ${formatNumber(latest.plan.takeProfit, 4)}</p><p class="muted">${corrected?.explanation || (latest.policy.structureReasons || []).slice(0, 2).join(" ") || "Structure aligned."}</p><p>${(latest.policy.thesisTags || []).slice(0, 4).map((tag) => `<span class="badge">${tag}</span>`).join(" ")}</p>`
       : `<p class="muted">No policy decisions yet.</p>`;
   }
 
@@ -3806,20 +3843,30 @@ function renderLiveShadowPanel() {
   }
 
   if (els.mdLiveShadowStats) {
-    els.mdLiveShadowStats.innerHTML = `<p>Decisions ${liveShadowStats.totalDecisions} · Wins ${liveShadowStats.wins} · Losses ${liveShadowStats.losses} · Win rate ${formatPct((liveShadowStats.winRate || 0) * 100, 1)}</p><p class="muted">Avg confidence ${formatConfidence(liveShadowStats.avgConfidence)} · Avg R ${formatNumber(liveShadowStats.avgRMultiple, 2)} · Avg pnl ${formatPct(liveShadowStats.avgPnlPct, 2)} · Max streak W${liveShadowStats.maxWinStreak}/L${liveShadowStats.maxLossStreak}</p>`;
+    els.mdLiveShadowStats.innerHTML = `<p>Decisions ${liveShadowStats.totalDecisions} · Wins ${liveShadowStats.wins} · Losses ${liveShadowStats.losses} · Win rate ${formatPct((liveShadowStats.winRate || 0) * 100, 1)}</p><p class="muted">Avg confidence ${formatConfidence(liveShadowStats.avgConfidence)} · Avg R ${formatNumber(liveShadowStats.avgRMultiple, 2)} · Avg pnl ${formatPct(liveShadowStats.avgPnlPct, 2)} · Max streak W${liveShadowStats.maxWinStreak}/L${liveShadowStats.maxLossStreak}</p><p class="muted">Machine vs operator comparisons ${liveShadowStats.operatorComparisons || 0} · improved ${liveShadowStats.operatorImproved || 0} · degraded ${liveShadowStats.operatorDegraded || 0}</p>`;
   }
 
   if (els.mdLiveShadowTimelineBody) {
     els.mdLiveShadowTimelineBody.innerHTML = filtered.length
-      ? filtered.slice(0, 30).map((row) => `<tr data-live-shadow-id="${row.id}"><td>${new Date(row.timestamp).toLocaleTimeString()}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td><span class="badge ${row.policy.action === "LONG" ? "call" : row.policy.action === "SHORT" ? "put" : "tag"}">${row.policy.action}</span></td><td>${formatConfidence(row.policy.confidence)}</td><td>${row.outcome.status === "resolved" ? `<span class="badge ${getOutcomeBadgeClass(row.outcome.result)}">${row.outcome.result}</span>` : `<span class="badge">pending</span>`}</td><td>${row.outcome.status === "resolved" ? formatNumber(row.outcome.rMultiple, 2) : "-"}</td></tr>`).join("")
+      ? filtered.slice(0, 30).map((row) => `<tr data-live-shadow-id="${row.id}"><td>${new Date(row.timestamp).toLocaleTimeString()}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td><span class="badge ${row.policy.action === "LONG" ? "call" : row.policy.action === "SHORT" ? "put" : "tag"}">${row.policy.action}</span>${row.decisionTrace?.operatorCorrected?.finalAction ? ` <span class="badge ${row.decisionTrace.operatorCorrected.finalAction === "LONG" ? "call" : row.decisionTrace.operatorCorrected.finalAction === "SHORT" ? "put" : "tag"}">${row.decisionTrace.operatorCorrected.finalAction}</span>` : ""}</td><td>${formatConfidence(row.policy.confidence)}</td><td>${row.outcome.status === "resolved" ? `<span class="badge ${getOutcomeBadgeClass(row.outcome.result)}">${row.outcome.result}</span>` : `<span class="badge">pending</span>`}</td><td>${row.outcome.status === "resolved" ? formatNumber(row.outcome.rMultiple, 2) : "-"}</td></tr>`).join("")
       : `<tr><td colspan="7" class="muted">No live decisions for current filter.</td></tr>`;
   }
 
   const selected = filtered.find((row) => row.id === liveShadowSelectedId) || latest;
   if (els.mdLiveShadowDetail) {
     els.mdLiveShadowDetail.innerHTML = selected
-      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Regime: ${selected.policy.regime || "ranging"} (${formatNumber(selected.policy.regimeStrength, 0)}) · ${selected.policy.regimeExplanation || ""}</p><p class="muted">Bullish ${formatNumber(selected.policy.bullishScore, 1)} · Bearish ${formatNumber(selected.policy.bearishScore, 1)} · Neutral ${formatNumber(selected.policy.neutralScore, 1)} · Bias ${selected.policy.probabilityBias || "neutral"} (${formatNumber(selected.policy.probabilityConfidence, 1)})</p><p class="muted">${selected.policy.probabilityExplanation || ""}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
+      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">Machine action: ${selected.decisionTrace?.machine?.action || selected.policy.action} · confidence ${formatConfidence(selected.decisionTrace?.machine?.confidence ?? selected.policy.confidence)} · reason ${selected.decisionTrace?.machine?.reason || selected.policy.reason || "-"}</p><p class="muted">Operator corrected: ${selected.decisionTrace?.operatorCorrected?.finalAction || "not applied"}${selected.decisionTrace?.operatorCorrected?.finalState ? ` · ${selected.decisionTrace.operatorCorrected.finalState}` : ""}</p><p class="muted">Operator actions: ${(selected.operatorFeedback?.actions || []).join(", ") || "none"}${selected.operatorFeedback?.note ? ` · note: ${selected.operatorFeedback.note}` : ""}</p><p class="muted">Regime: ${selected.policy.regime || "ranging"} (${formatNumber(selected.policy.regimeStrength, 0)}) · ${selected.policy.regimeExplanation || ""}</p><p class="muted">Machine scores → Bullish ${formatNumber(selected.policy.bullishScore, 1)} · Bearish ${formatNumber(selected.policy.bearishScore, 1)} · Neutral ${formatNumber(selected.policy.neutralScore, 1)}</p><p class="muted">${selected.decisionTrace?.operatorCorrected ? `Operator scores → Bullish ${formatNumber(selected.decisionTrace.operatorCorrected.bullishScore, 1)} · Bearish ${formatNumber(selected.decisionTrace.operatorCorrected.bearishScore, 1)} · Neutral ${formatNumber(selected.decisionTrace.operatorCorrected.neutralScore, 1)}` : "Operator scores pending."}</p><p class="muted">${selected.decisionTrace?.operatorCorrected?.explanation || selected.policy.probabilityExplanation || ""}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Outcome compare: machine ${selected.outcomeComparison?.machineOnly?.result || "-"} vs operator ${selected.outcomeComparison?.operatorCorrected?.result || "-"} · actual ${selected.outcomeComparison?.actualOutcome?.result || "-"}</p><p class="muted">Learning memory: ${(selected.learningMemory?.patterns || []).join(", ") || "no patterns yet"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
       : `<p class="muted">Select a live decision row to inspect full details.</p>`;
+  }
+
+  if (selected) {
+    syncOperatorActionButtons(selected.operatorFeedback?.actions || []);
+    if (els.mdOperatorNote) els.mdOperatorNote.value = selected.operatorFeedback?.note || "";
+    setOperatorFeedbackStatus(selected.decisionTrace?.operatorCorrected?.explanation || "Operator feedback ready.", "muted");
+  } else {
+    syncOperatorActionButtons([]);
+    if (els.mdOperatorNote) els.mdOperatorNote.value = "";
+    setOperatorFeedbackStatus("Select a live shadow row, choose actions, and recalculate.", "muted");
   }
 }
 
@@ -3901,6 +3948,10 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
     probabilityBias: row.policy?.probabilityBias,
     probabilityConfidence: row.policy?.probabilityConfidence,
     probabilityExplanation: row.policy?.probabilityExplanation,
+    decisionTrace: row.decisionTrace || {},
+    operatorFeedback: row.operatorFeedback || {},
+    outcomeComparison: row.outcomeComparison || {},
+    learningMemory: row.learningMemory || {},
   }));
   refreshLifecycleLiveMonitoring();
   await Promise.all([saveFuturesPolicySnapshots(futuresPolicySnapshots), persistLiveShadowState(), signalsChanged ? persist() : Promise.resolve()]);
@@ -4291,6 +4342,38 @@ function setupMarketDataEvents() {
     if (!row) return;
     liveShadowSelectedId = row.getAttribute("data-live-shadow-id") || "";
     renderLiveShadowPanel();
+  });
+  els.mdOperatorActions?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-operator-action]");
+    if (!btn) return;
+    const action = btn.dataset.operatorAction;
+    if (!OPERATOR_FEEDBACK_ACTIONS.includes(action)) return;
+    btn.classList.toggle("operator-action-active");
+  });
+  els.mdOperatorRecalculateBtn?.addEventListener("click", async () => {
+    if (!liveShadowSelectedId) {
+      setOperatorFeedbackStatus("Select a live shadow record before recalculation.", "error");
+      return;
+    }
+    const actions = getSelectedOperatorActions();
+    if (!actions.length) {
+      setOperatorFeedbackStatus("Choose at least one operator action.", "warning");
+      return;
+    }
+    const updated = liveShadowMonitor.applyRecordOperatorFeedback(liveShadowSelectedId, {
+      actions,
+      note: els.mdOperatorNote?.value || "",
+      timestamp: new Date().toISOString(),
+    });
+    if (!updated) {
+      setOperatorFeedbackStatus("Unable to apply operator feedback to this record.", "error");
+      return;
+    }
+    const changed = liveShadowAutoIngest ? importStrategyRecordToSignals(updated, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" }) : false;
+    if (changed) persist();
+    await persistLiveShadowState();
+    renderLiveShadowPanel();
+    setOperatorFeedbackStatus(`Recalculated action: ${updated.decisionTrace?.operatorCorrected?.finalAction || "NO_TRADE"} (${updated.decisionTrace?.operatorCorrected?.finalState || "ready"}).`, "success");
   });
 
   els.mdFetchBtn?.addEventListener("click", handleMarketDataFetch);

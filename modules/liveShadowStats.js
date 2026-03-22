@@ -87,6 +87,19 @@ export function computeLiveShadowStats(records = []) {
     : null;
 
   const streaks = computeStreaks(resolved);
+  const comparisons = resolved.filter((row) => row.outcomeComparison?.machineOnly && row.outcomeComparison?.operatorCorrected);
+  const operatorImproved = comparisons.filter((row) => {
+    const machine = row.outcomeComparison.machineOnly?.result;
+    const corrected = row.outcomeComparison.operatorCorrected?.result;
+    const actual = row.outcomeComparison.actualOutcome?.result;
+    return corrected === actual && machine !== actual;
+  }).length;
+  const operatorDegraded = comparisons.filter((row) => {
+    const machine = row.outcomeComparison.machineOnly?.result;
+    const corrected = row.outcomeComparison.operatorCorrected?.result;
+    const actual = row.outcomeComparison.actualOutcome?.result;
+    return machine === actual && corrected !== actual;
+  }).length;
 
   return {
     totalDecisions: rows.length,
@@ -102,6 +115,9 @@ export function computeLiveShadowStats(records = []) {
     avgPnlPct: avg(resolved.map((row) => row.outcome?.pnlPct).filter(Number.isFinite)),
     avgRMultiple: avg(resolved.map((row) => row.outcome?.rMultiple).filter(Number.isFinite)),
     expectancy,
+    operatorComparisons: comparisons.length,
+    operatorImproved,
+    operatorDegraded,
     ...streaks,
     rolling: {
       last10: buildRolling(rows, 10),

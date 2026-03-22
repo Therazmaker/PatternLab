@@ -130,6 +130,10 @@ export function normalizeStrategySignal(record = {}, options = {}) {
           plan: record.plan || {},
           policy: record.policy || {},
           outcome: record.outcome || {},
+          decisionTrace: record.decisionTrace || {},
+          operatorFeedback: record.operatorFeedback || {},
+          outcomeComparison: record.outcomeComparison || {},
+          learningMemory: record.learningMemory || {},
         },
       },
     },
@@ -189,6 +193,10 @@ export function normalizeStrategySignal(record = {}, options = {}) {
       candleIndex: record.candleIndex ?? null,
       policyVersion: record?._meta?.policyVersion || null,
       createdAt: record?._meta?.createdAt || null,
+      decisionTrace: record.decisionTrace || {},
+      operatorFeedback: record.operatorFeedback || {},
+      outcomeComparison: record.outcomeComparison || {},
+      learningMemory: record.learningMemory || {},
     },
   };
   normalized.outcome = {

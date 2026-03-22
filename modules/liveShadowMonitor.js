@@ -4,6 +4,7 @@ import { replayFuturesDecision } from "./futuresReplay.js";
 import { computeFeatureSnapshot } from "./featureEngine.js";
 import { classifyMarketRegime } from "./marketRegime.js";
 import { computeProbabilityScores } from "./probabilityEngine.js";
+import { applyOperatorFeedback, deriveOperatorPatternFeedback } from "./operatorFeedback.js";
 
 const DEFAULT_MAX_HISTORY = 400;
 
@@ -49,6 +50,50 @@ function mapReplayOutcome(replay = {}) {
   if (type === "sl") return "loss";
   if (type === "timeout") return Math.abs(Number(replay.pnlR || 0)) < 0.02 ? "flat" : (Number(replay.pnlR || 0) > 0 ? "win" : "loss");
   return "flat";
+}
+
+function buildMachineDecisionTrace(record = {}) {
+  return {
+    action: record.policy?.action || "NO_TRADE",
+    confidence: toNumber(record.policy?.confidence, 0),
+    reason: record.policy?.reason || "",
+    bullishScore: toNumber(record.policy?.bullishScore, 0),
+    bearishScore: toNumber(record.policy?.bearishScore, 0),
+    neutralScore: toNumber(record.policy?.neutralScore, 0),
+    probabilityBias: record.policy?.probabilityBias || "neutral",
+    probabilityConfidence: toNumber(record.policy?.probabilityConfidence, 0),
+    plan: record.plan || null,
+  };
+}
+
+function replayDecisionForComparison(trace = {}, candles = [], candleIndex = 0, maxHoldBars = 24) {
+  const action = trace?.action || trace?.finalAction || "NO_TRADE";
+  if (action === "NO_TRADE") {
+    return {
+      action: "NO_TRADE",
+      result: "skipped",
+      pnlPct: 0,
+      rMultiple: 0,
+      resolutionReason: "no-trade-policy",
+    };
+  }
+  const plan = trace?.plan || {};
+  const replay = replayFuturesDecision({
+    action,
+    executionPlan: {
+      entryPrice: plan.referencePrice ?? plan.entryPrice ?? null,
+      stopLoss: plan.stopLoss ?? null,
+      takeProfit: plan.takeProfit ?? null,
+    },
+  }, candles, candleIndex, { maxBarsHold: maxHoldBars });
+  return {
+    action,
+    result: mapReplayOutcome(replay),
+    pnlPct: toNumber(replay.pnlPct, null),
+    rMultiple: toNumber(replay.pnlR, null),
+    barsElapsed: replay.barsHeld ?? null,
+    resolutionReason: replay.outcomeType || "timeout",
+  };
 }
 
 function hasResolutionSignal(record, candles, maxHoldBars) {
@@ -221,11 +266,79 @@ export function createLiveShadowMonitor(options = {}) {
         probability,
       },
       outcome: buildDefaultOutcome(decision.action),
+      decisionTrace: {
+        machine: {
+          action: decision.action,
+          confidence: toNumber(decision.confidence, 0),
+          reason: decision.reason || "",
+          bullishScore: probability.bullishScore,
+          bearishScore: probability.bearishScore,
+          neutralScore: probability.neutralScore,
+          probabilityBias: probability.bias,
+          probabilityConfidence: probability.confidence,
+          plan: {
+            referencePrice: toNumber(decision.executionPlan?.entryPrice, toNumber(candle.close, null)),
+            stopLoss: toNumber(decision.executionPlan?.stopLoss, null),
+            takeProfit: toNumber(decision.executionPlan?.takeProfit, null),
+            riskReward: toNumber(decision.executionPlan?.riskReward, null),
+          },
+        },
+        operatorCorrected: null,
+      },
+      operatorFeedback: {
+        actions: [],
+        note: "",
+        timestamp: null,
+        history: [],
+      },
+      learningMemory: {
+        patterns: [],
+      },
       _meta: {
         policyVersion: decision.policyVersion,
         createdAt: new Date().toISOString(),
       },
     };
+  }
+
+  function applyRecordOperatorFeedback(id, payload = {}) {
+    const idx = records.findIndex((row) => row.id === id);
+    if (idx < 0) return null;
+    const record = records[idx];
+    const applied = applyOperatorFeedback(record, payload);
+    if (!applied?.recalculated) return null;
+    const machineTrace = record.decisionTrace?.machine || buildMachineDecisionTrace(record);
+    const corrected = {
+      ...applied.recalculated,
+      action: applied.recalculated.finalAction,
+      plan: machineTrace.plan || record.plan || null,
+    };
+    const next = {
+      ...record,
+      operatorFeedback: {
+        actions: applied.actions,
+        note: applied.note,
+        timestamp: applied.recalculated.timestamp,
+        history: [
+          ...(record.operatorFeedback?.history || []),
+          {
+            actions: applied.actions,
+            note: applied.note,
+            timestamp: applied.recalculated.timestamp,
+            recalculated: applied.recalculated,
+          },
+        ].slice(-25),
+      },
+      decisionTrace: {
+        machine: machineTrace,
+        operatorCorrected: corrected,
+      },
+      learningMemory: {
+        patterns: [...new Set([...(record.learningMemory?.patterns || []), ...deriveOperatorPatternFeedback({ ...record, operatorFeedback: applied, decisionTrace: { machine: machineTrace, operatorCorrected: corrected } })])],
+      },
+    };
+    records[idx] = next;
+    return next;
   }
 
   // Checks and resolves pending records when enough forward candles exist.
@@ -267,6 +380,16 @@ export function createLiveShadowMonitor(options = {}) {
           barsElapsed: Number(replay.barsToResolution || 0),
           resolutionReason: replay.outcomeType || guard.reason || "resolved",
         },
+        outcomeComparison: {
+          machineOnly: replayDecisionForComparison(record?.decisionTrace?.machine || buildMachineDecisionTrace(record), candles, record.candleIndex, maxHoldBars),
+          operatorCorrected: replayDecisionForComparison(record?.decisionTrace?.operatorCorrected || record?.decisionTrace?.machine || buildMachineDecisionTrace(record), candles, record.candleIndex, maxHoldBars),
+          actualOutcome: {
+            result: mapReplayOutcome(replay),
+            pnlPct: toNumber(replay.pnlPct, null),
+            rMultiple: toNumber(replay.pnlR, null),
+            resolutionReason: replay.outcomeType || "timeout",
+          },
+        },
       };
 
       records[idx] = next;
@@ -282,6 +405,7 @@ export function createLiveShadowMonitor(options = {}) {
     setRecords,
     getRecords,
     createSnapshot,
+    applyRecordOperatorFeedback,
     upsertRecord,
     resolvePending,
     getPendingCount: () => pendingIndex.size,

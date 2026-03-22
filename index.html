@@ -625,6 +625,28 @@
           <label class="inline-toggle"><input id="md-live-shadow-auto-ingest" type="checkbox" checked /> Auto-send live shadow decisions to Import/Feed</label>
           <button id="btn-live-shadow-import-selected" type="button" class="ghost">Import selected decision</button>
         </div>
+        <article class="panel-soft">
+          <h4>Operator Feedback Layer</h4>
+          <p class="muted tiny">Human-in-the-loop override: machine signal is advisory, operator feedback can recalculate the live decision.</p>
+          <div id="md-operator-actions" class="button-row compact">
+            <button type="button" class="ghost" data-operator-action="approve">approve</button>
+            <button type="button" class="ghost" data-operator-action="veto">veto</button>
+            <button type="button" class="ghost" data-operator-action="still_short">still_short</button>
+            <button type="button" class="ghost" data-operator-action="still_long">still_long</button>
+            <button type="button" class="ghost" data-operator-action="pullback_only">pullback_only</button>
+            <button type="button" class="ghost" data-operator-action="reversal_confirmed">reversal_confirmed</button>
+            <button type="button" class="ghost" data-operator-action="needs_confirmation">needs_confirmation</button>
+            <button type="button" class="ghost" data-operator-action="resistance_active">resistance_active</button>
+            <button type="button" class="ghost" data-operator-action="support_active">support_active</button>
+          </div>
+          <label>Operator note
+            <textarea id="md-operator-note" rows="2" placeholder="Optional: this is only a pullback, wait for confirmation, etc."></textarea>
+          </label>
+          <div class="button-row compact">
+            <button id="btn-operator-recalculate" type="button" class="primary">Recalculate with operator feedback</button>
+          </div>
+          <div id="md-operator-feedback-status" class="muted tiny">Select a live shadow row, choose actions, and recalculate.</div>
+        </article>
         <div class="filters">
           <label>Symbol
             <select id="md-live-shadow-filter-symbol">
