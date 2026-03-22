@@ -98,6 +98,8 @@ import { computeSessionStats, deriveCandleColor, normalizeSession } from "./modu
 import { SessionChart } from "./modules/sessionChart.js";
 import { buildSessionCandleExplanations, getDefaultSessionAnalysisConfig } from "./modules/sessionAnalysis.js";
 import { buildSessionCandleAnalysis } from "./modules/sessionCandleAnalysis.js";
+import { analyzeSessionCandles } from "./modules/sessionAnalystEngine.js";
+import { renderAnalystPanel } from "./modules/analystPanel.js";
 import { computeExcursionFromSignal, deriveColorHint, formatExcursion, normalizeCandleData, normalizeExcursion, normalizeOHLCInput, normalizeSessionRef, normalizeV3Meta, validateOHLCConsistency } from "./modules/v3.js";
 import { computeStats } from "./modules/stats.js";
 import { computeAssetAnalysis, computeHourAnalysis, computePatternCompare, computePatternRanking, withCompareFilters } from "./modules/analytics.js";
@@ -324,6 +326,7 @@ let sessionCandleDraft = null;
 let _sessionChart = null; // SessionChart Canvas instance
 const SESSION_SR_KEY = 'patternlab.sessionManualSR.v1';
 let _sessionManualSR = []; // [{id,price,type,label}]
+let sessionAnalystState = { analystData: null, addedLevels: [], collapsed: false };
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
 let sessionAnalysisPrefs = {
@@ -762,6 +765,33 @@ function signalBadgeLabel(stateValue) {
   return "NO SIGNAL";
 }
 
+function hasManualLevel(price, type) {
+  const p = Number(price);
+  if (!Number.isFinite(p)) return false;
+  return _sessionManualSR.some((line) => line.type === type && Math.abs(Number(line.price) - p) <= Math.max(Math.abs(p) * 0.0002, 1e-9));
+}
+
+function addManualLevel({ price, type, source = "analyst_auto", confirmedBy = "operator" }) {
+  const p = Number(price);
+  if (!Number.isFinite(p)) return false;
+  if (hasManualLevel(p, type)) return false;
+  const id = `sr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const line = {
+    id,
+    price: Number(p.toFixed(6)),
+    type: type === "support" ? "support" : "resistance",
+    label: type === "support" ? "S" : "R",
+    source,
+    confirmedBy,
+  };
+  _sessionManualSR = [..._sessionManualSR, line];
+  sessionAnalystState.addedLevels = [...sessionAnalystState.addedLevels, line];
+  try { localStorage.setItem(SESSION_SR_KEY, JSON.stringify(_sessionManualSR)); } catch {}
+  if (_sessionChart) _sessionChart.setManualSR(_sessionManualSR);
+  console.debug("[SessionAnalyst] + chart level added", line);
+  return true;
+}
+
 function renderSessionAnalysisPanel(session, explanations = []) {
   if (!els.sessionAnalysisPanel) return;
   if (!session || !session.candles.length || !explanations.length) {
@@ -912,6 +942,47 @@ function renderSessionMarketAnalysisPanel(analysis, marketView) {
   `;
 }
 
+function renderSessionAlwaysOnAnalystPanel({ viewed, marketView, latestPolicy }) {
+  if (!els.sessionAnalysisPanel) return;
+  const manualCandles = viewed?.candles || [];
+  const sourceCandles = marketView?.candles?.length >= 3 ? marketView.candles : manualCandles;
+  if (!sourceCandles.length || sourceCandles.length < 3) {
+    sessionAnalystState.analystData = null;
+    els.sessionAnalysisPanel.innerHTML = '<p class="muted">Always-On Analyst activates when sessionCandles.length >= 3.</p>';
+    return;
+  }
+
+  const policyMode = latestPolicy?.policy?.versionId || latestPolicy?.policy?.policyMode || (marketView?.connected ? "live_v1" : "manual_session");
+  const analystData = analyzeSessionCandles(sourceCandles, { policyMode });
+  sessionAnalystState.analystData = analystData;
+  console.debug("[SessionAnalyst] Analyst activated", { candles: sourceCandles.length, trend: analystData.trend, score: analystData.globalScore });
+  if ((analystData.patterns || []).length) console.debug("[SessionAnalyst] Patterns detected", analystData.patterns);
+  if ((analystData.zones || []).length) console.debug("[SessionAnalyst] Zones detected", analystData.zones);
+  if (analystData.divergence) console.debug("[SessionAnalyst] Divergence detected", analystData.divergence);
+
+  renderAnalystPanel({
+    container: els.sessionAnalysisPanel,
+    symbol: viewed?.asset || marketView?.symbol || "-",
+    timeframe: viewed?.tf || marketView?.timeframe || "5m",
+    data: analystData,
+    collapsed: sessionAnalystState.collapsed,
+    addedLevels: _sessionManualSR,
+    onToggle: () => {
+      sessionAnalystState.collapsed = !sessionAnalystState.collapsed;
+      renderSessionAlwaysOnAnalystPanel({ viewed, marketView, latestPolicy });
+    },
+    onAddToChart: (zone) => {
+      const ok = addManualLevel({
+        price: zone.price,
+        type: zone.type,
+        source: "analyst_auto",
+        confirmedBy: "operator",
+      });
+      if (ok) refreshSessionCandlesTab();
+    },
+  });
+}
+
 function renderSessionEventStrip(events = []) {
   if (!els.sessionEventStrip) return;
   if (!sessionAnalysisPrefs.showLiveAnnotations) {
@@ -1002,8 +1073,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
         }
         if (selectedSessionCandleIndex !== idx) {
           selectedSessionCandleIndex = idx;
-          const viewed = session;
-          if (viewed) renderSessionAnalysisPanel(viewed, explanations);
+          refreshSessionCandlesTab();
         }
       },
     });
@@ -1217,12 +1287,7 @@ function refreshSessionCandlesTab() {
   renderSessionTable(viewed, explanations);
   renderSessionLivePlanPanel(livePlanRecord, marketView);
   updateSessionOperatorContext(marketAnalysis.analysis, marketView, livePlanRecord);
-  if (marketView.candles.length) {
-    // Analysis summary is computed from active market candles and intelligence context.
-    renderSessionMarketAnalysisPanel(marketAnalysis.analysis, marketView);
-  } else {
-    renderSessionAnalysisPanel(viewed, explanations);
-  }
+  renderSessionAlwaysOnAnalystPanel({ viewed, marketView, latestPolicy });
   // Compact timeline strip with policy/rejection/volatility events from recent candles.
   renderSessionEventStrip(marketAnalysis.analysis?.events || []);
   renderSessionSummary(viewed);
@@ -4626,6 +4691,7 @@ async function init() {
   metaFeedback = loadMetaFeedback();
   botCompilerState = loadBotCompilerState();
   try { _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_SR_KEY) || '[]') || []; } catch { _sessionManualSR = []; }
+  sessionAnalystState.addedLevels = [..._sessionManualSR];
   const activeSession = state.sessions.find((session) => session.status === "active");
   setActiveSessionId(activeSession?.id || null);
   patternVersionsRegistry = loadPatternVersionsRegistry();
