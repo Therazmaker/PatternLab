@@ -122,6 +122,7 @@ import { buildStrategyFeatures } from "./modules/strategyFeatures.js";
 import { runStrategyBacktest } from "./modules/strategyBacktest.js";
 import { getSavedStrategyRuns, persistStrategyRun } from "./modules/strategyPersistence.js";
 import { compareStrategyRuns } from "./modules/strategyRunCompare.js";
+import { validateRuleBasedStrategyDefinition } from "./modules/strategyJson.js";
 import { RlEnvironmentAdapter } from "./modules/rlEnvironmentAdapter.js";
 import {
   applyMetaFeedbackBias,
@@ -249,6 +250,10 @@ els.slTimeframe = document.getElementById("sl-timeframe");
 els.slRangeBars = document.getElementById("sl-range-bars");
 els.slStrategy = document.getElementById("sl-strategy");
 els.slParams = document.getElementById("sl-params");
+els.slJsonMode = document.getElementById("sl-json-mode");
+els.slJsonStatus = document.getElementById("sl-json-status");
+els.slDataStatus = document.getElementById("sl-data-status");
+els.slLoadHistoryBtn = document.getElementById("btn-sl-load-history");
 els.slRunNotes = document.getElementById("sl-run-notes");
 els.slRunBtn = document.getElementById("btn-sl-run");
 els.slSaveBtn = document.getElementById("btn-sl-save");
@@ -350,8 +355,10 @@ let strategyRuns = [];
 let latestStrategyResult = null;
 let latestStrategyBatchResults = [];
 let selectedStrategyRunId = "";
+let strategyLabJsonMode = "parameters";
 let strategyLabConfig = { strategyId: "sma_rsi_trend", params: {}, risk: {}, execution: { feeBps: 4, slippageBps: 2, initialEquity: 10000 } };
 let strategyLabRlProbe = null;
+let strategyLabDataState = { loading: false, lastLoadedCount: 0, lastLoadedSymbol: "", lastLoadedTimeframe: "", lastLoadedAt: null, error: "" };
 
 function setSettingsStatus(message, kind = "muted") {
   if (!els.settingsStatus) return;
@@ -1520,6 +1527,108 @@ function parseStrategyParamsInput() {
   }
 }
 
+function parseStrategyLabJsonInput() {
+  const raw = String(els.slParams?.value || "").trim();
+  if (!raw) return { mode: strategyLabJsonMode, paramsPayload: { params: {}, risk: {}, execution: { ...strategyLabConfig.execution }, variants: [] }, strategyDefinition: null, summary: "Empty JSON. Using defaults." };
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid JSON: ${error.message}`);
+  }
+  if (strategyLabJsonMode === "strategy") {
+    const validation = validateRuleBasedStrategyDefinition(parsed);
+    if (!validation.valid) throw new Error(`Strategy JSON invalid: ${validation.errors.join(" ")}`);
+    return {
+      mode: "strategy",
+      strategyDefinition: validation.definition,
+      paramsPayload: {
+        params: {},
+        risk: {
+          stopAtrMult: validation.definition.risk.stopLossAtr,
+          takeProfitAtrMult: validation.definition.risk.takeProfitAtr,
+          maxHoldBars: validation.definition.exit.maxBarsInTrade,
+        },
+        execution: {
+          ...strategyLabConfig.execution,
+          feeBps: validation.definition.risk.feeBps,
+          slippageBps: validation.definition.risk.slippageBps,
+          initialEquity: validation.definition.risk.initialEquity,
+        },
+        variants: [],
+      },
+      summary: `Strategy JSON detected (${validation.definition.strategyId}).`,
+    };
+  }
+  const paramsPayload = parseStrategyParamsInput();
+  return { mode: "parameters", strategyDefinition: null, paramsPayload, summary: "Parameter JSON detected." };
+}
+
+function getStrategyLabDatasetSummary() {
+  const symbol = els.slSymbol?.value || marketDataMeta.selectedSymbol;
+  const timeframe = els.slTimeframe?.value || marketDataMeta.selectedTimeframe;
+  const rangeBars = Number(els.slRangeBars?.value || 500);
+  const matchingCandles = (marketDataCandles || []).filter((row) => {
+    const rowSymbol = row.symbol || row.asset || marketDataMeta.selectedSymbol;
+    const rowTf = row.timeframe || marketDataMeta.selectedTimeframe;
+    return rowSymbol === symbol && rowTf === timeframe;
+  });
+  const selectedCount = matchingCandles.slice(-Math.max(1, rangeBars)).length;
+  return {
+    symbol,
+    timeframe,
+    rangeBars,
+    matchingTotal: matchingCandles.length,
+    selectedCount,
+    sufficient: selectedCount >= 100,
+    mismatch: strategyLabDataState.lastLoadedSymbol && (strategyLabDataState.lastLoadedSymbol !== symbol || strategyLabDataState.lastLoadedTimeframe !== timeframe),
+  };
+}
+
+async function loadStrategyLabHistory() {
+  const { symbol, timeframe, rangeBars } = getStrategyLabDatasetSummary();
+  const limit = Math.min(5000, Math.max(500, rangeBars));
+  strategyLabDataState = { ...strategyLabDataState, loading: true, error: "" };
+  setStrategyLabStatus(`Fetching ${limit} ${symbol} ${timeframe} candles from Binance Futures...`, "muted");
+  renderStrategyLab();
+  try {
+    const fetched = await loadHistoricalCandles({
+      source: MARKET_DATA_SOURCES.BINANCE_FUTURES,
+      symbol,
+      timeframe,
+      interval: timeframe,
+      limit,
+    });
+    if (!Array.isArray(fetched) || !fetched.length) throw new Error("No candles received from Binance Futures loader.");
+    marketDataCandles = mergeCandles(marketDataCandles, fetched);
+    marketDataMeta = {
+      ...marketDataMeta,
+      source: MARKET_DATA_SOURCES.BINANCE_FUTURES,
+      selectedSymbol: symbol,
+      selectedTimeframe: timeframe,
+      lastSyncAt: new Date().toISOString(),
+      lastCandleTimestamp: getLatestCandleTimestamp(marketDataCandles),
+    };
+    await Promise.all([saveMarketData(marketDataCandles), saveMarketDataMeta(marketDataMeta)]);
+    strategyLabDataState = {
+      loading: false,
+      error: "",
+      lastLoadedCount: fetched.length,
+      lastLoadedSymbol: symbol,
+      lastLoadedTimeframe: timeframe,
+      lastLoadedAt: new Date().toISOString(),
+    };
+    setStrategyLabStatus(`Loaded ${fetched.length} ${symbol} ${timeframe} candles from Binance Futures.`, "success");
+    renderStrategyLab();
+    return fetched;
+  } catch (error) {
+    strategyLabDataState = { ...strategyLabDataState, loading: false, error: error.message };
+    setStrategyLabStatus(`Historical load failed: ${error.message}`, "error");
+    renderStrategyLab();
+    return [];
+  }
+}
+
 function buildStrategySignalContextMap() {
   const map = new Map();
   const feed = [...state.signals, ...livePatternSignals].filter((row) => row?.timestamp);
@@ -1557,16 +1666,41 @@ function renderStrategyLab() {
     els.slStrategy.value = strategyLabConfig.strategyId;
   }
 
-  if (els.slSymbol && !els.slSymbol.options.length) {
+  if (els.slSymbol) {
+    const previous = els.slSymbol.value;
     const symbolOptions = [...new Set((marketDataCandles || []).map((c) => c.symbol || c.asset || marketDataMeta.selectedSymbol).filter(Boolean))];
     const all = symbolOptions.length ? symbolOptions : [...new Set([marketDataMeta.selectedSymbol || "BTCUSDT", "BTCUSDT", "ETHUSDT"])];
     els.slSymbol.innerHTML = all.map((symbol) => `<option value="${symbol}">${symbol}</option>`).join("");
-    els.slSymbol.value = all.includes(marketDataMeta.selectedSymbol) ? marketDataMeta.selectedSymbol : all[0];
+    els.slSymbol.value = all.includes(previous) ? previous : (all.includes(marketDataMeta.selectedSymbol) ? marketDataMeta.selectedSymbol : all[0]);
   }
 
   if (els.slParams && !els.slParams.value) {
     const defaults = getDefaultParams(strategyLabConfig.strategyId);
     els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
+  }
+  if (els.slJsonMode) els.slJsonMode.value = strategyLabJsonMode;
+  if (els.slJsonStatus) {
+    if (!els.slJsonStatus.textContent || els.slJsonStatus.classList.contains("muted")) {
+      els.slJsonStatus.className = "quick-add-feedback muted";
+      els.slJsonStatus.textContent = strategyLabJsonMode === "strategy"
+        ? "Strategy JSON mode: define rule-based entry/exit/risk config."
+        : "Parameter JSON mode: tune selected registered strategy.";
+    }
+  }
+
+  const dataSummary = getStrategyLabDatasetSummary();
+  if (els.slDataStatus) {
+    const lines = [];
+    if (strategyLabDataState.loading) lines.push("Loading Binance Futures candles...");
+    if (dataSummary.matchingTotal) lines.push(`Loaded ${dataSummary.matchingTotal} ${dataSummary.symbol} ${dataSummary.timeframe} candles in store.`);
+    else lines.push(`No ${dataSummary.symbol} ${dataSummary.timeframe} candles loaded yet.`);
+    if (dataSummary.mismatch) lines.push("Dataset symbol/timeframe does not match current selection.");
+    if (dataSummary.sufficient) lines.push(`Ready: ${dataSummary.selectedCount}/${dataSummary.rangeBars} bars available for run window.`);
+    else lines.push(`Need at least 100 candles, only ${dataSummary.selectedCount} are loaded for current range.`);
+    if (strategyLabDataState.lastLoadedAt) lines.push(`Last fetch: ${new Date(strategyLabDataState.lastLoadedAt).toLocaleString()}`);
+    if (strategyLabDataState.error) lines.push(`Error: ${strategyLabDataState.error}`);
+    els.slDataStatus.className = `panel-soft tiny ${dataSummary.sufficient ? "success" : "muted"}`;
+    els.slDataStatus.innerHTML = lines.join(" · ");
   }
 
   const approvedRuns = strategyRuns.filter((row) => row.approvedForLiveShadow).sort((a, b) => new Date(b.approvedAt || 0) - new Date(a.approvedAt || 0));
@@ -1606,40 +1740,50 @@ function renderStrategyLab() {
 
 async function runStrategyLabBacktest() {
   try {
-    const strategyId = els.slStrategy?.value || strategyLabConfig.strategyId;
+    const selectedStrategyId = els.slStrategy?.value || strategyLabConfig.strategyId;
     const symbol = els.slSymbol?.value || marketDataMeta.selectedSymbol;
     const timeframe = els.slTimeframe?.value || marketDataMeta.selectedTimeframe;
     const rangeBars = Number(els.slRangeBars?.value || 500);
+    const parsedInput = parseStrategyLabJsonInput();
     let runtime = buildStrategyRuntimeContext(symbol, timeframe);
     let candles = runtime.candles.slice(-Math.max(100, rangeBars));
     if (candles.length < 100) {
-      const fetched = await loadHistoricalCandles({
-        source: MARKET_DATA_SOURCES.BINANCE_FUTURES,
-        symbol,
-        timeframe,
-        limit: Math.min(5000, Math.max(500, rangeBars)),
-      });
-      if (Array.isArray(fetched) && fetched.length) {
-        marketDataCandles = mergeCandles(marketDataCandles, fetched);
-        runtime = buildStrategyRuntimeContext(symbol, timeframe);
-        candles = runtime.candles.slice(-Math.max(100, rangeBars));
-      }
+      setStrategyLabStatus(`No valid dataset loaded. Fetch ${Math.min(5000, Math.max(500, rangeBars))} ${symbol} ${timeframe} candles now...`, "muted");
+      await loadStrategyLabHistory();
+      runtime = buildStrategyRuntimeContext(symbol, timeframe);
+      candles = runtime.candles.slice(-Math.max(100, rangeBars));
     }
     if (candles.length < 100) {
-      setStrategyLabStatus("Need at least 100 candles for Strategy Lab run.", "warn");
+      setStrategyLabStatus(`Need at least 100 candles, only ${candles.length} are loaded for ${symbol} ${timeframe}.`, "warn");
       return;
     }
     const features = buildStrategyFeatures(candles, runtime);
-    const parsed = parseStrategyParamsInput();
-    strategyLabConfig = { strategyId, ...parsed };
-    const variants = parsed.variants?.length ? parsed.variants : [{ label: "Base", strategyId, params: parsed.params, risk: parsed.risk, execution: parsed.execution }];
+    const parsed = parsedInput.paramsPayload;
+    const customStrategyId = parsedInput.strategyDefinition?.strategyId || selectedStrategyId;
+    strategyLabConfig = {
+      strategyId: customStrategyId,
+      jsonMode: parsedInput.mode,
+      customStrategyDefinition: parsedInput.strategyDefinition || null,
+      ...parsed,
+    };
+    const variants = parsed.variants?.length
+      ? parsed.variants
+      : [{
+        label: "Base",
+        strategyId: customStrategyId,
+        params: parsed.params,
+        risk: parsed.risk,
+        execution: parsed.execution,
+        customStrategyDefinition: parsedInput.strategyDefinition || null,
+      }];
     latestStrategyBatchResults = variants.map((variant) => {
-      const runStrategyId = variant.strategyId || strategyId;
+      const runStrategyId = variant.strategyId || customStrategyId;
       const runConfig = {
         strategyId: runStrategyId,
         params: variant.params || parsed.params,
         risk: variant.risk || parsed.risk,
         execution: { ...strategyLabConfig.execution, ...(variant.execution || {}) },
+        customStrategyDefinition: variant.customStrategyDefinition || parsedInput.strategyDefinition || null,
       };
       const result = runStrategyBacktest({ strategyId: runStrategyId, candles, features, strategyConfig: runConfig, runtimeContext: runtime });
       return { label: variant.label, strategyId: runStrategyId, config: runConfig, metrics: result.metrics, trades: result.trades };
@@ -1650,7 +1794,7 @@ async function runStrategyLabBacktest() {
     strategyLabConfig = best?.config || strategyLabConfig;
     strategyLabRlProbe = new RlEnvironmentAdapter({ candles, features, windowSize: 20 });
     const firstState = strategyLabRlProbe.reset();
-    setStrategyLabStatus(`Backtest completed (${latestStrategyBatchResults.length} run${latestStrategyBatchResults.length > 1 ? "s" : ""}). Best: ${best?.label || best?.strategyId} · ${best?.trades?.length || 0} trades · RL state window ${firstState?.candlesWindow?.length || 0}.`, "success");
+    setStrategyLabStatus(`Backtest completed (${latestStrategyBatchResults.length} run${latestStrategyBatchResults.length > 1 ? "s" : ""}). ${parsedInput.summary} Best: ${best?.label || best?.strategyId} · ${best?.trades?.length || 0} trades · RL state window ${firstState?.candlesWindow?.length || 0}.`, "success");
     renderStrategyLab();
   } catch (error) {
     console.error("[StrategyLab] run failed", error);
@@ -1666,8 +1810,8 @@ async function handleSaveStrategyRun() {
   const strategy = getStrategyById(strategyLabConfig.strategyId);
   const run = await persistStrategyRun({
     strategyId: strategyLabConfig.strategyId,
-    strategyName: strategy?.name,
-    strategyType: strategy?.type,
+    strategyName: strategyLabConfig.customStrategyDefinition?.name || strategy?.name || strategyLabConfig.strategyId,
+    strategyType: strategyLabConfig.customStrategyDefinition ? "rule-based-json" : strategy?.type,
     parameters: strategyLabConfig,
     symbol: els.slSymbol?.value || marketDataMeta.selectedSymbol,
     timeframe: els.slTimeframe?.value || marketDataMeta.selectedTimeframe,
@@ -1681,6 +1825,15 @@ async function handleSaveStrategyRun() {
   });
   strategyRuns = [run, ...strategyRuns.filter((row) => row.id !== run.id)].slice(0, 200);
   await saveStrategyRuns(strategyRuns);
+  if (strategyLabConfig.customStrategyDefinition) {
+    const defs = Array.isArray(botCompilerState.strategyJsonDefinitions) ? botCompilerState.strategyJsonDefinitions : [];
+    const nextDefs = [
+      { ...strategyLabConfig.customStrategyDefinition, savedAt: new Date().toISOString() },
+      ...defs.filter((row) => row.strategyId !== strategyLabConfig.customStrategyDefinition.strategyId),
+    ].slice(0, 100);
+    botCompilerState = { ...botCompilerState, strategyJsonDefinitions: nextDefs };
+    persistBotCompiler();
+  }
   selectedStrategyRunId = run.id;
   setStrategyLabStatus("Strategy run saved.", "success");
   renderStrategyLab();
@@ -1695,6 +1848,7 @@ function handleLoadStrategyRun() {
   latestStrategyResult = { metrics: row.metrics || {}, trades: row.trades || [] };
   latestStrategyBatchResults = [];
   strategyLabConfig = row.parameters || strategyLabConfig;
+  strategyLabJsonMode = strategyLabConfig.customStrategyDefinition ? "strategy" : (strategyLabConfig.jsonMode || "parameters");
   if (els.slStrategy) els.slStrategy.value = row.strategyId;
   if (els.slSymbol) els.slSymbol.value = row.symbol;
   if (els.slTimeframe) els.slTimeframe.value = row.timeframe;
@@ -2344,7 +2498,43 @@ function setupEvents() {
   els.slStrategy?.addEventListener("change", () => {
     strategyLabConfig.strategyId = els.slStrategy.value;
     const defaults = getDefaultParams(strategyLabConfig.strategyId);
-    if (els.slParams) els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
+    if (els.slParams && strategyLabJsonMode === "parameters") els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
+    renderStrategyLab();
+  });
+  els.slJsonMode?.addEventListener("change", () => {
+    strategyLabJsonMode = els.slJsonMode.value === "strategy" ? "strategy" : "parameters";
+    if (els.slParams) {
+      if (strategyLabJsonMode === "strategy") {
+        els.slParams.value = JSON.stringify({
+          strategyId: "custom_rule_strategy",
+          name: "Custom Rule Strategy",
+          type: "rule-based",
+          entry: { long: ["close > sma20", "rsi14 > 55"], short: ["close < sma50", "rsi14 < 45"] },
+          exit: { maxBarsInTrade: 24 },
+          risk: { stopLossAtr: 1, takeProfitAtr: 1.8, feeBps: 4, slippageBps: 2, initialEquity: 10000 },
+          filters: { session: [], allowLong: true, allowShort: true },
+        }, null, 2);
+      } else {
+        const defaults = getDefaultParams(strategyLabConfig.strategyId);
+        els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
+      }
+    }
+    renderStrategyLab();
+  });
+  els.slLoadHistoryBtn?.addEventListener("click", loadStrategyLabHistory);
+  els.slSymbol?.addEventListener("change", renderStrategyLab);
+  els.slTimeframe?.addEventListener("change", renderStrategyLab);
+  els.slRangeBars?.addEventListener("change", renderStrategyLab);
+  els.slParams?.addEventListener("input", () => {
+    if (!els.slJsonStatus) return;
+    try {
+      const parsed = parseStrategyLabJsonInput();
+      els.slJsonStatus.className = "quick-add-feedback success";
+      els.slJsonStatus.textContent = parsed.summary;
+    } catch (error) {
+      els.slJsonStatus.className = "quick-add-feedback error";
+      els.slJsonStatus.textContent = error.message;
+    }
   });
   els.slRunBtn?.addEventListener("click", runStrategyLabBacktest);
   els.slSaveBtn?.addEventListener("click", handleSaveStrategyRun);
