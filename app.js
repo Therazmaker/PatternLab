@@ -18,6 +18,7 @@ import {
   loadLivePatternSummary,
   loadFuturesPolicyConfig,
   loadFuturesPolicySnapshots,
+  loadLiveShadowState,
   loadNotes,
   loadPatternVersionsRegistry,
   loadPromotedPatterns,
@@ -36,6 +37,7 @@ import {
   saveLivePatternSummary,
   saveFuturesPolicyConfig,
   saveFuturesPolicySnapshots,
+  saveLiveShadowState,
   saveMetaFeedback,
   saveNotes,
   savePatternVersionsRegistry,
@@ -108,9 +110,10 @@ import { computeMonteCarloSummary, runMonteCarlo } from "./modules/montecarlo.js
 import { buildRobustnessInsight, computeRobustnessScore } from "./modules/robustness.js";
 import { filterNotes, upsertNote } from "./modules/journal.js";
 import { enrichSignals } from "./modules/intelligence.js";
-import { buildFuturesPolicyFeatures } from "./modules/futuresPolicyFeatures.js";
-import { evaluateFuturesPolicy } from "./modules/futuresPolicyEngine.js";
-import { replayFuturesDecision } from "./modules/futuresReplay.js";
+import { createLiveShadowMonitor } from "./modules/liveShadowMonitor.js";
+import { createLiveShadowTimeline } from "./modules/liveShadowTimeline.js";
+import { computeLiveShadowStats } from "./modules/liveShadowStats.js";
+import { formatConfidence, formatNumber, formatPct, formatTs, getOutcomeBadgeClass } from "./modules/liveShadowFormatters.js";
 import {
   applyMetaFeedbackBias,
   buildErrorClusters,
@@ -180,7 +183,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdSource: document.getElementById("md-source"), mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdLiveStatus: document.getElementById("md-live-status"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
+  mdSource: document.getElementById("md-source"), mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdLiveStatus: document.getElementById("md-live-status"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), mdLiveShadowStatus: document.getElementById("md-live-shadow-status"), mdLiveShadowPolicy: document.getElementById("md-live-shadow-policy"), mdLiveShadowPending: document.getElementById("md-live-shadow-pending"), mdLiveShadowStats: document.getElementById("md-live-shadow-stats"), mdLiveShadowTimelineBody: document.getElementById("md-live-shadow-timeline-body"), mdLiveShadowDetail: document.getElementById("md-live-shadow-detail"), mdLiveShadowFilterSymbol: document.getElementById("md-live-shadow-filter-symbol"), mdLiveShadowFilterTimeframe: document.getElementById("md-live-shadow-filter-timeframe"), mdLiveShadowFilterAction: document.getElementById("md-live-shadow-filter-action"), mdLiveShadowFilterResult: document.getElementById("md-live-shadow-filter-result"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
 };
 
 els.seededNeuronSelect = document.getElementById("seeded-neuron-select");
@@ -275,6 +278,11 @@ let marketDataLiveToken = null;
 let marketDataOpenCandle = null;
 let futuresPolicyConfig = { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true, maxHoldBars: 24 };
 let futuresPolicySnapshots = [];
+const liveShadowMonitor = createLiveShadowMonitor({ maxHistory: 400 });
+const liveShadowTimeline = createLiveShadowTimeline({ limit: 300 });
+let liveShadowFilters = { symbol: "all", timeframe: "all", action: "all", result: "all" };
+let liveShadowStats = computeLiveShadowStats([]);
+let liveShadowSelectedId = "";
 let marketDataDiagnostics = null;
 let neuronActivations = [];
 let neuronSummary = null;
@@ -318,6 +326,7 @@ function refreshStorageStatusUI() {
     <li><span>Promoted Patterns</span><strong>${counts.promotedPatterns || 0}</strong></li>
     <li><span>Live Signals</span><strong>${counts.livePatternSignals || 0}</strong></li>
     <li><span>Live Summary Rows</span><strong>${counts.livePatternSummary || 0}</strong></li>
+    <li><span>Live Shadow Records</span><strong>${counts.liveShadowRecords || 0}</strong></li>
     <li><span>Tamaño estimado</span><strong>${Math.round(estimatedBytes / 1024)} KB</strong></li>
   `;
   els.settingsStorageStatus.textContent = backend === "indexedDB"
@@ -327,7 +336,7 @@ function refreshStorageStatusUI() {
 
 function persist() {
   refreshFuturesSnapshots();
-  Promise.all([saveSignals(state.signals), saveSessions(state.sessions), saveFuturesPolicySnapshots(futuresPolicySnapshots), saveFuturesPolicyConfig(futuresPolicyConfig)])
+  Promise.all([saveSignals(state.signals), saveSessions(state.sessions), saveFuturesPolicySnapshots(futuresPolicySnapshots), saveFuturesPolicyConfig(futuresPolicyConfig), persistLiveShadowState()])
     .catch((error) => console.error("[Storage] persist() failed", error));
 }
 function persistNotes() { saveNotes(notes).catch((error) => console.error("[Storage] saveNotes failed", error)); }
@@ -2798,56 +2807,110 @@ function renderMarketLiveStatus() {
   els.mdLiveStatus.innerHTML = `Live ${connected ? "connected" : "idle/disconnected"} · reconnects ${reconnectAttempts} · last tick ${lastMessage ? new Date(lastMessage).toLocaleTimeString() : "-"} · last close ${lastClose ? new Date(lastClose).toLocaleTimeString() : "-"}`;
 }
 
+function persistLiveShadowState() {
+  return saveLiveShadowState({
+    records: liveShadowMonitor.getRecords(),
+    filters: liveShadowFilters,
+    latestStats: liveShadowStats,
+    context: { source: getSelectedMarketDataSource(), symbol: getSelectedMarketDataSymbol(), timeframe: getSelectedMarketDataTimeframe() },
+  });
+}
+
+// UI subscription point for live updates from the shadow monitor.
+function renderLiveShadowPanel() {
+  const allRecords = liveShadowMonitor.getRecords();
+  liveShadowTimeline.setRecords(allRecords);
+  const symbols = ["all", ...new Set(allRecords.map((row) => row.symbol).filter(Boolean))];
+  const timeframes = ["all", ...new Set(allRecords.map((row) => row.timeframe).filter(Boolean))];
+  if (els.mdLiveShadowFilterSymbol) {
+    els.mdLiveShadowFilterSymbol.innerHTML = symbols.map((value) => `<option value="${value}">${value}</option>`).join("");
+    if (!symbols.includes(liveShadowFilters.symbol)) liveShadowFilters.symbol = "all";
+    els.mdLiveShadowFilterSymbol.value = liveShadowFilters.symbol;
+  }
+  if (els.mdLiveShadowFilterTimeframe) {
+    els.mdLiveShadowFilterTimeframe.innerHTML = timeframes.map((value) => `<option value="${value}">${value}</option>`).join("");
+    if (!timeframes.includes(liveShadowFilters.timeframe)) liveShadowFilters.timeframe = "all";
+    els.mdLiveShadowFilterTimeframe.value = liveShadowFilters.timeframe;
+  }
+  if (els.mdLiveShadowFilterAction) els.mdLiveShadowFilterAction.value = liveShadowFilters.action || "all";
+  if (els.mdLiveShadowFilterResult) els.mdLiveShadowFilterResult.value = liveShadowFilters.result || "all";
+  const filtered = liveShadowTimeline.getFiltered(liveShadowFilters);
+  liveShadowStats = computeLiveShadowStats(filtered);
+  const latest = filtered[0] || null;
+  const pendingCount = filtered.filter((row) => row.outcome?.status === "pending").length;
+  const source = getSelectedMarketDataSource();
+  const sourceStatus = getSourceStatus({ source });
+  const live = marketDataMeta?.liveStatus || {};
+  const streamConnected = source === MARKET_DATA_SOURCES.BINANCE_FUTURES && Boolean(sourceStatus?.connected || live.connected);
+  const lastClosed = marketDataCandles[marketDataCandles.length - 1];
+
+  if (els.mdLiveShadowStatus) {
+    els.mdLiveShadowStatus.innerHTML = source !== MARKET_DATA_SOURCES.BINANCE_FUTURES
+      ? "Live Shadow monitor is idle. Switch source to Binance Futures to enable."
+      : `Binance Futures · ${getSelectedMarketDataSymbol()} ${getSelectedMarketDataTimeframe()} · stream ${streamConnected ? "connected" : "disconnected"} · candle ${marketDataOpenCandle ? "open/updating" : "awaiting"} · last close ${lastClosed ? formatNumber(lastClosed.close, 4) : "-"} · update ${formatTs(marketDataMeta?.lastSyncAt)}`;
+  }
+
+  if (els.mdLiveShadowPolicy) {
+    els.mdLiveShadowPolicy.innerHTML = latest
+      ? `<p><span class="badge ${latest.policy.action === "LONG" ? "call" : latest.policy.action === "SHORT" ? "put" : "tag"}">${latest.policy.action}</span> <span class="badge">${formatConfidence(latest.policy.confidence)}</span> ${Number.isFinite(latest.plan.riskReward) ? `<span class="badge">RR ${formatNumber(latest.plan.riskReward, 2)}</span>` : ""}</p><p class="muted">${latest.policy.reason || "-"}</p><p class="muted">Ref ${formatNumber(latest.plan.referencePrice, 4)} · SL ${formatNumber(latest.plan.stopLoss, 4)} · TP ${formatNumber(latest.plan.takeProfit, 4)}</p><p>${(latest.policy.thesisTags || []).slice(0, 4).map((tag) => `<span class="badge">${tag}</span>`).join(" ")}</p>`
+      : `<p class="muted">No policy decisions yet.</p>`;
+  }
+
+  if (els.mdLiveShadowPending) {
+    const nextPending = filtered.find((row) => row.outcome?.status === "pending");
+    const elapsedBars = nextPending ? Math.max(0, marketDataCandles.length - 1 - Number(nextPending.candleIndex || 0)) : 0;
+    els.mdLiveShadowPending.innerHTML = `<p><strong>Pending:</strong> ${pendingCount}</p><p class="muted">${nextPending ? `${nextPending.symbol} ${nextPending.timeframe} · ${nextPending.policy.action} · elapsed bars ${elapsedBars}` : "No pending outcome."}</p>`;
+  }
+
+  if (els.mdLiveShadowStats) {
+    els.mdLiveShadowStats.innerHTML = `<p>Decisions ${liveShadowStats.totalDecisions} · Wins ${liveShadowStats.wins} · Losses ${liveShadowStats.losses} · Win rate ${formatPct((liveShadowStats.winRate || 0) * 100, 1)}</p><p class="muted">Avg confidence ${formatConfidence(liveShadowStats.avgConfidence)} · Avg R ${formatNumber(liveShadowStats.avgRMultiple, 2)} · Avg pnl ${formatPct(liveShadowStats.avgPnlPct, 2)} · Max streak W${liveShadowStats.maxWinStreak}/L${liveShadowStats.maxLossStreak}</p>`;
+  }
+
+  if (els.mdLiveShadowTimelineBody) {
+    els.mdLiveShadowTimelineBody.innerHTML = filtered.length
+      ? filtered.slice(0, 30).map((row) => `<tr data-live-shadow-id="${row.id}"><td>${new Date(row.timestamp).toLocaleTimeString()}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td><span class="badge ${row.policy.action === "LONG" ? "call" : row.policy.action === "SHORT" ? "put" : "tag"}">${row.policy.action}</span></td><td>${formatConfidence(row.policy.confidence)}</td><td>${row.outcome.status === "resolved" ? `<span class="badge ${getOutcomeBadgeClass(row.outcome.result)}">${row.outcome.result}</span>` : `<span class="badge">pending</span>`}</td><td>${row.outcome.status === "resolved" ? formatNumber(row.outcome.rMultiple, 2) : "-"}</td></tr>`).join("")
+      : `<tr><td colspan="7" class="muted">No live decisions for current filter.</td></tr>`;
+  }
+
+  const selected = filtered.find((row) => row.id === liveShadowSelectedId) || latest;
+  if (els.mdLiveShadowDetail) {
+    els.mdLiveShadowDetail.innerHTML = selected
+      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p>`
+      : `<p class="muted">Select a live decision row to inspect full details.</p>`;
+  }
+}
+
 async function applyLiveFuturesPolicyOnClose(closedCandle) {
   if (!closedCandle || !futuresPolicyConfig?.enabled) return;
-  const candleIndex = marketDataCandles.findIndex((row) => row.id === closedCandle.id);
-  if (candleIndex < 0) return;
-
-  const liveSignal = {
-    id: `live_shadow_${closedCandle.id}`,
-    timestamp: closedCandle.timestamp,
-    asset: closedCandle.asset,
-    timeframe: closedCandle.timeframe,
-    direction: "CALL",
-    marketRegime: "live-observer",
-    entryPrice: closedCandle.close,
-    contextScore: 50,
-    radarScore: 50,
-    freshnessScore: 50,
-    patternMeta: { robustness: { robustnessScore: 55, overfitRisk: "low" } },
-  };
-
-  const features = buildFuturesPolicyFeatures({
-    signal: liveSignal,
+  const record = liveShadowMonitor.createSnapshot({
+    candle: closedCandle,
     candles: marketDataCandles,
     neuronActivations,
     seededPatterns,
-    candleIndex,
+    policyConfig: futuresPolicyConfig,
+    sourceStatus: getSourceStatus({ source: closedCandle.source }),
   });
-  const decision = evaluateFuturesPolicy({
-    state: features.state,
-    candles: marketDataCandles,
-    config: futuresPolicyConfig,
-  });
-  const replay = replayFuturesDecision(decision, marketDataCandles, candleIndex, futuresPolicyConfig);
-  const snapshot = {
-    id: `live-policy-${closedCandle.id}`,
-    type: "live-shadow-decision",
-    timestamp: closedCandle.timestamp,
-    source: closedCandle.source,
-    asset: closedCandle.asset,
-    timeframe: closedCandle.timeframe,
-    action: decision.action,
-    confidence: decision.confidence,
-    reason: decision.reason,
-    executionPlan: decision.executionPlan,
-    evidence: decision.evidence,
-    replay,
-    policyVersion: decision.policyVersion,
-  };
+  if (record) liveShadowMonitor.upsertRecord(record);
+  liveShadowMonitor.resolvePending({ candles: marketDataCandles, maxHoldBars: Number(futuresPolicyConfig.maxHoldBars || 24) });
 
-  futuresPolicySnapshots = [snapshot, ...futuresPolicySnapshots].slice(0, 300);
-  await saveFuturesPolicySnapshots(futuresPolicySnapshots);
+  const latestRecords = liveShadowMonitor.getRecords();
+  futuresPolicySnapshots = latestRecords.slice(0, 300).map((row) => ({
+    id: row.id,
+    type: "live-shadow-decision",
+    timestamp: row.timestamp,
+    source: row.source,
+    asset: row.symbol,
+    timeframe: row.timeframe,
+    action: row.policy?.action,
+    confidence: row.policy?.confidence,
+    reason: row.policy?.reason,
+    executionPlan: row.plan,
+    evidence: row.policy?.supportingEvidence,
+    replay: row.outcome,
+    policyVersion: row._meta?.policyVersion,
+  }));
+  await Promise.all([saveFuturesPolicySnapshots(futuresPolicySnapshots), persistLiveShadowState()]);
+  renderLiveShadowPanel();
 }
 
 async function handleLiveCandleUpdate(candle) {
@@ -2920,6 +2983,7 @@ async function ensureLiveSubscription() {
       }
       saveMarketDataMeta(marketDataMeta);
       renderMarketLiveStatus();
+      renderLiveShadowPanel();
     },
   });
   marketDataLiveToken = result?.token || null;
@@ -2927,6 +2991,8 @@ async function ensureLiveSubscription() {
 }
 
 function refreshMarketDataUI() {
+  const newlyResolved = liveShadowMonitor.resolvePending({ candles: marketDataCandles, maxHoldBars: Number(futuresPolicyConfig.maxHoldBars || 24) });
+  if (newlyResolved.length) persistLiveShadowState();
   const total = marketDataCandles.length;
   const first = getEarliestCandleTimestamp(marketDataCandles);
   const last = getLatestCandleTimestamp(marketDataCandles);
@@ -2944,6 +3010,7 @@ function refreshMarketDataUI() {
   els.mdStatus.innerHTML = infoLines.join(" &nbsp;·&nbsp; ");
 
   renderMarketLiveStatus();
+  renderLiveShadowPanel();
   renderMarketDataDiagnostics();
   renderNeuronSummaryPanel();
   renderNeuronLatestPreview();
@@ -3183,6 +3250,32 @@ function setupMarketDataEvents() {
     await ensureLiveSubscription();
     renderMarketLiveStatus();
   });
+  els.mdLiveShadowFilterSymbol?.addEventListener("change", async () => {
+    liveShadowFilters = { ...liveShadowFilters, symbol: els.mdLiveShadowFilterSymbol.value || "all" };
+    renderLiveShadowPanel();
+    await persistLiveShadowState();
+  });
+  els.mdLiveShadowFilterTimeframe?.addEventListener("change", async () => {
+    liveShadowFilters = { ...liveShadowFilters, timeframe: els.mdLiveShadowFilterTimeframe.value || "all" };
+    renderLiveShadowPanel();
+    await persistLiveShadowState();
+  });
+  els.mdLiveShadowFilterAction?.addEventListener("change", async () => {
+    liveShadowFilters = { ...liveShadowFilters, action: els.mdLiveShadowFilterAction.value || "all" };
+    renderLiveShadowPanel();
+    await persistLiveShadowState();
+  });
+  els.mdLiveShadowFilterResult?.addEventListener("change", async () => {
+    liveShadowFilters = { ...liveShadowFilters, result: els.mdLiveShadowFilterResult.value || "all" };
+    renderLiveShadowPanel();
+    await persistLiveShadowState();
+  });
+  els.mdLiveShadowTimelineBody?.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-live-shadow-id]");
+    if (!row) return;
+    liveShadowSelectedId = row.getAttribute("data-live-shadow-id") || "";
+    renderLiveShadowPanel();
+  });
 
   els.mdFetchBtn?.addEventListener("click", handleMarketDataFetch);
   els.mdSyncBtn?.addEventListener("click", handleMarketDataSync);
@@ -3267,6 +3360,10 @@ async function init() {
   if (els.mdTimeframe) els.mdTimeframe.value = marketDataMeta.selectedTimeframe || "5m";
   futuresPolicyConfig = { ...futuresPolicyConfig, ...(loadFuturesPolicyConfig() || {}) };
   futuresPolicySnapshots = loadFuturesPolicySnapshots();
+  const storedLiveShadow = loadLiveShadowState() || {};
+  liveShadowFilters = { ...liveShadowFilters, ...(storedLiveShadow.filters || {}) };
+  liveShadowStats = storedLiveShadow.latestStats || liveShadowStats;
+  liveShadowMonitor.setRecords(Array.isArray(storedLiveShadow.records) ? storedLiveShadow.records : []);
   promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
   seededPatterns = loadSeededPatterns();
   seededPatternResults = loadSeededPatternResults();

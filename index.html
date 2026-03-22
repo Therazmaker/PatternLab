@@ -505,6 +505,58 @@
         </div>
         <p id="md-status" class="quick-add-feedback muted"></p>
         <p id="md-live-status" class="quick-add-feedback muted">Live idle.</p>
+        <h3>Live Shadow Monitor</h3>
+        <div id="md-live-shadow-status" class="panel-soft muted tiny">Live shadow idle.</div>
+        <div class="split">
+          <article class="panel-soft">
+            <h4>Current Policy</h4>
+            <div id="md-live-shadow-policy" class="muted tiny">No policy decisions yet.</div>
+          </article>
+          <article class="panel-soft">
+            <h4>Pending Outcomes</h4>
+            <div id="md-live-shadow-pending" class="muted tiny">No pending outcome.</div>
+          </article>
+        </div>
+        <article id="md-live-shadow-stats" class="panel-soft muted tiny">Live shadow stats pending.</article>
+        <div class="filters">
+          <label>Symbol
+            <select id="md-live-shadow-filter-symbol">
+              <option value="all">all</option>
+            </select>
+          </label>
+          <label>Timeframe
+            <select id="md-live-shadow-filter-timeframe">
+              <option value="all">all</option>
+            </select>
+          </label>
+          <label>Action
+            <select id="md-live-shadow-filter-action">
+              <option value="all">all</option>
+              <option value="LONG">LONG</option>
+              <option value="SHORT">SHORT</option>
+              <option value="NO_TRADE">NO_TRADE</option>
+            </select>
+          </label>
+          <label>Result
+            <select id="md-live-shadow-filter-result">
+              <option value="all">all</option>
+              <option value="pending">pending</option>
+              <option value="win">win</option>
+              <option value="loss">loss</option>
+              <option value="flat">flat</option>
+              <option value="skipped">skipped</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Time</th><th>Symbol</th><th>TF</th><th>Action</th><th>Confidence</th><th>Outcome</th><th>R</th></tr>
+            </thead>
+            <tbody id="md-live-shadow-timeline-body"></tbody>
+          </table>
+        </div>
+        <div id="md-live-shadow-detail" class="panel-soft muted tiny">Select a live shadow row to inspect details.</div>
         <div id="md-diagnostics" class="panel-soft muted tiny">Integrity check pendiente.</div>
         <div id="md-neuron-summary" class="panel-soft muted tiny">Neuron summary pendiente.</div>
         <div id="md-pattern-summary" class="panel-soft muted tiny">Pattern discovery pendiente.</div>

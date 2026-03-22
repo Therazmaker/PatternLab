@@ -23,6 +23,7 @@ const STORAGE_KEYS = [
   "livePatternSummary",
   "futuresPolicyConfig",
   "futuresPolicySnapshots",
+  "liveShadowState",
 ];
 
 const defaultMetaFeedback = {
@@ -36,7 +37,7 @@ let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
-  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [],
+  marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" } },
 };
 
 function enqueueWrite(task) {
@@ -70,6 +71,7 @@ function normalizeCache(snapshot = {}) {
     livePatternSummary: Array.isArray(snapshot.livePatternSummary) ? snapshot.livePatternSummary : [],
     futuresPolicyConfig: snapshot.futuresPolicyConfig && typeof snapshot.futuresPolicyConfig === "object" ? { ...cache.futuresPolicyConfig, ...snapshot.futuresPolicyConfig } : { ...cache.futuresPolicyConfig },
     futuresPolicySnapshots: Array.isArray(snapshot.futuresPolicySnapshots) ? snapshot.futuresPolicySnapshots : [],
+    liveShadowState: snapshot.liveShadowState && typeof snapshot.liveShadowState === "object" ? { ...cache.liveShadowState, ...snapshot.liveShadowState } : { ...cache.liveShadowState },
   };
 }
 
@@ -95,6 +97,7 @@ function writeLegacyByDomain(domain) {
     case "livePatternSummary": writeLegacyValue(LEGACY_KEYS.livePatternSummary, cache.livePatternSummary); break;
     case "futuresPolicyConfig": writeLegacyValue(LEGACY_KEYS.futuresPolicyConfig, cache.futuresPolicyConfig); break;
     case "futuresPolicySnapshots": writeLegacyValue(LEGACY_KEYS.futuresPolicySnapshots, cache.futuresPolicySnapshots); break;
+    case "liveShadowState": writeLegacyValue(LEGACY_KEYS.liveShadowState, cache.liveShadowState); break;
     default: break;
   }
 }
@@ -160,6 +163,7 @@ export function getStorageStatus() {
       livePatternSignals: cache.livePatternSignals.length,
       livePatternSummary: cache.livePatternSummary.length,
       futuresPolicySnapshots: cache.futuresPolicySnapshots.length,
+      liveShadowRecords: (cache.liveShadowState?.records || []).length,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -271,6 +275,12 @@ export function saveFuturesPolicySnapshots(rows) {
   cache.futuresPolicySnapshots = Array.isArray(rows) ? rows : [];
   return enqueueWrite(() => persistDomain("futuresPolicySnapshots"));
 }
+export function loadLiveShadowState() { return cache.liveShadowState || { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" } }; }
+export function saveLiveShadowState(value) {
+  const base = loadLiveShadowState();
+  cache.liveShadowState = value && typeof value === "object" ? { ...base, ...value } : { ...base };
+  return enqueueWrite(() => persistDomain("liveShadowState"));
+}
 
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -321,6 +331,7 @@ export function exportMemory() {
       livePatternSummary: cache.livePatternSummary || [],
       futuresPolicyConfig: cache.futuresPolicyConfig || {},
       futuresPolicySnapshots: cache.futuresPolicySnapshots || [],
+      liveShadowState: cache.liveShadowState || { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" } },
     },
   };
 }
@@ -349,6 +360,7 @@ export function validateMemoryPayload(payload) {
       seededPatternResults: Array.isArray(payload.data.seededPatternResults) ? payload.data.seededPatternResults.length : 0,
       livePatternSignals: Array.isArray(payload.data.livePatternSignals) ? payload.data.livePatternSignals.length : 0,
       livePatternSummary: Array.isArray(payload.data.livePatternSummary) ? payload.data.livePatternSummary.length : 0,
+      liveShadowRecords: Array.isArray(payload.data.liveShadowState?.records) ? payload.data.liveShadowState.records.length : 0,
     },
   };
 }
@@ -379,11 +391,12 @@ export async function importMemory(payload, mode = "replace") {
     livePatternSummary: payload.data.livePatternSummary || [],
     futuresPolicyConfig: payload.data.futuresPolicyConfig || cache.futuresPolicyConfig,
     futuresPolicySnapshots: payload.data.futuresPolicySnapshots || cache.futuresPolicySnapshots,
+    liveShadowState: payload.data.liveShadowState || cache.liveShadowState,
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 
