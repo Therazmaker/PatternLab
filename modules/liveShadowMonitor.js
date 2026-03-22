@@ -165,6 +165,8 @@ export function createLiveShadowMonitor(options = {}) {
         streamStatus: sourceStatus?.statusType || "unknown",
       },
       policy: {
+        strategyId: "live-shadow-policy",
+        strategyName: "Live Shadow Policy",
         action: decision.action,
         confidence: toNumber(decision.confidence, 0),
         reason: decision.reason || "",

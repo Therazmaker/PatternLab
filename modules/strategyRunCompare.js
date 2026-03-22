@@ -12,6 +12,7 @@ export function compareStrategyRuns(runs = []) {
       totalTrades: run.metrics?.totalTrades || 0,
       maxDrawdown: run.metrics?.maxDrawdown || 0,
       profitFactor: run.metrics?.profitFactor || 0,
+      approvedForLiveShadow: Boolean(run.approvedForLiveShadow),
     }))
     .sort((a, b) => (b.netPnl - a.netPnl) || (b.winRate - a.winRate));
 }

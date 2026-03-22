@@ -191,7 +191,7 @@ const els = {
   botPattern: document.getElementById("bot-pattern"), botVersion: document.getElementById("bot-version"), botDefinitionEditor: document.getElementById("bot-definition-editor"), botVersionNotes: document.getElementById("bot-version-notes"),
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
-  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
+  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionLivePlan: document.getElementById("session-live-plan"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
   mdSource: document.getElementById("md-source"), mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdLiveStatus: document.getElementById("md-live-status"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), mdLiveShadowStatus: document.getElementById("md-live-shadow-status"), mdLiveShadowPolicy: document.getElementById("md-live-shadow-policy"), mdLiveShadowPending: document.getElementById("md-live-shadow-pending"), mdLiveShadowStats: document.getElementById("md-live-shadow-stats"), mdLiveShadowTimelineBody: document.getElementById("md-live-shadow-timeline-body"), mdLiveShadowDetail: document.getElementById("md-live-shadow-detail"), mdLiveShadowFilterSymbol: document.getElementById("md-live-shadow-filter-symbol"), mdLiveShadowFilterTimeframe: document.getElementById("md-live-shadow-filter-timeframe"), mdLiveShadowFilterAction: document.getElementById("md-live-shadow-filter-action"), mdLiveShadowFilterResult: document.getElementById("md-live-shadow-filter-result"), mdLiveShadowAutoIngest: document.getElementById("md-live-shadow-auto-ingest"), mdLiveShadowImportSelectedBtn: document.getElementById("btn-live-shadow-import-selected"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
 };
 
@@ -253,7 +253,9 @@ els.slRunNotes = document.getElementById("sl-run-notes");
 els.slRunBtn = document.getElementById("btn-sl-run");
 els.slSaveBtn = document.getElementById("btn-sl-save");
 els.slLoadBtn = document.getElementById("btn-sl-load");
+els.slApproveBtn = document.getElementById("btn-sl-approve");
 els.slStatus = document.getElementById("sl-status");
+els.slApprovedStatus = document.getElementById("sl-approved-status");
 els.slMetrics = document.getElementById("sl-metrics");
 els.slRunsBody = document.getElementById("sl-runs-body");
 els.slTradesBody = document.getElementById("sl-trades-body");
@@ -346,6 +348,7 @@ let livePatternSummary = [];
 let importerMode = "research";
 let strategyRuns = [];
 let latestStrategyResult = null;
+let latestStrategyBatchResults = [];
 let selectedStrategyRunId = "";
 let strategyLabConfig = { strategyId: "sma_rsi_trend", params: {}, risk: {}, execution: { feeBps: 4, slippageBps: 2, initialEquity: 10000 } };
 let strategyLabRlProbe = null;
@@ -875,9 +878,48 @@ function renderSessionEventStrip(events = []) {
   els.sessionEventStrip.innerHTML = events.map((event) => `<span class="session-event-chip ${event.type || ""}">${event.label}</span>`).join("");
 }
 
+function resolveLivePlanStatus(record) {
+  if (!record) return "pending";
+  if (record.outcome?.status === "pending") return "pending";
+  if (record.policy?.action === "NO_TRADE") return "skipped";
+  const result = String(record.outcome?.result || "").toLowerCase();
+  if (result === "win") return "win";
+  if (result === "loss") return "loss";
+  return "skipped";
+}
+
+function getSessionLivePlanRecord(marketView) {
+  const rows = liveShadowMonitor.getRecords()
+    .filter((row) => row.symbol === marketView.symbol && row.timeframe === marketView.timeframe && ["LONG", "SHORT"].includes(row.policy?.action))
+    .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+  return rows.find((row) => row.outcome?.status === "pending") || rows[0] || null;
+}
+
+function renderSessionLivePlanPanel(record, marketView) {
+  if (!els.sessionLivePlan) return;
+  if (!record) {
+    els.sessionLivePlan.innerHTML = `No active live trade plan for ${marketView.symbol} ${marketView.timeframe}.`;
+    return;
+  }
+  const status = resolveLivePlanStatus(record);
+  const confidenceText = typeof record.policy?.confidence === "number" ? formatConfidence(record.policy.confidence) : "-";
+  els.sessionLivePlan.innerHTML = `
+    <div class="session-live-plan-head">
+      <span class="badge ${record.policy?.action === "LONG" ? "call" : "put"}">${record.policy?.action}</span>
+      <span class="badge ${getOutcomeBadgeClass(status)}">${status}</span>
+      <span class="badge">Entry ${formatNumber(record.plan?.referencePrice, 4)}</span>
+      <span class="badge">SL ${formatNumber(record.plan?.stopLoss, 4)}</span>
+      <span class="badge">TP ${formatNumber(record.plan?.takeProfit, 4)}</span>
+      <span class="badge">Confidence ${confidenceText}</span>
+    </div>
+    <p class="muted tiny">${record.policy?.strategyName || "Live Shadow Policy"} · ${formatTs(record.timestamp)} · ${(record.policy?.reason || "No thesis text").slice(0, 160)}</p>
+    <p class="muted tiny">${(record.policy?.thesisTags || []).slice(0, 4).map((tag) => `#${tag}`).join(" ")}</p>
+  `;
+}
+
 // Core binding: this renderer is called from refreshSessionCandlesTab and paints either
 // historical session candles or the live market candles from the active source/symbol/timeframe.
-function drawSessionCandles(session, explanations = [], marketAnalysis = null) {
+function drawSessionCandles(session, explanations = [], marketAnalysis = null, livePlanRecord = null) {
   if (!els.sessionSvg) return;
   const marketRows = marketAnalysis?.marketView?.candles || [];
   const useMarket = marketRows.length > 0;
@@ -956,7 +998,22 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null) {
   const rangeLines = sessionAnalysisPrefs.showStructure && typeof overlays.recentHigh === "number" && typeof overlays.recentLow === "number"
     ? `<line x1="10" x2="${width - 12}" y1="${y(overlays.recentHigh)}" y2="${y(overlays.recentHigh)}" stroke="rgba(239,68,68,.35)" stroke-dasharray="3 5" /><line x1="10" x2="${width - 12}" y1="${y(overlays.recentLow)}" y2="${y(overlays.recentLow)}" stroke="rgba(16,185,129,.35)" stroke-dasharray="3 5" />`
     : "";
-  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${rangeLines}${currentPriceLine}${emaSlow ? `<polyline points="${emaSlow}" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity=".7" />` : ""}${emaFast ? `<polyline points="${emaFast}" fill="none" stroke="#f59e0b" stroke-width="1.2" opacity=".8" />` : ""}${bodies}${swingHighs}${swingLows}${timeMarkers}</svg>`;
+  const liveStatus = resolveLivePlanStatus(livePlanRecord);
+  const liveColor = liveStatus === "win" ? "#22c55e" : liveStatus === "loss" ? "#ef4444" : liveStatus === "skipped" ? "#94a3b8" : "#a78bfa";
+  const liveStroke = livePlanRecord?.policy?.action === "LONG" ? "#38bdf8" : "#f97316";
+  const entryLine = typeof livePlanRecord?.plan?.referencePrice === "number"
+    ? `<line x1="10" x2="${width - 12}" y1="${y(livePlanRecord.plan.referencePrice)}" y2="${y(livePlanRecord.plan.referencePrice)}" stroke="${liveStroke}" stroke-width="1.6" /><text x="${width - 14}" y="${Math.max(11, y(livePlanRecord.plan.referencePrice) - 4)}" text-anchor="end" fill="${liveStroke}" font-size="10">Entry ${formatNumber(livePlanRecord.plan.referencePrice, 4)}</text>`
+    : "";
+  const stopLine = typeof livePlanRecord?.plan?.stopLoss === "number"
+    ? `<line x1="10" x2="${width - 12}" y1="${y(livePlanRecord.plan.stopLoss)}" y2="${y(livePlanRecord.plan.stopLoss)}" stroke="#ef4444" stroke-dasharray="6 4" /><text x="${width - 14}" y="${Math.max(11, y(livePlanRecord.plan.stopLoss) - 4)}" text-anchor="end" fill="#ef4444" font-size="10">SL ${formatNumber(livePlanRecord.plan.stopLoss, 4)}</text>`
+    : "";
+  const tpLine = typeof livePlanRecord?.plan?.takeProfit === "number"
+    ? `<line x1="10" x2="${width - 12}" y1="${y(livePlanRecord.plan.takeProfit)}" y2="${y(livePlanRecord.plan.takeProfit)}" stroke="#22c55e" stroke-dasharray="6 4" /><text x="${width - 14}" y="${Math.max(11, y(livePlanRecord.plan.takeProfit) - 4)}" text-anchor="end" fill="#22c55e" font-size="10">TP ${formatNumber(livePlanRecord.plan.takeProfit, 4)}</text>`
+    : "";
+  const statusBadge = livePlanRecord
+    ? `<rect x="14" y="10" width="230" height="24" rx="7" fill="rgba(15,23,42,.74)" stroke="${liveColor}" /><text x="22" y="26" fill="${liveColor}" font-size="11">${livePlanRecord.policy?.action} · ${liveStatus.toUpperCase()} · ${formatTs(livePlanRecord.timestamp)}</text>`
+    : "";
+  els.sessionSvg.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="280">${contextBand}${rangeLines}${currentPriceLine}${emaSlow ? `<polyline points="${emaSlow}" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity=".7" />` : ""}${emaFast ? `<polyline points="${emaFast}" fill="none" stroke="#f59e0b" stroke-width="1.2" opacity=".8" />` : ""}${entryLine}${stopLine}${tpLine}${statusBadge}${bodies}${swingHighs}${swingLows}${timeMarkers}</svg>`;
   els.sessionSvg.querySelectorAll('[data-candle-index]').forEach((node) => {
     node.addEventListener('mouseenter', () => {
       selectedSessionCandleIndex = Number(node.getAttribute('data-candle-index'));
@@ -1123,6 +1180,7 @@ function refreshSessionCandlesTab() {
   const explanations = viewed ? buildSessionCandleExplanations(viewed.candles, sessionAnalysisConfig) : [];
   const marketView = getSessionMarketView();
   const latestPolicy = liveShadowMonitor.getRecords().find((row) => row.symbol === marketView.symbol && row.timeframe === marketView.timeframe) || null;
+  const livePlanRecord = getSessionLivePlanRecord(marketView);
   const marketAnalysis = {
     marketView,
     analysis: buildSessionCandleAnalysis(marketView.candles, {
@@ -1136,8 +1194,9 @@ function refreshSessionCandlesTab() {
   if (viewed?.candles?.length && !selectedSessionCandleIndex) selectedSessionCandleIndex = viewed.candles[viewed.candles.length - 1].index;
   if (!viewed?.candles?.some((c) => c.index === selectedSessionCandleIndex)) selectedSessionCandleIndex = viewed?.candles?.[viewed.candles.length - 1]?.index || null;
   renderSessionHeader();
-  drawSessionCandles(viewed, explanations, marketAnalysis);
+  drawSessionCandles(viewed, explanations, marketAnalysis, livePlanRecord);
   renderSessionTable(viewed, explanations);
+  renderSessionLivePlanPanel(livePlanRecord, marketView);
   if (marketView.candles.length) {
     // Analysis summary is computed from active market candles and intelligence context.
     renderSessionMarketAnalysisPanel(marketAnalysis.analysis, marketView);
@@ -1437,12 +1496,24 @@ function setStrategyLabStatus(message, kind = "muted") {
 function parseStrategyParamsInput() {
   try {
     const raw = String(els.slParams?.value || "{}").trim();
-    if (!raw) return { params: {}, risk: {}, execution: strategyLabConfig.execution };
+    if (!raw) return { params: {}, risk: {}, execution: strategyLabConfig.execution, variants: [] };
     const parsed = JSON.parse(raw);
+    const variants = Array.isArray(parsed.variants)
+      ? parsed.variants
+        .filter((row) => row && typeof row === "object")
+        .map((row, index) => ({
+          label: String(row.label || `Variant ${index + 1}`),
+          strategyId: row.strategyId ? String(row.strategyId) : null,
+          params: row.params && typeof row.params === "object" ? row.params : {},
+          risk: row.risk && typeof row.risk === "object" ? row.risk : {},
+          execution: row.execution && typeof row.execution === "object" ? row.execution : {},
+        }))
+      : [];
     return {
       params: parsed.params && typeof parsed.params === "object" ? parsed.params : {},
       risk: parsed.risk && typeof parsed.risk === "object" ? parsed.risk : {},
       execution: parsed.execution && typeof parsed.execution === "object" ? { ...strategyLabConfig.execution, ...parsed.execution } : { ...strategyLabConfig.execution },
+      variants,
     };
   } catch (error) {
     throw new Error(`Invalid strategy JSON params: ${error.message}`);
@@ -1488,7 +1559,7 @@ function renderStrategyLab() {
 
   if (els.slSymbol && !els.slSymbol.options.length) {
     const symbolOptions = [...new Set((marketDataCandles || []).map((c) => c.symbol || c.asset || marketDataMeta.selectedSymbol).filter(Boolean))];
-    const all = symbolOptions.length ? symbolOptions : [marketDataMeta.selectedSymbol || "BTCUSDT"];
+    const all = symbolOptions.length ? symbolOptions : [...new Set([marketDataMeta.selectedSymbol || "BTCUSDT", "BTCUSDT", "ETHUSDT"])];
     els.slSymbol.innerHTML = all.map((symbol) => `<option value="${symbol}">${symbol}</option>`).join("");
     els.slSymbol.value = all.includes(marketDataMeta.selectedSymbol) ? marketDataMeta.selectedSymbol : all[0];
   }
@@ -1498,7 +1569,18 @@ function renderStrategyLab() {
     els.slParams.value = JSON.stringify({ params: defaults, risk: {}, execution: strategyLabConfig.execution }, null, 2);
   }
 
+  const approvedRuns = strategyRuns.filter((row) => row.approvedForLiveShadow).sort((a, b) => new Date(b.approvedAt || 0) - new Date(a.approvedAt || 0));
+  if (els.slApprovedStatus) {
+    const approved = approvedRuns[0];
+    els.slApprovedStatus.innerHTML = approved
+      ? `<strong>Approved for Live Shadow:</strong> ${approved.strategyId} · ${approved.symbol} ${approved.timeframe} · ${new Date(approved.approvedAt || approved.timestamp).toLocaleString()}`
+      : "No approved strategy run yet.";
+  }
+
   const metrics = latestStrategyResult?.metrics || null;
+  const batchSummary = latestStrategyBatchResults.length > 1
+    ? `<div class="panel-soft tiny">Batch runs: ${latestStrategyBatchResults.map((row) => `${row.label || row.strategyId}: ${(row.metrics?.winRate * 100 || 0).toFixed(1)}% WR / ${formatNumber(row.metrics?.netPnl || 0, 2)} PnL`).join(" · ")}</div>`
+    : "";
   els.slMetrics.innerHTML = metrics
     ? `<div class="kpi"><span>Total Trades</span><strong>${metrics.totalTrades}</strong></div>
       <div class="kpi"><span>Win Rate</span><strong>${(metrics.winRate * 100).toFixed(1)}%</strong></div>
@@ -1507,13 +1589,14 @@ function renderStrategyLab() {
       <div class="kpi"><span>Expectancy</span><strong>${formatNumber(metrics.expectancy, 2)}</strong></div>
       <div class="kpi"><span>Max DD</span><strong>${formatNumber(metrics.maxDrawdown, 2)}</strong></div>
       <div class="kpi"><span>Profit Factor</span><strong>${Number.isFinite(metrics.profitFactor) ? formatNumber(metrics.profitFactor, 2) : "∞"}</strong></div>
-      <div class="kpi"><span>Win/Loss Streak</span><strong>${metrics.longestWinStreak}/${metrics.longestLossStreak}</strong></div>`
+      <div class="kpi"><span>Win/Loss Streak</span><strong>${metrics.longestWinStreak}/${metrics.longestLossStreak}</strong></div>
+      ${batchSummary}`
     : '<div class="panel-soft muted tiny">Run a backtest to populate metrics.</div>';
 
   const compareRows = compareStrategyRuns(strategyRuns).slice(0, 20);
   els.slRunsBody.innerHTML = compareRows.length
-    ? compareRows.map((row) => `<tr data-strategy-run="${row.id}"><td><input type="radio" name="sl-run-select" ${selectedStrategyRunId === row.id ? "checked" : ""} /></td><td>${new Date(row.timestamp).toLocaleString()}</td><td>${row.strategyId}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td>${row.totalTrades}</td><td>${(row.winRate * 100).toFixed(1)}%</td><td>${formatNumber(row.netPnl, 2)}</td><td>${formatNumber(row.maxDrawdown, 2)}</td></tr>`).join("")
-    : '<tr><td colspan="9" class="muted">No runs saved.</td></tr>';
+    ? compareRows.map((row) => `<tr data-strategy-run="${row.id}"><td><input type="radio" name="sl-run-select" ${selectedStrategyRunId === row.id ? "checked" : ""} /></td><td>${new Date(row.timestamp).toLocaleString()}</td><td>${row.strategyId}</td><td>${row.symbol}</td><td>${row.timeframe}</td><td>${row.totalTrades}</td><td>${(row.winRate * 100).toFixed(1)}%</td><td>${formatNumber(row.netPnl, 2)}</td><td>${formatNumber(row.maxDrawdown, 2)}</td><td>${row.approvedForLiveShadow ? '<span class="badge call">approved</span>' : '<span class="muted tiny">-</span>'}</td></tr>`).join("")
+    : '<tr><td colspan="10" class="muted">No runs saved.</td></tr>';
 
   const trades = latestStrategyResult?.trades || [];
   els.slTradesBody.innerHTML = trades.length
@@ -1521,14 +1604,27 @@ function renderStrategyLab() {
     : '<tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr>';
 }
 
-function runStrategyLabBacktest() {
+async function runStrategyLabBacktest() {
   try {
     const strategyId = els.slStrategy?.value || strategyLabConfig.strategyId;
     const symbol = els.slSymbol?.value || marketDataMeta.selectedSymbol;
     const timeframe = els.slTimeframe?.value || marketDataMeta.selectedTimeframe;
     const rangeBars = Number(els.slRangeBars?.value || 500);
-    const runtime = buildStrategyRuntimeContext(symbol, timeframe);
-    const candles = runtime.candles.slice(-Math.max(100, rangeBars));
+    let runtime = buildStrategyRuntimeContext(symbol, timeframe);
+    let candles = runtime.candles.slice(-Math.max(100, rangeBars));
+    if (candles.length < 100) {
+      const fetched = await loadHistoricalCandles({
+        source: MARKET_DATA_SOURCES.BINANCE_FUTURES,
+        symbol,
+        timeframe,
+        limit: Math.min(5000, Math.max(500, rangeBars)),
+      });
+      if (Array.isArray(fetched) && fetched.length) {
+        marketDataCandles = mergeCandles(marketDataCandles, fetched);
+        runtime = buildStrategyRuntimeContext(symbol, timeframe);
+        candles = runtime.candles.slice(-Math.max(100, rangeBars));
+      }
+    }
     if (candles.length < 100) {
       setStrategyLabStatus("Need at least 100 candles for Strategy Lab run.", "warn");
       return;
@@ -1536,10 +1632,25 @@ function runStrategyLabBacktest() {
     const features = buildStrategyFeatures(candles, runtime);
     const parsed = parseStrategyParamsInput();
     strategyLabConfig = { strategyId, ...parsed };
-    latestStrategyResult = runStrategyBacktest({ strategyId, candles, features, strategyConfig: strategyLabConfig, runtimeContext: runtime });
+    const variants = parsed.variants?.length ? parsed.variants : [{ label: "Base", strategyId, params: parsed.params, risk: parsed.risk, execution: parsed.execution }];
+    latestStrategyBatchResults = variants.map((variant) => {
+      const runStrategyId = variant.strategyId || strategyId;
+      const runConfig = {
+        strategyId: runStrategyId,
+        params: variant.params || parsed.params,
+        risk: variant.risk || parsed.risk,
+        execution: { ...strategyLabConfig.execution, ...(variant.execution || {}) },
+      };
+      const result = runStrategyBacktest({ strategyId: runStrategyId, candles, features, strategyConfig: runConfig, runtimeContext: runtime });
+      return { label: variant.label, strategyId: runStrategyId, config: runConfig, metrics: result.metrics, trades: result.trades };
+    });
+    latestStrategyBatchResults.sort((a, b) => (Number(b.metrics?.netPnl || 0) - Number(a.metrics?.netPnl || 0)));
+    const best = latestStrategyBatchResults[0];
+    latestStrategyResult = { metrics: best?.metrics || {}, trades: best?.trades || [] };
+    strategyLabConfig = best?.config || strategyLabConfig;
     strategyLabRlProbe = new RlEnvironmentAdapter({ candles, features, windowSize: 20 });
     const firstState = strategyLabRlProbe.reset();
-    setStrategyLabStatus(`Backtest completed: ${latestStrategyResult.trades.length} trades · RL state window ${firstState?.candlesWindow?.length || 0}.`, "success");
+    setStrategyLabStatus(`Backtest completed (${latestStrategyBatchResults.length} run${latestStrategyBatchResults.length > 1 ? "s" : ""}). Best: ${best?.label || best?.strategyId} · ${best?.trades?.length || 0} trades · RL state window ${firstState?.candlesWindow?.length || 0}.`, "success");
     renderStrategyLab();
   } catch (error) {
     console.error("[StrategyLab] run failed", error);
@@ -1564,6 +1675,9 @@ async function handleSaveStrategyRun() {
     metrics: latestStrategyResult.metrics,
     trades: latestStrategyResult.trades,
     notes: els.slRunNotes?.value || "",
+    batchSummary: latestStrategyBatchResults.length > 1
+      ? latestStrategyBatchResults.map((row) => ({ label: row.label, strategyId: row.strategyId, metrics: row.metrics }))
+      : null,
   });
   strategyRuns = [run, ...strategyRuns.filter((row) => row.id !== run.id)].slice(0, 200);
   await saveStrategyRuns(strategyRuns);
@@ -1579,6 +1693,7 @@ function handleLoadStrategyRun() {
     return;
   }
   latestStrategyResult = { metrics: row.metrics || {}, trades: row.trades || [] };
+  latestStrategyBatchResults = [];
   strategyLabConfig = row.parameters || strategyLabConfig;
   if (els.slStrategy) els.slStrategy.value = row.strategyId;
   if (els.slSymbol) els.slSymbol.value = row.symbol;
@@ -1587,6 +1702,21 @@ function handleLoadStrategyRun() {
   if (els.slParams) els.slParams.value = JSON.stringify(strategyLabConfig, null, 2);
   if (els.slRunNotes) els.slRunNotes.value = row.notes || "";
   setStrategyLabStatus(`Loaded run ${row.id}.`, "success");
+  renderStrategyLab();
+}
+
+async function handleApproveStrategyRun() {
+  const row = strategyRuns.find((run) => run.id === selectedStrategyRunId);
+  if (!row) {
+    setStrategyLabStatus("Select a saved run before approving.", "warn");
+    return;
+  }
+  const approvedAt = new Date().toISOString();
+  strategyRuns = strategyRuns.map((run) => run.id === row.id
+    ? { ...run, approvedForLiveShadow: true, approvedAt }
+    : run);
+  await saveStrategyRuns(strategyRuns);
+  setStrategyLabStatus(`Run ${row.id} approved for Live Shadow.`, "success");
   renderStrategyLab();
 }
 
@@ -2219,6 +2349,7 @@ function setupEvents() {
   els.slRunBtn?.addEventListener("click", runStrategyLabBacktest);
   els.slSaveBtn?.addEventListener("click", handleSaveStrategyRun);
   els.slLoadBtn?.addEventListener("click", handleLoadStrategyRun);
+  els.slApproveBtn?.addEventListener("click", handleApproveStrategyRun);
   els.slRunsBody?.addEventListener("click", (event) => {
     const row = event.target.closest("[data-strategy-run]");
     if (!row) return;
