@@ -267,6 +267,8 @@ els.slApprovedStatus = document.getElementById("sl-approved-status");
 els.slMetrics = document.getElementById("sl-metrics");
 els.slRunsBody = document.getElementById("sl-runs-body");
 els.slTradesBody = document.getElementById("sl-trades-body");
+els.slScoreBullMin = document.getElementById("sl-score-bull-min");
+els.slScoreBearMin = document.getElementById("sl-score-bear-min");
 els.slVersion = document.getElementById("sl-version");
 els.slVersionStatus = document.getElementById("sl-version-status");
 els.slVersionLineage = document.getElementById("sl-version-lineage");
@@ -877,6 +879,8 @@ function renderSessionMarketAnalysisPanel(analysis, marketView) {
     <div class="session-analysis-tags">
       <span class="badge">Policy: ${policyAction}</span>
       <span class="badge">Confidence: ${policyConfidence}</span>
+      ${analysis.pseudoMl?.regime ? `<span class="badge">Market: ${analysis.pseudoMl.regime.regime} (${formatNumber(analysis.pseudoMl.regime.strength, 0)})</span>` : ""}
+      ${analysis.pseudoMl?.probability ? `<span class="badge">Bull ${formatNumber(analysis.pseudoMl.probability.bullishScore, 1)} / Bear ${formatNumber(analysis.pseudoMl.probability.bearishScore, 1)}</span><span class="badge">Bias ${analysis.pseudoMl.probability.bias} · conf ${formatNumber(analysis.pseudoMl.probability.confidence, 1)}</span>` : ""}
       ${pendingAgainstPlan !== null ? `<span class="badge">${pendingAgainstPlan ? "Against shadow plan" : "Aligned with shadow plan"}</span>` : ""}
       ${(policy?.policy?.thesisTags || []).slice(0, 3).map((tag) => `<span class="badge">${tag}</span>`).join("")}
       ${analysis.overlays?.structureSummary ? `<span class="badge">Structure ${analysis.overlays.structureSummary.bias}/${analysis.overlays.structureSummary.breakState}</span><span class="badge">SQ ${formatNumber(analysis.overlays.structureSummary.supportQuality, 0)} · RQ ${formatNumber(analysis.overlays.structureSummary.resistanceQuality, 0)}</span><span class="badge">TP room ${formatNumber(analysis.overlays.structureSummary.roomForTp, 0)}</span><span class="badge">Entry ${formatNumber(analysis.overlays.structureSummary.entryQuality, 0)}</span>` : ""}
@@ -1821,9 +1825,12 @@ function renderStrategyLab() {
     : '<tr><td colspan="11" class="muted">No runs saved.</td></tr>';
 
   const trades = latestStrategyResult?.trades || [];
-  els.slTradesBody.innerHTML = trades.length
-    ? trades.slice(0, 200).map((t) => `<tr><td>${new Date(t.entryTimestamp).toLocaleString()}</td><td>${new Date(t.exitTimestamp).toLocaleString()}</td><td><span class="badge ${t.side === "LONG" ? "call" : "put"}">${t.side}</span></td><td>${t.reason || "-"}<div class="muted tiny">Structure ${t.structureDecision || "allow"}${(t.structureReasons || []).length ? ` · ${(t.structureReasons || []).slice(0, 1).join(" ")}` : ""}</div></td><td>${t.outcomeType}</td><td>${formatNumber(t.pnl, 2)}</td><td>${formatNumber(t.rMultiple, 2)}</td><td>${t.holdBars}</td></tr>`).join("")
-    : '<tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr>';
+  const bullMin = Number(els.slScoreBullMin?.value || 0);
+  const bearMin = Number(els.slScoreBearMin?.value || 0);
+  const filteredTrades = trades.filter((trade) => Number(trade.bullishScore || 0) >= bullMin && Number(trade.bearishScore || 0) >= bearMin);
+  els.slTradesBody.innerHTML = filteredTrades.length
+    ? filteredTrades.slice(0, 200).map((t) => `<tr><td>${new Date(t.entryTimestamp).toLocaleString()}</td><td>${new Date(t.exitTimestamp).toLocaleString()}</td><td><span class="badge ${t.side === "LONG" ? "call" : "put"}">${t.side}</span></td><td>${t.reason || "-"}<div class="muted tiny">${t.regime || "ranging"} · ${t.probabilityBias || "neutral"} (${formatNumber(t.probabilityConfidence, 1)})</div><div class="muted tiny">${t.scoreExplanation || "Score explanation not available."}</div><div class="muted tiny">Structure ${t.structureDecision || "allow"}${(t.structureReasons || []).length ? ` · ${(t.structureReasons || []).slice(0, 1).join(" ")}` : ""}</div></td><td>${t.outcomeType}</td><td>${formatNumber(t.pnl, 2)}</td><td>${formatNumber(t.rMultiple, 2)}</td><td>${t.holdBars}</td><td>B ${formatNumber(t.bullishScore, 1)} / Br ${formatNumber(t.bearishScore, 1)} / N ${formatNumber(t.neutralScore, 1)}</td></tr>`).join("")
+    : `<tr><td colspan="9" class="muted">No trades match score filters (bull ≥ ${formatNumber(bullMin, 0)} / bear ≥ ${formatNumber(bearMin, 0)}).</td></tr>`;
 
   const validations = (strategyLifecycleState.validations || []).filter((row) => row.strategyId === strategyId).slice(0, 20);
   if (els.slValidationBody) {
@@ -2747,6 +2754,9 @@ function setupEvents() {
   els.slValidateBtn?.addEventListener("click", handleValidateStrategyVersion);
   els.slPromoteLiveBtn?.addEventListener("click", handlePromoteStrategyVersionLive);
   els.slCloneDegradingBtn?.addEventListener("click", handleCloneDegradingVersion);
+
+els.slScoreBullMin?.addEventListener("input", () => renderStrategyLab());
+els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
   els.slLoadBtn?.addEventListener("click", handleLoadStrategyRun);
   els.slApproveBtn?.addEventListener("click", handleApproveStrategyRun);
   els.slRunsBody?.addEventListener("click", (event) => {
@@ -3826,7 +3836,7 @@ function renderLiveShadowPanel() {
 
   if (els.mdLiveShadowPolicy) {
     els.mdLiveShadowPolicy.innerHTML = latest
-      ? `<p><span class="badge ${latest.policy.action === "LONG" ? "call" : latest.policy.action === "SHORT" ? "put" : "tag"}">${latest.policy.action}</span> <span class="badge">${formatConfidence(latest.policy.confidence)}</span> ${Number.isFinite(latest.plan.riskReward) ? `<span class="badge">RR ${formatNumber(latest.plan.riskReward, 2)}</span>` : ""} <span class="badge">Structure ${latest.policy.structureDecision || "allow"}</span></p><p class="muted">${latest.policy.reason || "-"}</p><p class="muted">Ref ${formatNumber(latest.plan.referencePrice, 4)} · SL ${formatNumber(latest.plan.stopLoss, 4)} · TP ${formatNumber(latest.plan.takeProfit, 4)}</p><p class="muted">${(latest.policy.structureReasons || []).slice(0, 2).join(" ") || "Structure aligned."}</p><p>${(latest.policy.thesisTags || []).slice(0, 4).map((tag) => `<span class="badge">${tag}</span>`).join(" ")}</p>`
+      ? `<p><span class="badge ${latest.policy.action === "LONG" ? "call" : latest.policy.action === "SHORT" ? "put" : "tag"}">${latest.policy.action}</span> <span class="badge">${formatConfidence(latest.policy.confidence)}</span> ${Number.isFinite(latest.plan.riskReward) ? `<span class="badge">RR ${formatNumber(latest.plan.riskReward, 2)}</span>` : ""} <span class="badge">Structure ${latest.policy.structureDecision || "allow"}</span></p><p><span class="badge">Regime ${latest.policy.regime || "ranging"} (${formatNumber(latest.policy.regimeStrength, 0)})</span> <span class="badge">Bull ${formatNumber(latest.policy.bullishScore, 1)} / Bear ${formatNumber(latest.policy.bearishScore, 1)}</span> <span class="badge">Bias ${latest.policy.probabilityBias || "neutral"} (${formatNumber(latest.policy.probabilityConfidence, 1)})</span></p><p class="muted">${latest.policy.reason || "-"}</p><p class="muted">${latest.policy.probabilityExplanation || ""}</p><p class="muted">Ref ${formatNumber(latest.plan.referencePrice, 4)} · SL ${formatNumber(latest.plan.stopLoss, 4)} · TP ${formatNumber(latest.plan.takeProfit, 4)}</p><p class="muted">${(latest.policy.structureReasons || []).slice(0, 2).join(" ") || "Structure aligned."}</p><p>${(latest.policy.thesisTags || []).slice(0, 4).map((tag) => `<span class="badge">${tag}</span>`).join(" ")}</p>`
       : `<p class="muted">No policy decisions yet.</p>`;
   }
 
@@ -3849,7 +3859,7 @@ function renderLiveShadowPanel() {
   const selected = filtered.find((row) => row.id === liveShadowSelectedId) || latest;
   if (els.mdLiveShadowDetail) {
     els.mdLiveShadowDetail.innerHTML = selected
-      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
+      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Regime: ${selected.policy.regime || "ranging"} (${formatNumber(selected.policy.regimeStrength, 0)}) · ${selected.policy.regimeExplanation || ""}</p><p class="muted">Bullish ${formatNumber(selected.policy.bullishScore, 1)} · Bearish ${formatNumber(selected.policy.bearishScore, 1)} · Neutral ${formatNumber(selected.policy.neutralScore, 1)} · Bias ${selected.policy.probabilityBias || "neutral"} (${formatNumber(selected.policy.probabilityConfidence, 1)})</p><p class="muted">${selected.policy.probabilityExplanation || ""}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
       : `<p class="muted">Select a live decision row to inspect full details.</p>`;
   }
 }
@@ -3924,6 +3934,14 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
     evidence: row.policy?.supportingEvidence,
     replay: row.outcome,
     policyVersion: row._meta?.policyVersion,
+    regime: row.policy?.regime,
+    regimeStrength: row.policy?.regimeStrength,
+    bullishScore: row.policy?.bullishScore,
+    bearishScore: row.policy?.bearishScore,
+    neutralScore: row.policy?.neutralScore,
+    probabilityBias: row.policy?.probabilityBias,
+    probabilityConfidence: row.policy?.probabilityConfidence,
+    probabilityExplanation: row.policy?.probabilityExplanation,
   }));
   refreshLifecycleLiveMonitoring();
   await Promise.all([saveFuturesPolicySnapshots(futuresPolicySnapshots), persistLiveShadowState(), signalsChanged ? persist() : Promise.resolve()]);

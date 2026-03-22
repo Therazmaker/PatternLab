@@ -9,6 +9,15 @@ function toNumber(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+
+function scoreThresholdFromConfig(strategyConfig = {}, params = {}) {
+  const explicit = Number(strategyConfig?.scoring?.minDirectionalScore);
+  if (Number.isFinite(explicit)) return Math.max(0, Math.min(100, explicit));
+  const paramThreshold = Number(params?.scoreThreshold);
+  if (Number.isFinite(paramThreshold)) return Math.max(0, Math.min(100, paramThreshold));
+  return 70;
+}
+
 function buildExecutionPlan({ action, feature, candle, riskConfig = {} }) {
   if (action === STRATEGY_ACTIONS.NO_TRADE) return null;
   const entryPrice = toNumber(candle.close, 0);
@@ -63,22 +72,36 @@ export function runStrategyDecisions({ strategyId, candles = [], features = [], 
 
     const evalResult = strategy.execute({ candle, candles, candleIndex: index, feature, features, params, config: strategyConfig, context }) || {};
     const action = Object.values(STRATEGY_ACTIONS).includes(evalResult.action) ? evalResult.action : STRATEGY_ACTIONS.NO_TRADE;
-    let executionPlan = evalResult.executionPlan || buildExecutionPlan({ action, feature, candle, riskConfig });
+    const scoreThreshold = scoreThresholdFromConfig(strategyConfig, params);
+    const bullishScore = toNumber(feature.bullishScore, 0);
+    const bearishScore = toNumber(feature.bearishScore, 0);
+    let scoreGateBlocked = false;
+    let scoreGateReason = '';
+    if (action === STRATEGY_ACTIONS.LONG && bullishScore < scoreThreshold) {
+      scoreGateBlocked = true;
+      scoreGateReason = `Long blocked: bullish score ${bullishScore.toFixed(1)} below threshold ${scoreThreshold.toFixed(1)}.`;
+    }
+    if (action === STRATEGY_ACTIONS.SHORT && bearishScore < scoreThreshold) {
+      scoreGateBlocked = true;
+      scoreGateReason = `Short blocked: bearish score ${bearishScore.toFixed(1)} below threshold ${scoreThreshold.toFixed(1)}.`;
+    }
+    const gatedAction = scoreGateBlocked ? STRATEGY_ACTIONS.NO_TRADE : action;
+    let executionPlan = evalResult.executionPlan || buildExecutionPlan({ action: gatedAction, feature, candle, riskConfig });
     const structureEnabled = strategyConfig?.structureFilter?.enabled !== false;
     const structureCheck = structureEnabled
       ? evaluateStructureFilter({
         candles,
         candleIndex: index,
-        action,
+        action: gatedAction,
         entryPrice: executionPlan?.entryPrice || candle.close,
         targetPrice: executionPlan?.takeProfit || null,
       })
       : { decision: "allow", scoreAdjustment: 0, reasons: [], features: feature.structure || null };
 
-    let finalAction = action;
+    let finalAction = gatedAction;
     let confidence = toNumber(evalResult.confidence, 0);
     const structureNotes = structureCheck.reasons || [];
-    if (structureEnabled && action !== STRATEGY_ACTIONS.NO_TRADE) {
+    if (structureEnabled && gatedAction !== STRATEGY_ACTIONS.NO_TRADE) {
       confidence = Math.max(0, Math.min(1, confidence + (structureCheck.scoreAdjustment / 200)));
       if (structureCheck.decision === "block") {
         finalAction = STRATEGY_ACTIONS.NO_TRADE;
@@ -92,10 +115,19 @@ export function runStrategyDecisions({ strategyId, candles = [], features = [], 
       strategyId,
       action: finalAction,
       confidence,
-      reason: [evalResult.reason || "", ...structureNotes].filter(Boolean).join(" "),
+      reason: [evalResult.reason || "", scoreGateReason, ...structureNotes].filter(Boolean).join(" "),
       featureSnapshot: feature,
       executionPlan,
       riskConfig,
+      scoreSnapshot: {
+        bullishScore,
+        bearishScore,
+        neutralScore: toNumber(feature.neutralScore, 0),
+        confidence: toNumber(feature.probabilityConfidence, 0),
+        bias: feature.probabilityBias || "neutral",
+        threshold: scoreThreshold,
+        explanation: feature.probabilityExplanation || "",
+      },
       evidence: {
         ...(evalResult.evidence || {}),
         structure: structureCheck,

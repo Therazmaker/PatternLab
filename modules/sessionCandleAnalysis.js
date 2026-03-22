@@ -1,4 +1,7 @@
 import { computeStructureFeatures } from "./structureFilter.js";
+import { computeFeatureSnapshot } from "./featureEngine.js";
+import { classifyMarketRegime } from "./marketRegime.js";
+import { computeProbabilityScores } from "./probabilityEngine.js";
 
 function asNumber(value, fallback = null) {
   const parsed = Number(value);
@@ -117,6 +120,9 @@ export function buildSessionCandleAnalysis(candles = [], context = {}) {
     entryPrice: asNumber(last?.close, null),
     targetPrice: bias === "bearish" ? asNumber(last?.close, 0) - Math.max(avgRange, 0) : asNumber(last?.close, 0) + Math.max(avgRange, 0),
   });
+  const pseudoMlFeature = computeFeatureSnapshot(rows, rows.length - 1);
+  const regime = classifyMarketRegime(pseudoMlFeature);
+  const probability = computeProbabilityScores({ feature: pseudoMlFeature, regime });
 
   const observations = [];
   if (bias === "bullish") observations.push("Recent structure leans bullish with higher close pressure.");
@@ -126,6 +132,9 @@ export function buildSessionCandleAnalysis(candles = [], context = {}) {
   if (momentum === "fading") observations.push("Momentum is fading versus the recent impulse.");
   if (sequenceFlags.length) observations.push(`Sequence notes: ${sequenceFlags.slice(0, 3).join(", ")}.`);
   observations.push(`Structure ${structure.structureBias}/${structure.structureBreakState} · supportQ ${structure.supportQualityScore.toFixed(0)} · resistanceQ ${structure.resistanceQualityScore.toFixed(0)}.`);
+  observations.push(`Pseudo-ML regime ${regime.regime} (${regime.strength.toFixed(0)}): ${regime.explanation}`);
+  observations.push(`Bullish ${probability.bullishScore.toFixed(1)} · Bearish ${probability.bearishScore.toFixed(1)} · Neutral ${probability.neutralScore.toFixed(1)} · confidence ${probability.confidence.toFixed(1)}.`);
+  observations.push(probability.explanation);
   if (!observations.length) observations.push("Recent structure is mixed with no dominant sequence.");
 
   const events = [];
@@ -157,6 +166,11 @@ export function buildSessionCandleAnalysis(candles = [], context = {}) {
     pushState,
     latestConfirmsMove: confirmsMove,
     continuationContext: continuation,
+    pseudoMl: {
+      feature: pseudoMlFeature,
+      regime,
+      probability,
+    },
     observations,
     sequenceFlags,
     overlays: {

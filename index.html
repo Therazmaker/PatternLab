@@ -498,6 +498,10 @@
             </table>
           </div>
           <h3>Trade log</h3>
+          <div class="filters">
+            <input id="sl-score-bull-min" type="number" min="0" max="100" step="1" value="0" placeholder="Min bullish score" />
+            <input id="sl-score-bear-min" type="number" min="0" max="100" step="1" value="0" placeholder="Min bearish score" />
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Entry</th><th>Exit</th><th>Side</th><th>Reason</th><th>Outcome</th><th>PnL</th><th>R</th><th>Bars</th></tr></thead>
@@ -721,7 +725,7 @@
         <h3>Run comparison</h3>
         <div class="table-wrap"><table><thead><tr><th></th><th>Timestamp</th><th>Strategy</th><th>Version</th><th>Symbol</th><th>TF</th><th>Trades</th><th>WR</th><th>PnL</th><th>DD</th><th>Approved</th></tr></thead><tbody id="sl-runs-body"><tr><td colspan="11" class="muted">No runs saved.</td></tr></tbody></table></div>
         <h3>Trade log</h3>
-        <div class="table-wrap"><table><thead><tr><th>Entry</th><th>Exit</th><th>Side</th><th>Reason</th><th>Outcome</th><th>PnL</th><th>R</th><th>Bars</th></tr></thead><tbody id="sl-trades-body"><tr><td colspan="8" class="muted">Run a backtest to inspect trades.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Entry</th><th>Exit</th><th>Side</th><th>Reason</th><th>Outcome</th><th>PnL</th><th>R</th><th>Bars</th><th>Scores</th></tr></thead><tbody id="sl-trades-body"><tr><td colspan="9" class="muted">Run a backtest to inspect trades.</td></tr></tbody></table></div>
         <h3>Out-of-sample validation</h3>
         <div class="table-wrap"><table><thead><tr><th>Time</th><th>Version</th><th>Range</th><th>Winrate</th><th>Drawdown</th><th>Result</th></tr></thead><tbody id="sl-validation-body"><tr><td colspan="6" class="muted">No out-of-sample validations yet.</td></tr></tbody></table></div>
         <h3>Live shadow instances</h3>

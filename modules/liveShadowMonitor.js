@@ -1,6 +1,9 @@
 import { buildFuturesPolicyFeatures } from "./futuresPolicyFeatures.js";
 import { evaluateFuturesPolicy } from "./futuresPolicyEngine.js";
 import { replayFuturesDecision } from "./futuresReplay.js";
+import { computeFeatureSnapshot } from "./featureEngine.js";
+import { classifyMarketRegime } from "./marketRegime.js";
+import { computeProbabilityScores } from "./probabilityEngine.js";
 
 const DEFAULT_MAX_HISTORY = 400;
 
@@ -141,6 +144,10 @@ export function createLiveShadowMonitor(options = {}) {
       config: policyConfig,
     });
 
+    const pseudoMlFeature = computeFeatureSnapshot(candles, candleIndex);
+    const regime = classifyMarketRegime(pseudoMlFeature);
+    const probability = computeProbabilityScores({ feature: pseudoMlFeature, regime });
+
     const id = createRecordId(candle, candleIndex);
     if (records.some((row) => row.id === id)) return null;
 
@@ -176,6 +183,15 @@ export function createLiveShadowMonitor(options = {}) {
         supportingEvidence: decision.evidence || {},
         structureDecision: decision.evidence?.structure?.decision || "allow",
         structureReasons: decision.evidence?.structure?.reasons || [],
+        bullishScore: probability.bullishScore,
+        bearishScore: probability.bearishScore,
+        neutralScore: probability.neutralScore,
+        probabilityBias: probability.bias,
+        probabilityConfidence: probability.confidence,
+        probabilityExplanation: probability.explanation,
+        regime: regime.regime,
+        regimeStrength: regime.strength,
+        regimeExplanation: regime.explanation,
       },
       plan: {
         entryType: decision.action === "NO_TRADE" ? null : "shadow-close",
@@ -200,6 +216,9 @@ export function createLiveShadowMonitor(options = {}) {
         entryLocationScore: features.state?.structure?.entryLocationScore ?? null,
         supportDistancePct: features.state?.structure?.nearestSupportDistancePct ?? null,
         resistanceDistancePct: features.state?.structure?.nearestResistanceDistancePct ?? null,
+        pseudoMlFeature,
+        regime,
+        probability,
       },
       outcome: buildDefaultOutcome(decision.action),
       _meta: {
