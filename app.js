@@ -82,7 +82,7 @@ import {
   getTopConnectedNeurons,
   renderNeuronGraph,
 } from "./modules/neuronGraph.js";
-import { buildImportPreview } from "./modules/importer.js";
+import { buildImportPreview, importStrategySignal } from "./modules/importer.js";
 import { buildLiveImportPreview, computeLivePatternSummary, normalizeLivePatternSignal } from "./modules/livePatternSignals.js";
 import { buildClusterGraph, getWeightBounds } from "./src/modules/clusterMap/clusterGraphBuilder.js";
 import { buildSeededCandidatePayload, evaluateSeededPattern } from "./modules/seededPatternLab.js";
@@ -170,9 +170,9 @@ const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
   jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
   includeDuplicates: document.getElementById("import-allow-duplicates"), importReport: document.getElementById("import-report"),
-  feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), filterNearSupport: document.getElementById("filter-near-support"), filterNearResistance: document.getElementById("filter-near-resistance"), filterHasOHLC: document.getElementById("filter-has-ohlc"), filterHasExcursion: document.getElementById("filter-has-excursion"), filterHasSession: document.getElementById("filter-has-session"), filterMfeMin: document.getElementById("filter-mfe-min"), filterMaeMax: document.getElementById("filter-mae-max"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
+  feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterSource: document.getElementById("filter-source"), filterStrategy: document.getElementById("filter-strategy"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), filterNearSupport: document.getElementById("filter-near-support"), filterNearResistance: document.getElementById("filter-near-resistance"), filterHasOHLC: document.getElementById("filter-has-ohlc"), filterHasExcursion: document.getElementById("filter-has-excursion"), filterHasSession: document.getElementById("filter-has-session"), filterMfeMin: document.getElementById("filter-mfe-min"), filterMaeMax: document.getElementById("filter-mae-max"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
   modal: document.getElementById("review-modal"), reviewDetails: document.getElementById("review-details"), reviewStatus: document.getElementById("review-status"), reviewComment: document.getElementById("review-comment"), reviewExpiryClose: document.getElementById("review-expiry-close"), reviewLabels: document.getElementById("review-labels"), reviewExecutionError: document.getElementById("review-execution-error"), reviewLateEntry: document.getElementById("review-late-entry"), reviewNearSupport: document.getElementById("review-near-support"), reviewNearResistance: document.getElementById("review-near-resistance"), reviewSrComment: document.getElementById("review-sr-comment"), reviewV3Toggle: document.getElementById("review-v3-toggle"), reviewOpen: document.getElementById("review-open"), reviewHigh: document.getElementById("review-high"), reviewLow: document.getElementById("review-low"), reviewClose: document.getElementById("review-close"), reviewMfe: document.getElementById("review-mfe"), reviewMae: document.getElementById("review-mae"), reviewExcursionUnit: document.getElementById("review-excursion-unit"), reviewSessionLink: document.getElementById("review-session-link"), reviewSessionCandle: document.getElementById("review-session-candle"), reviewV3Notes: document.getElementById("review-v3-notes"), reviewAutoExcursion: document.getElementById("btn-review-auto-excursion"), saveReviewBtn: document.getElementById("btn-save-review"), reviewNextBtn: document.getElementById("btn-review-next"), reviewPrevBtn: document.getElementById("btn-review-prev"),
-  statsOverview: document.getElementById("stats-overview"), v3SignalStats: document.getElementById("v3-signal-stats"), sessionStats: document.getElementById("session-stats"), topAssets: document.getElementById("top-assets"), topPatterns: document.getElementById("top-patterns"), directionDist: document.getElementById("direction-dist"), srAnalysisWrap: document.getElementById("sr-analysis-wrap"),
+  statsOverview: document.getElementById("stats-overview"), v3SignalStats: document.getElementById("v3-signal-stats"), sessionStats: document.getElementById("session-stats"), topAssets: document.getElementById("top-assets"), topPatterns: document.getElementById("top-patterns"), directionDist: document.getElementById("direction-dist"), statsBySource: document.getElementById("stats-by-source"), statsByStrategy: document.getElementById("stats-by-strategy"), statsBySymbol: document.getElementById("stats-by-symbol"), statsByTimeframe: document.getElementById("stats-by-timeframe"), statsByAction: document.getElementById("stats-by-action"), statsByResult: document.getElementById("stats-by-result"), statsFilterSource: document.getElementById("stats-filter-source"), statsFilterStrategy: document.getElementById("stats-filter-strategy"), statsFilterSymbol: document.getElementById("stats-filter-symbol"), statsFilterTimeframe: document.getElementById("stats-filter-timeframe"), srAnalysisWrap: document.getElementById("sr-analysis-wrap"),
   rankingWrap: document.getElementById("ranking-wrap"), hourWrap: document.getElementById("hour-wrap"), assetWrap: document.getElementById("asset-wrap"),
   kpiTotal: document.getElementById("kpi-total"), kpiPending: document.getElementById("kpi-pending"), kpiWins: document.getElementById("kpi-wins"), kpiLosses: document.getElementById("kpi-losses"), kpiWinrate: document.getElementById("kpi-winrate"),
   tabs: [...document.querySelectorAll(".tab-btn")], panels: [...document.querySelectorAll(".tab-panel")],
@@ -192,7 +192,7 @@ const els = {
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
   botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
-  mdSource: document.getElementById("md-source"), mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdLiveStatus: document.getElementById("md-live-status"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), mdLiveShadowStatus: document.getElementById("md-live-shadow-status"), mdLiveShadowPolicy: document.getElementById("md-live-shadow-policy"), mdLiveShadowPending: document.getElementById("md-live-shadow-pending"), mdLiveShadowStats: document.getElementById("md-live-shadow-stats"), mdLiveShadowTimelineBody: document.getElementById("md-live-shadow-timeline-body"), mdLiveShadowDetail: document.getElementById("md-live-shadow-detail"), mdLiveShadowFilterSymbol: document.getElementById("md-live-shadow-filter-symbol"), mdLiveShadowFilterTimeframe: document.getElementById("md-live-shadow-filter-timeframe"), mdLiveShadowFilterAction: document.getElementById("md-live-shadow-filter-action"), mdLiveShadowFilterResult: document.getElementById("md-live-shadow-filter-result"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
+  mdSource: document.getElementById("md-source"), mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdLiveStatus: document.getElementById("md-live-status"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), mdLiveShadowStatus: document.getElementById("md-live-shadow-status"), mdLiveShadowPolicy: document.getElementById("md-live-shadow-policy"), mdLiveShadowPending: document.getElementById("md-live-shadow-pending"), mdLiveShadowStats: document.getElementById("md-live-shadow-stats"), mdLiveShadowTimelineBody: document.getElementById("md-live-shadow-timeline-body"), mdLiveShadowDetail: document.getElementById("md-live-shadow-detail"), mdLiveShadowFilterSymbol: document.getElementById("md-live-shadow-filter-symbol"), mdLiveShadowFilterTimeframe: document.getElementById("md-live-shadow-filter-timeframe"), mdLiveShadowFilterAction: document.getElementById("md-live-shadow-filter-action"), mdLiveShadowFilterResult: document.getElementById("md-live-shadow-filter-result"), mdLiveShadowAutoIngest: document.getElementById("md-live-shadow-auto-ingest"), mdLiveShadowImportSelectedBtn: document.getElementById("btn-live-shadow-import-selected"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
 };
 
 els.seededNeuronSelect = document.getElementById("seeded-neuron-select");
@@ -319,6 +319,7 @@ let futuresPolicySnapshots = [];
 const liveShadowMonitor = createLiveShadowMonitor({ maxHistory: 400 });
 const liveShadowTimeline = createLiveShadowTimeline({ limit: 300 });
 let liveShadowFilters = { symbol: "all", timeframe: "all", action: "all", result: "all" };
+let liveShadowAutoIngest = true;
 let liveShadowStats = computeLiveShadowStats([]);
 let liveShadowSelectedId = "";
 let marketDataDiagnostics = null;
@@ -334,6 +335,7 @@ let selectedSeededNeurons = [];
 let seededPatternResult = null;
 let seededPatterns = [];
 let seededPatternResults = [];
+let statsFilters = { source: "", strategyId: "", symbol: "", timeframe: "" };
 const clusterMapFilters = { minEdgeWeight: 1, minNodeWeight: 1, session: "all" };
 let selectedPatternCandidateId = "";
 let selectedReviewCandidateId = "";
@@ -1154,6 +1156,8 @@ function refreshSessionCandlesTab() {
 
 function refreshSharedOptions() {
   const assets = [...new Set(state.signals.map((s) => s.asset))].sort();
+  const sources = [...new Set(state.signals.map((s) => s.source).filter(Boolean))].sort();
+  const strategies = [...new Set(state.signals.map((s) => s.strategyId).filter(Boolean))].sort();
   const patterns = [...new Set([
     ...state.signals.map((s) => s.patternName),
     ...patternVersionsRegistry.filter((entry) => !entry.isArchived).map((entry) => entry.patternName),
@@ -1162,7 +1166,13 @@ function refreshSharedOptions() {
 
   renderFilterOptions(els.filterAsset, assets, "Todos los activos");
   renderFilterOptions(els.filterPattern, patterns, "Todos los patrones");
+  renderFilterOptions(els.filterSource, sources, "Todas las fuentes");
+  renderFilterOptions(els.filterStrategy, strategies, "Todas las estrategias");
   renderFilterOptions(els.filterTimeframe, timeframes, "Todos los TF");
+  renderFilterOptions(els.statsFilterSource, sources, "Todas las fuentes");
+  renderFilterOptions(els.statsFilterStrategy, strategies, "Todas las estrategias");
+  renderFilterOptions(els.statsFilterSymbol, assets, "Todos los símbolos");
+  renderFilterOptions(els.statsFilterTimeframe, timeframes, "Todos los TF");
   renderFilterOptions(els.compareAsset, assets, "Todos los activos");
   renderFilterOptions(els.compareTimeframe, timeframes, "Todos los TF");
   renderFilterOptions(els.radarAsset, assets, "Todos los activos");
@@ -1222,11 +1232,22 @@ function refreshSharedOptions() {
 }
 
 function refreshStats() {
-  const stats = computeStats(state.signals);
+  let scopedSignals = [...state.signals];
+  if (statsFilters.source) scopedSignals = scopedSignals.filter((row) => row.source === statsFilters.source);
+  if (statsFilters.strategyId) scopedSignals = scopedSignals.filter((row) => row.strategyId === statsFilters.strategyId);
+  if (statsFilters.symbol) scopedSignals = scopedSignals.filter((row) => row.asset === statsFilters.symbol);
+  if (statsFilters.timeframe) scopedSignals = scopedSignals.filter((row) => row.timeframe === statsFilters.timeframe);
+  const stats = computeStats(scopedSignals);
   renderStatsOverview(els.statsOverview, stats);
   renderList(els.topAssets, stats.topAssets);
   renderList(els.topPatterns, stats.topPatterns);
   renderList(els.directionDist, stats.directionDist);
+  renderList(els.statsBySource, stats.bySource || []);
+  renderList(els.statsByStrategy, stats.byStrategy || []);
+  renderList(els.statsBySymbol, stats.bySymbol || []);
+  renderList(els.statsByTimeframe, stats.byTimeframe || []);
+  renderList(els.statsByAction, stats.byAction || []);
+  renderList(els.statsByResult, stats.byResult || []);
   renderRankingTable(els.rankingWrap, lastRanking);
   renderHourTable(els.hourWrap, computeHourAnalysis(state.signals));
   renderAssetTable(els.assetWrap, computeAssetAnalysis(state.signals));
@@ -1781,6 +1802,29 @@ function importSignalsFromPreview(preview, importedMessage) {
   setImportPreview({ ...preview, message: importedMessage || `Importadas ${selectedRows.length} señales.` });
   return true;
 }
+
+function importStrategyRecordToSignals(record, options = {}) {
+  const result = importStrategySignal(record, state.signals, options);
+  if (!result.changed) return false;
+  replaceSignals(result.signals);
+  return true;
+}
+
+function syncLiveShadowToUnifiedPipeline(records = [], options = {}) {
+  if (!Array.isArray(records) || !records.length) return false;
+  let changed = false;
+  let nextSignals = state.signals;
+  records.forEach((record) => {
+    const imported = importStrategySignal(record, nextSignals, options);
+    if (imported.changed) {
+      changed = true;
+      nextSignals = imported.signals;
+    }
+  });
+  if (changed) replaceSignals(nextSignals);
+  return changed;
+}
+
 function handleImport() {
   if (importerMode === "live") {
     handleLiveImport();
@@ -2205,6 +2249,8 @@ function setupEvents() {
   els.filterAsset.addEventListener("change", (e) => { setFilter("asset", e.target.value); refreshFeed(); });
   els.filterDirection.addEventListener("change", (e) => { setFilter("direction", e.target.value); refreshFeed(); });
   els.filterPattern.addEventListener("change", (e) => { setFilter("patternName", e.target.value); refreshFeed(); });
+  els.filterSource?.addEventListener("change", (e) => { setFilter("source", e.target.value); refreshFeed(); });
+  els.filterStrategy?.addEventListener("change", (e) => { setFilter("strategyId", e.target.value); refreshFeed(); });
   els.filterStatus.addEventListener("change", (e) => { setFilter("status", e.target.value); refreshFeed(); });
   els.filterTimeframe.addEventListener("change", (e) => { setFilter("timeframe", e.target.value); refreshFeed(); });
   els.filterNearSupport.addEventListener("change", (e) => { setFilter("nearSupport", e.target.value); refreshFeed(); });
@@ -2214,6 +2260,10 @@ function setupEvents() {
   els.filterHasSession?.addEventListener("change", (e) => { setFilter("hasSession", e.target.value); refreshFeed(); });
   els.filterMfeMin?.addEventListener("input", (e) => { setFilter("mfeMin", e.target.value); refreshFeed(); });
   els.filterMaeMax?.addEventListener("input", (e) => { setFilter("maeMax", e.target.value); refreshFeed(); });
+  els.statsFilterSource?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, source: e.target.value || "" }; refreshStats(); });
+  els.statsFilterStrategy?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, strategyId: e.target.value || "" }; refreshStats(); });
+  els.statsFilterSymbol?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, symbol: e.target.value || "" }; refreshStats(); });
+  els.statsFilterTimeframe?.addEventListener("change", (e) => { statsFilters = { ...statsFilters, timeframe: e.target.value || "" }; refreshStats(); });
   els.saveReviewBtn.addEventListener("click", saveReviewChanges);
   els.reviewNextBtn.addEventListener("click", () => moveReview(1));
   els.reviewPrevBtn.addEventListener("click", () => moveReview(-1));
@@ -3203,6 +3253,7 @@ function persistLiveShadowState() {
     filters: liveShadowFilters,
     latestStats: liveShadowStats,
     context: { source: getSelectedMarketDataSource(), symbol: getSelectedMarketDataSymbol(), timeframe: getSelectedMarketDataTimeframe() },
+    autoIngestToSignals: liveShadowAutoIngest,
   });
 }
 
@@ -3224,6 +3275,7 @@ function renderLiveShadowPanel() {
   }
   if (els.mdLiveShadowFilterAction) els.mdLiveShadowFilterAction.value = liveShadowFilters.action || "all";
   if (els.mdLiveShadowFilterResult) els.mdLiveShadowFilterResult.value = liveShadowFilters.result || "all";
+  if (els.mdLiveShadowAutoIngest) els.mdLiveShadowAutoIngest.checked = liveShadowAutoIngest;
   const filtered = liveShadowTimeline.getFiltered(liveShadowFilters);
   liveShadowStats = computeLiveShadowStats(filtered);
   const latest = filtered[0] || null;
@@ -3265,7 +3317,7 @@ function renderLiveShadowPanel() {
   const selected = filtered.find((row) => row.id === liveShadowSelectedId) || latest;
   if (els.mdLiveShadowDetail) {
     els.mdLiveShadowDetail.innerHTML = selected
-      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p>`
+      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">${selected.policy.reason || "-"}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
       : `<p class="muted">Select a live decision row to inspect full details.</p>`;
   }
 }
@@ -3284,6 +3336,10 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
   liveShadowMonitor.resolvePending({ candles: marketDataCandles, maxHoldBars: Number(futuresPolicyConfig.maxHoldBars || 24) });
 
   const latestRecords = liveShadowMonitor.getRecords();
+  let signalsChanged = false;
+  if (liveShadowAutoIngest && record) {
+    signalsChanged = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" }) || signalsChanged;
+  }
   futuresPolicySnapshots = latestRecords.slice(0, 300).map((row) => ({
     id: row.id,
     type: "live-shadow-decision",
@@ -3299,7 +3355,7 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
     replay: row.outcome,
     policyVersion: row._meta?.policyVersion,
   }));
-  await Promise.all([saveFuturesPolicySnapshots(futuresPolicySnapshots), persistLiveShadowState()]);
+  await Promise.all([saveFuturesPolicySnapshots(futuresPolicySnapshots), persistLiveShadowState(), signalsChanged ? persist() : Promise.resolve()]);
   renderLiveShadowPanel();
 }
 
@@ -3384,6 +3440,11 @@ async function ensureLiveSubscription() {
 
 function refreshMarketDataUI() {
   const newlyResolved = liveShadowMonitor.resolvePending({ candles: marketDataCandles, maxHoldBars: Number(futuresPolicyConfig.maxHoldBars || 24) });
+  let signalsChanged = false;
+  if (liveShadowAutoIngest && newlyResolved.length) {
+    signalsChanged = syncLiveShadowToUnifiedPipeline(newlyResolved, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" });
+  }
+  if (signalsChanged) persist();
   if (newlyResolved.length) persistLiveShadowState();
   const total = marketDataCandles.length;
   const first = getEarliestCandleTimestamp(marketDataCandles);
@@ -3663,6 +3724,20 @@ function setupMarketDataEvents() {
     renderLiveShadowPanel();
     await persistLiveShadowState();
   });
+  els.mdLiveShadowAutoIngest?.addEventListener("change", async () => {
+    liveShadowAutoIngest = Boolean(els.mdLiveShadowAutoIngest.checked);
+    await persistLiveShadowState();
+    renderLiveShadowPanel();
+  });
+  els.mdLiveShadowImportSelectedBtn?.addEventListener("click", async () => {
+    const record = liveShadowMonitor.getRecords().find((row) => row.id === liveShadowSelectedId);
+    if (!record) return;
+    const changed = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" });
+    if (changed) {
+      persist();
+      rerender();
+    }
+  });
   els.mdLiveShadowTimelineBody?.addEventListener("click", (event) => {
     const row = event.target.closest("[data-live-shadow-id]");
     if (!row) return;
@@ -3756,11 +3831,16 @@ async function init() {
   const storedLiveShadow = loadLiveShadowState() || {};
   liveShadowFilters = { ...liveShadowFilters, ...(storedLiveShadow.filters || {}) };
   liveShadowStats = storedLiveShadow.latestStats || liveShadowStats;
+  liveShadowAutoIngest = storedLiveShadow.autoIngestToSignals !== false;
   liveShadowMonitor.setRecords(Array.isArray(storedLiveShadow.records) ? storedLiveShadow.records : []);
   promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
   seededPatterns = loadSeededPatterns();
   seededPatternResults = loadSeededPatternResults();
   replaceSignals(loadedSignals);
+  if (liveShadowAutoIngest) {
+    const synced = syncLiveShadowToUnifiedPipeline(liveShadowMonitor.getRecords(), { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy" });
+    if (synced) persist();
+  }
   strategyRuns = getSavedStrategyRuns();
   selectedStrategyRunId = strategyRuns[0]?.id || "";
   livePatternSignals = loadLivePatternSignals();
