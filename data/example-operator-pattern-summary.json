@@ -1,0 +1,59 @@
+{
+  "totals": {
+    "totalActions": 122,
+    "evaluatedActions": 94,
+    "correct": 49,
+    "incorrect": 20,
+    "neutral": 11,
+    "partiallyCorrect": 14
+  },
+  "byActionType": {
+    "veto": {
+      "count": 28,
+      "correctRate": 0.7857,
+      "avgCorrectnessScore": 0.441
+    },
+    "still_short": {
+      "count": 17,
+      "correctRate": 0.7647,
+      "avgCorrectnessScore": 0.4882
+    },
+    "resistance_active": {
+      "count": 12,
+      "correctRate": 0.5833,
+      "avgCorrectnessScore": 0.2083
+    }
+  },
+  "byContext": {
+    "trending_down": {
+      "still_short": {
+        "count": 9,
+        "correctRate": 0.8889,
+        "avgCorrectnessScore": 0.6333
+      }
+    },
+    "ranging": {
+      "veto": {
+        "count": 13,
+        "correctRate": 0.8462,
+        "avgCorrectnessScore": 0.5538
+      }
+    }
+  },
+  "highValuePatterns": [
+    {
+      "patternId": "veto::ranging|range|nr1|ns0|medium|weak",
+      "actionType": "veto",
+      "contextSignature": {
+        "regime": "ranging",
+        "swingStructure": "range",
+        "proximity": "near_resistance",
+        "momentumState": "medium"
+      },
+      "sampleSize": 8,
+      "correctRate": 0.875,
+      "avgCorrectnessScore": 0.65,
+      "interpretation": "High-value operator edge in this context."
+    }
+  ]
+}

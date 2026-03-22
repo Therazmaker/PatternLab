@@ -1,0 +1,43 @@
+{
+  "actionId": "op_action_1742649600000",
+  "timestamp": "2026-03-22T10:15:00.000Z",
+  "symbol": "BTCUSDT",
+  "timeframe": "5m",
+  "linkedTradeId": "live-shadow:binance:BTCUSDT:5m:11223",
+  "linkedDecisionId": "live-shadow:binance:BTCUSDT:5m:11223",
+  "rawSignal": {
+    "direction": "LONG",
+    "bullishScore": 71,
+    "bearishScore": 38,
+    "confidence": 0.68,
+    "reasonCodes": ["momentum_support", "structure_break_valid"]
+  },
+  "operatorAction": {
+    "type": "veto",
+    "note": "Resistance sweep still unresolved."
+  },
+  "context20": {
+    "regime": "ranging",
+    "contextSignature": {
+      "regime": "ranging",
+      "swingStructure": "range",
+      "nearResistance": true,
+      "nearSupport": false,
+      "momentumState": "medium",
+      "followThroughState": "weak"
+    }
+  },
+  "immediateEffect": {
+    "decisionChanged": true,
+    "fromDirection": "LONG",
+    "toDirection": "NONE",
+    "fromDecision": "ALLOW",
+    "toDecision": "BLOCK"
+  },
+  "laterEvaluation": {
+    "evaluated": false,
+    "verdict": null,
+    "correctnessScore": null,
+    "marketOutcome": null
+  }
+}

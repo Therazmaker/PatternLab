@@ -1,0 +1,8 @@
+{
+  "actionId": "op_action_1742649600000",
+  "evaluated": true,
+  "verdict": "correct",
+  "correctnessScore": 1,
+  "impactType": "saved_loss",
+  "summaryText": "Operator veto likely prevented a losing trade."
+}
