@@ -26,6 +26,10 @@ export async function persistStrategyRun(runPayload = {}) {
     timestamp: runPayload.timestamp || new Date().toISOString(),
     notes: runPayload.notes || "",
     trades: runPayload.trades || [],
+    approvedForLiveShadow: Boolean(runPayload.approvedForLiveShadow),
+    approvedAt: runPayload.approvedAt || null,
+    approvalNote: runPayload.approvalNote || "",
+    batchSummary: runPayload.batchSummary || null,
   };
   const next = [run, ...runs].slice(0, 200);
   await saveStrategyRuns(next);

@@ -280,3 +280,6 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
 
 .seeded-examples-table { min-width: 900px; }
 #seeded-neuron-select { min-height: 210px; }
+.bot-historical-lab { margin-top: .8rem; }
+#session-live-plan { margin-bottom: .6rem; }
+.session-live-plan-head { display:flex; flex-wrap: wrap; gap:.35rem; margin-bottom: .35rem; }
