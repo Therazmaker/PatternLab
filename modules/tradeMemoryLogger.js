@@ -10,6 +10,25 @@ function sortByTimestampDesc(rows = []) {
   return [...rows].sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
 }
 
+function normalizeTradeDiagnosis(diagnosis = {}) {
+  const scores = diagnosis?.diagnosticScores || {};
+  return {
+    primaryCause: String(diagnosis?.primaryCause || ""),
+    secondaryCause: diagnosis?.secondaryCause == null ? null : String(diagnosis.secondaryCause),
+    reasonCodes: Array.isArray(diagnosis?.reasonCodes) ? diagnosis.reasonCodes.map((row) => String(row)) : [],
+    diagnosticScores: {
+      trendAlignmentScore: Number(scores?.trendAlignmentScore || 0),
+      structureScore: Number(scores?.structureScore || 0),
+      momentumScore: Number(scores?.momentumScore || 0),
+      timingScore: Number(scores?.timingScore || 0),
+      followThroughScore: Number(scores?.followThroughScore || 0),
+      operatorContextScore: Number(scores?.operatorContextScore || 0),
+    },
+    confidenceInDiagnosis: Number(diagnosis?.confidenceInDiagnosis || 0),
+    summaryText: String(diagnosis?.summaryText || ""),
+  };
+}
+
 function normalizeTradeMemory(tradeObject = {}) {
   return {
     tradeId: String(tradeObject.tradeId || `trade_${Date.now()}`),
@@ -45,6 +64,7 @@ function normalizeTradeMemory(tradeObject = {}) {
       mfe: Number(tradeObject?.outcome?.mfe || 0),
       mae: Number(tradeObject?.outcome?.mae || 0),
     },
+    diagnosis: normalizeTradeDiagnosis(tradeObject?.diagnosis || {}),
   };
 }
 
@@ -62,6 +82,9 @@ export function createTradeMemoryLogger({ logger = console } = {}) {
       pnl: normalized.outcome.pnl,
       pnlR: normalized.outcome.pnlR,
     });
+    logger.debug("Trade diagnosis generated", { tradeId: normalized.tradeId });
+    logger.debug(`Primary cause selected: ${normalized.diagnosis.primaryCause}`);
+    logger.debug(`Reason codes: ${normalized.diagnosis.reasonCodes.join(", ")}`);
     return normalized;
   }
 

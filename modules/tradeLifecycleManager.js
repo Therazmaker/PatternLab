@@ -1,4 +1,6 @@
 import { createTradeMemoryLogger } from "./tradeMemoryLogger.js";
+import { diagnoseTrade } from "./tradeDiagnosticEngine.js";
+import { logDiagnosticScoreBreakdown } from "./diagnosticDebug.js";
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -164,9 +166,16 @@ export function createTradeLifecycleManager({
       },
     };
 
+    finalized.diagnosis = diagnoseTrade(finalized);
+
     delete finalized.runtime;
     openTrades.delete(tradeId);
     tradeMemoryLogger.logTradeMemory(finalized);
+
+    logger.debug("Trade diagnosis generated", { tradeId: finalized.tradeId });
+    logger.debug(`Primary cause selected: ${finalized.diagnosis.primaryCause}`);
+    logger.debug(`Reason codes: ${finalized.diagnosis.reasonCodes.join(", ")}`);
+    logDiagnosticScoreBreakdown(logger, finalized.tradeId, finalized.diagnosis.diagnosticScores);
 
     logger.debug("Trade closed", {
       tradeId,
