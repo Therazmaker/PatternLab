@@ -43,6 +43,33 @@ function drawHandles(ctx, points = [], color = "#93c5fd") {
   ctx.restore();
 }
 
+
+function drawInsightBadge(ctx, point = { x: 0, y: 0 }, drawing = {}) {
+  const isTriggered = Boolean(drawing.humanInsightTriggered);
+  const isActive = Boolean(drawing.humanInsightActive);
+  const isLinked = Boolean(drawing.humanInsightLinked);
+  if (!isLinked && !isActive && !isTriggered) return;
+  const label = isTriggered ? "TRIGGERED" : isActive ? "ACTIVE" : "INSIGHT";
+  const color = isTriggered ? "#f97316" : isActive ? "#22c55e" : "#60a5fa";
+
+  ctx.save();
+  ctx.font = "10px 'JetBrains Mono',monospace";
+  const padX = 6;
+  const width = Math.max(52, ctx.measureText(label).width + padX * 2);
+  const x = point.x + 8;
+  const y = point.y - 18;
+  ctx.fillStyle = "rgba(9,16,28,0.85)";
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, 16, 4);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.fillText(label, x + padX, y + 11);
+  ctx.restore();
+}
+
 function normalizeDrawingPoint(point = {}) {
   const rawTime = point?.time ?? point?.timestamp ?? point?.x;
 
@@ -168,6 +195,7 @@ export function renderDrawings(ctx, drawings = [], drawingState = {}, geometry =
     }
 
     if (isSelected) drawHandles(ctx, points, color);
+    drawInsightBadge(ctx, points[points.length - 1] || points[0], drawing);
     drawing._bounds = {
       points,
       chartPoints,

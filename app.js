@@ -207,7 +207,7 @@ const els = {
   botPattern: document.getElementById("bot-pattern"), botVersion: document.getElementById("bot-version"), botDefinitionEditor: document.getElementById("bot-definition-editor"), botVersionNotes: document.getElementById("bot-version-notes"),
   botBuildDefinitionBtn: document.getElementById("btn-bot-build-definition"), botCloneVersionBtn: document.getElementById("btn-bot-clone-version"), botSaveVersionBtn: document.getElementById("btn-bot-save-version"), botCompareVersionsBtn: document.getElementById("btn-bot-compare-versions"),
   botGenerateSchemaBtn: document.getElementById("btn-bot-generate-schema"), botGeneratePromptBtn: document.getElementById("btn-bot-generate-prompt"), botCopySchemaBtn: document.getElementById("btn-bot-copy-schema"), botCopyPromptBtn: document.getElementById("btn-bot-copy-prompt"),
-  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionLivePlan: document.getElementById("session-live-plan"), sessionHumanInsightPanel: document.getElementById("session-human-insight-panel"), sessionHumanInsightTags: document.getElementById("session-human-insight-tags"), sessionHumanInsightCondition: document.getElementById("session-human-insight-condition"), sessionHumanInsightDirection: document.getElementById("session-human-insight-direction"), sessionHumanInsightConfirmation: document.getElementById("session-human-insight-confirmation"), sessionHumanInsightSaveBtn: document.getElementById("btn-session-human-insight-save"), sessionHumanInsightSkipBtn: document.getElementById("btn-session-human-insight-skip"), sessionHumanInsightSummary: document.getElementById("session-human-insight-summary"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
+  botSchemaEditor: document.getElementById("bot-schema-editor"), botPromptEditor: document.getElementById("bot-prompt-editor"), botOutputStatus: document.getElementById("bot-output-status"), botVersionCompare: document.getElementById("bot-version-compare"), botIntegrationHints: document.getElementById("bot-integration-hints"), sessionNewBtn: document.getElementById("btn-new-session"), sessionCloseBtn: document.getElementById("btn-close-session"), sessionDate: document.getElementById("session-date"), sessionAsset: document.getElementById("session-asset"), sessionTf: document.getElementById("session-tf"), sessionNotes: document.getElementById("session-notes"), sessionCandleTime: document.getElementById("session-candle-time"), sessionCandleOpen: document.getElementById("session-candle-open"), sessionCandleHigh: document.getElementById("session-candle-high"), sessionCandleLow: document.getElementById("session-candle-low"), sessionCandleClose: document.getElementById("session-candle-close"), sessionAddCandleBtn: document.getElementById("btn-add-candle"), sessionClearCandleBtn: document.getElementById("btn-clear-candle"), sessionDuplicateOpenBtn: document.getElementById("btn-duplicate-open"), sessionActiveHeader: document.getElementById("session-active-header"), sessionSvg: document.getElementById("session-canvas"), sessionAnalysisPanel: document.getElementById("session-analysis-panel"), sessionSummary: document.getElementById("session-summary"), sessionCandleStatus: document.getElementById("session-candle-status"), sessionLivePlan: document.getElementById("session-live-plan"), sessionHumanInsightPanel: document.getElementById("session-human-insight-panel"), sessionHumanInsightClassification: document.getElementById("session-human-insight-classification"), sessionHumanInsightTags: document.getElementById("session-human-insight-tags"), sessionHumanInsightMeaning: document.getElementById("session-human-insight-meaning"), sessionHumanInsightExpectation: document.getElementById("session-human-insight-expectation"), sessionHumanInsightCondition: document.getElementById("session-human-insight-condition"), sessionHumanInsightDirection: document.getElementById("session-human-insight-direction"), sessionHumanInsightConfirmation: document.getElementById("session-human-insight-confirmation"), sessionHumanInsightSaveBtn: document.getElementById("btn-session-human-insight-save"), sessionHumanInsightSkipBtn: document.getElementById("btn-session-human-insight-skip"), sessionHumanInsightSummary: document.getElementById("session-human-insight-summary"), sessionCandlesBody: document.getElementById("session-candles-body"), pastSessions: document.getElementById("past-sessions"), sessionToggleOverlay: document.getElementById("session-toggle-overlay"), sessionToggleNarratives: document.getElementById("session-toggle-narratives"), sessionToggleNear: document.getElementById("session-toggle-near"), sessionToggleMetrics: document.getElementById("session-toggle-metrics"), sessionToggleReplay: document.getElementById("session-toggle-replay"), sessionPrevBtn: document.getElementById("btn-session-prev"), sessionNextBtn: document.getElementById("btn-session-next"), sessionPlayBtn: document.getElementById("btn-session-play"), sessionPauseBtn: document.getElementById("btn-session-pause"),
   mdSource: document.getElementById("md-source"), mdAsset: document.getElementById("md-asset"), mdTimeframe: document.getElementById("md-timeframe"), mdRange: document.getElementById("md-range"), mdLiveStatus: document.getElementById("md-live-status"), mdFetchBtn: document.getElementById("btn-md-fetch"), mdSyncBtn: document.getElementById("btn-md-sync"), mdImportBtn: document.getElementById("btn-md-import"), mdImportFile: document.getElementById("md-import-file"), mdExportBtn: document.getElementById("btn-md-export"), mdIntegrityBtn: document.getElementById("btn-md-integrity"), mdNeuronBtn: document.getElementById("btn-md-neurons"), mdBuildGraphBtn: document.getElementById("btn-md-build-graph"), mdDiscoverPatternsBtn: document.getElementById("btn-md-discover-patterns"), mdClearBtn: document.getElementById("btn-md-clear"), mdStatus: document.getElementById("md-status"), mdDiagnostics: document.getElementById("md-diagnostics"), mdNeuronSummary: document.getElementById("md-neuron-summary"), mdPatternSummary: document.getElementById("md-pattern-summary"), mdPatternBody: document.getElementById("md-pattern-body"), mdPatternDetails: document.getElementById("md-pattern-details"), mdGraphSummary: document.getElementById("md-graph-summary"), mdGraphContainer: document.getElementById("md-graph-container"), mdGraphDetails: document.getElementById("md-graph-details"), mdNeuronPreviewBody: document.getElementById("md-neuron-preview-body"), mdPreviewBody: document.getElementById("md-preview-body"), mdLiveShadowStatus: document.getElementById("md-live-shadow-status"), mdLiveShadowPolicy: document.getElementById("md-live-shadow-policy"), mdLiveShadowPending: document.getElementById("md-live-shadow-pending"), mdLiveShadowStats: document.getElementById("md-live-shadow-stats"), mdLiveShadowTimelineBody: document.getElementById("md-live-shadow-timeline-body"), mdLiveShadowDetail: document.getElementById("md-live-shadow-detail"), mdLiveShadowFilterSymbol: document.getElementById("md-live-shadow-filter-symbol"), mdLiveShadowFilterTimeframe: document.getElementById("md-live-shadow-filter-timeframe"), mdLiveShadowFilterAction: document.getElementById("md-live-shadow-filter-action"), mdLiveShadowFilterResult: document.getElementById("md-live-shadow-filter-result"), mdLiveShadowAutoIngest: document.getElementById("md-live-shadow-auto-ingest"), mdLiveShadowImportSelectedBtn: document.getElementById("btn-live-shadow-import-selected"), prSummary: document.getElementById("pr-summary"), prTableBody: document.getElementById("pr-table-body"), prInspect: document.getElementById("pr-inspect"), prPromoteBtn: document.getElementById("btn-pr-promote"), prRejectBtn: document.getElementById("btn-pr-reject"), prIgnoreBtn: document.getElementById("btn-pr-ignore"), prPromotedSummary: document.getElementById("pr-promoted-summary"), clusterMinEdge: document.getElementById("cluster-min-edge"), clusterMinEdgeValue: document.getElementById("cluster-min-edge-value"), clusterMinNode: document.getElementById("cluster-min-node"), clusterMinNodeValue: document.getElementById("cluster-min-node-value"), clusterSessionFilter: document.getElementById("cluster-session-filter"), clusterMapSummary: document.getElementById("cluster-map-summary"), clusterMapContainer: document.getElementById("cluster-map-container"), clusterMapInspector: document.getElementById("cluster-map-inspector"),
 };
 
@@ -823,6 +823,9 @@ function getHumanInsightContext(analysis, marketView) {
   const momentumStrength = Number(analysis?.pseudoMl?.regime?.strength || 0) / 100;
   const followthroughStrength = Number(analysis?.pseudoMl?.probability?.confidence || 0);
   const rejectionWick = /wick|reject/i.test(String(analysis?.pushState || "")) || breakoutState === "fail";
+  const candles = marketView?.candles || [];
+  const currentCandle = candles[candles.length - 1] || null;
+  const previousCandle = candles[candles.length - 2] || null;
   return {
     currentPrice,
     breakoutState,
@@ -831,6 +834,9 @@ function getHumanInsightContext(analysis, marketView) {
     rejectionWick,
     hasConfirmation: followthroughStrength >= 0.62,
     drawings: _sessionManualSR,
+    candles,
+    currentCandle,
+    previousCandle,
   };
 }
 
@@ -954,6 +960,12 @@ function renderHumanInsightDraftPanel() {
     return;
   }
   els.sessionHumanInsightPanel.classList.remove("hidden");
+  if (els.sessionHumanInsightClassification) {
+    const label = draft.classification?.label || "manual level";
+    els.sessionHumanInsightClassification.textContent = `This looks like: ${label}`;
+  }
+  if (els.sessionHumanInsightMeaning) els.sessionHumanInsightMeaning.value = draft.meaningSelection || "resistance";
+  if (els.sessionHumanInsightExpectation) els.sessionHumanInsightExpectation.value = draft.expectationSelection || "rejection";
   if (els.sessionHumanInsightCondition) els.sessionHumanInsightCondition.value = draft.conditionSelection || "if_fail_reverse";
   if (els.sessionHumanInsightDirection) els.sessionHumanInsightDirection.value = draft.directionBias || "short";
   if (els.sessionHumanInsightConfirmation) els.sessionHumanInsightConfirmation.checked = Boolean(draft.requireConfirmation);
@@ -1255,7 +1267,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
             conditionType: sessionHumanInsightDraft.conditionSelection,
             directionBias: sessionHumanInsightDraft.directionBias,
             activationResult: false,
-            effectSummary: "draft_created",
+            effectSummary: `draft_created:${sessionHumanInsightDraft.classification?.label || "manual"}`,
           });
           renderHumanInsightDraftPanel();
         } else if (eventMeta?.type === "removed" && eventMeta.lineId) {
@@ -1344,9 +1356,15 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
   }
 
   const selectedDrawingId = sessionOperatorState.selectedDrawingId;
+  const activeInsightIds = new Set((sessionOperatorState.currentContext?.humanInsightEvaluation?.activeInsights || []).map((insight) => insight.linkedDrawingId));
+  const triggeredInsightIds = new Set((sessionOperatorState.currentContext?.humanInsightEvaluation?.activeInsights || [])
+    .filter((insight) => insight.isTriggered)
+    .map((insight) => insight.linkedDrawingId));
   const linesWithInsightMeta = _sessionManualSR.map((line) => ({
     ...line,
     humanInsightLinked: _sessionHumanInsights.some((insight) => insight.linkedDrawingId === line.id && !insight?.metadata?.isOrphaned),
+    humanInsightActive: activeInsightIds.has(line.id),
+    humanInsightTriggered: triggeredInsightIds.has(line.id),
     isSelected: selectedDrawingId === line.id,
   }));
 
@@ -3284,6 +3302,21 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     sessionHumanInsightDraft = toggleHumanInsightTag(sessionHumanInsightDraft, btn.dataset.humanTag);
     sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
     renderHumanInsightDraftPanel();
+  });
+
+  els.sessionHumanInsightMeaning?.addEventListener("change", () => {
+    if (!sessionHumanInsightDraft) return;
+    sessionHumanInsightDraft = updateHumanInsightDraft(sessionHumanInsightDraft, {
+      meaningSelection: els.sessionHumanInsightMeaning.value,
+    });
+    sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
+  });
+  els.sessionHumanInsightExpectation?.addEventListener("change", () => {
+    if (!sessionHumanInsightDraft) return;
+    sessionHumanInsightDraft = updateHumanInsightDraft(sessionHumanInsightDraft, {
+      expectationSelection: els.sessionHumanInsightExpectation.value,
+    });
+    sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
   });
   els.sessionHumanInsightCondition?.addEventListener("change", () => {
     if (!sessionHumanInsightDraft) return;

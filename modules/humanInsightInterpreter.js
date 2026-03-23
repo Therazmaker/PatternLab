@@ -88,10 +88,12 @@ export function interpretHumanInsightSelection(selection = {}, drawing = {}, met
   const conditionType = CONDITION_TYPE_MAP[selection.conditionSelection] || "if_not_break";
   const directionBias = normalizeDirection(selection.directionBias);
 
+  const resolvedInsightType = selection.meaningSelection === "invalidation" ? "invalidation" : deriveInsightType(selectedTags);
+
   return {
     id: selection.id,
     linkedDrawingId: drawing.id,
-    insightType: deriveInsightType(selectedTags),
+    insightType: resolvedInsightType,
     context: deriveContext(selectedTags),
     condition: {
       type: conditionType,
@@ -108,6 +110,10 @@ export function interpretHumanInsightSelection(selection = {}, drawing = {}, met
       createdAt: metadata.createdAt || new Date().toISOString(),
       symbol: metadata.symbol || "UNKNOWN",
       timeframe: metadata.timeframe || "UNKNOWN",
+      source: metadata.source || "session-candle",
+      meaningSelection: selection.meaningSelection || null,
+      expectationSelection: selection.expectationSelection || null,
+      classification: metadata.classification || null,
     },
   };
 }
