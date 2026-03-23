@@ -9,6 +9,10 @@
  *  - onSRChange(lines, eventMeta) callback + setManualSR(lines) for persistence
  */
 
+import { createChartDrawingToolbar } from "./chartDrawingToolbar.js";
+import { createChartDrawingController } from "./chartDrawingController.js";
+import { renderDrawings, renderDrawingDraft } from "./drawingRenderLayer.js";
+
 const C = {
   bg:"#0b1118",gridLine:"rgba(148,163,184,0.065)",gridBold:"rgba(148,163,184,0.14)",
   axisBg:"#0d1621",axisText:"#56687a",axisTick:"rgba(148,163,184,0.18)",
@@ -49,7 +53,7 @@ export class SessionChart {
     this.explanations=[];this.selectedIdx=null;this.prefs={};this.decimals=4;
     this._manualSR=[];
     this._candleW=10;this._offsetX=0;this._zoomed=false;
-    this._drawMode=false;this._fullscreen=false;
+    this._fullscreen=false;
     this._mouse=null;this._hovIdx=null;
     this._dragging=false;this._dragX0=0;this._dragOff0=0;this._lastPinchD=0;
     this._dirty=true;this._raf=null;
@@ -64,34 +68,43 @@ export class SessionChart {
     el.appendChild(this.canvas);
     this.ctx=this.canvas.getContext("2d");
     this._buildToolbar();
+    this._buildDrawingController();
     this._bindEvents();
     this._startLoop();
   }
 
   _buildToolbar(){
-    this._toolbar=document.createElement("div");
-    this._toolbar.style.cssText="position:absolute;top:8px;right:88px;display:flex;gap:6px;align-items:center;z-index:10;";
-    this._btnDraw=this._makeBtn("✏ S/R","Click para activar modo dibujo de Soporte/Resistencia",()=>this.toggleDrawMode());
-    this._btnFS=this._makeBtn("⛶ Full","Pantalla completa (F)",()=>this.toggleFullscreen());
-    this._toolbar.appendChild(this._btnDraw);
-    this._toolbar.appendChild(this._btnFS);
-    this.container.appendChild(this._toolbar);
+    this._toolbar=createChartDrawingToolbar(this.container,{
+      onToolSelect:(tool)=>this._drawingController?.setTool(tool),
+      onClear:()=>this._handleClearDrawings(),
+      onFullscreen:()=>this.toggleFullscreen(),
+    });
   }
 
-  _makeBtn(label,title,onClick){
-    const btn=document.createElement("button");
-    btn.textContent=label;btn.title=title;
-    btn.style.cssText="font:500 11px/1 'JetBrains Mono',monospace;padding:4px 10px;border-radius:5px;border:1px solid rgba(148,163,184,0.22);background:rgba(13,22,33,0.88);color:#94a3b8;cursor:pointer;backdrop-filter:blur(4px);transition:all .15s;";
-    btn.addEventListener("mouseenter",()=>{btn.style.color="#e2e8f0";btn.style.borderColor="rgba(148,163,184,0.5)";});
-    btn.addEventListener("mouseleave",()=>this._refreshBtn(btn));
-    btn.addEventListener("click",(e)=>{e.stopPropagation();onClick();});
-    return btn;
-  }
-
-  _refreshBtn(btn){
-    if(btn===this._btnDraw&&this._drawMode){btn.style.color=C.drawModeText;btn.style.borderColor=C.drawModeText;btn.style.background=C.drawModeBg;}
-    else if(btn===this._btnFS&&this._fullscreen){btn.style.color="#60a5fa";btn.style.borderColor="#60a5fa";btn.style.background="rgba(37,99,235,0.12)";}
-    else{btn.style.color="#94a3b8";btn.style.borderColor="rgba(148,163,184,0.22)";btn.style.background="rgba(13,22,33,0.88)";}
+  _buildDrawingController(){
+    this._drawingController=createChartDrawingController({
+      getContext:()=>({
+        symbol:this.overlays?.symbol||"UNKNOWN",
+        timeframe:this.overlays?.timeframe||"UNKNOWN",
+      }),
+      chartToScreen:(point)=>this.chartToScreenCoords(point.time,point.price),
+      onStateChange:()=>{this._dirty=true;},
+      onToolChange:(tool)=>{this._toolbar?.setActiveTool(tool);},
+      onDrawingCreated:(drawing,rows)=>{
+        this._manualSR=[...rows];
+        this.onSRChange([...this._manualSR],{type:"created",line:drawing});
+        console.debug("Drawing persisted",{drawingId:drawing.id,type:drawing.type,points:drawing.points,symbol:drawing.metadata?.symbol,timeframe:drawing.metadata?.timeframe});
+      },
+      onDrawingDeleted:(drawing,rows)=>{
+        this._manualSR=[...rows];
+        this.onSRChange([...this._manualSR],{type:"removed",lineId:drawing.id,line:drawing});
+      },
+      onDrawingsCleared:(removedIds,rows)=>{
+        this._manualSR=[...rows];
+        this.onSRChange([...this._manualSR],{type:"cleared",lineIds:removedIds});
+      },
+      onDrawingSelected:(drawing)=>this.onSRSelect(drawing),
+    });
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -106,19 +119,15 @@ export class SessionChart {
 
   setSelected(idx){if(this.selectedIdx===idx)return;this.selectedIdx=idx;this._dirty=true;}
 
-  setManualSR(lines=[]){this._manualSR=lines.map(l=>({...l}));this._dirty=true;}
-
-  toggleDrawMode(){
-    this._drawMode=!this._drawMode;
-    this._refreshBtn(this._btnDraw);
-    this._btnDraw.textContent=this._drawMode?"✏ S/R ●":"✏ S/R";
+  setManualSR(lines=[]){
+    this._manualSR=lines.map(l=>({...l}));
+    this._drawingController?.setDrawings(this._manualSR);
     this._dirty=true;
   }
 
   toggleFullscreen(){
     this._fullscreen=!this._fullscreen;
-    this._refreshBtn(this._btnFS);
-    this._btnFS.textContent=this._fullscreen?"⛶ Exit":"⛶ Full";
+    this._toolbar?.setFullscreen(this._fullscreen);
     if(this._fullscreen){
       this._savedParent=this.container.parentElement;
       this._savedNext=this.container.nextSibling;
@@ -143,7 +152,7 @@ export class SessionChart {
     if(this._fullscreen)this.toggleFullscreen();
     cancelAnimationFrame(this._raf);
     this._unbindEvents();
-    this._toolbar.remove();
+    this._toolbar?.destroy();
     this.canvas.remove();
   }
 
@@ -173,6 +182,17 @@ export class SessionChart {
 
   _yForPrice(p){const{min,max}=this._priceRange();return PAD_TOP+this._chartH*(1-(p-min)/(max-min));}
   _priceAtY(py){const{min,max}=this._priceRange();return max-(py-PAD_TOP)/this._chartH*(max-min);}
+  screenToChartCoords(x,y){
+    const idx=clamp(this._idxAtX(x),0,Math.max(0,this.candles.length-1));
+    const nearest=this.candles[Math.round(idx)];
+    return{time:Number(nearest?.timestamp??nearest?.index??Math.round(idx)),price:this._priceAtY(y)};
+  }
+  chartToScreenCoords(time,price){
+    const ts=Number(time);
+    let idx=this.candles.findIndex((c)=>Number(c.timestamp)===ts||Number(c.index)===ts);
+    if(idx<0)idx=clamp(Math.round(ts),0,Math.max(0,this.candles.length-1));
+    return{x:this._xForIdx(idx),y:this._yForPrice(Number(price))};
+  }
 
   // ── Loop ──────────────────────────────────────────────────────────────────
   _startLoop(){
@@ -204,11 +224,13 @@ export class SessionChart {
     this._drawEmas(ctx);this._drawSRLines(ctx);this._drawManualSRLines(ctx);
     this._drawLivePlanLines(ctx);this._drawCandles(ctx);this._drawSwings(ctx);this._drawSignalDots(ctx);
     this._drawTimeAxis(ctx);
-    if(this._drawMode&&this._mouse&&this._mouse.y>PAD_TOP&&this._mouse.y<PAD_TOP+this._chartH)
-      this._drawPreviewLine(ctx,this._mouse.y);
+    renderDrawingDraft(ctx,this._drawingController?.state||{},{
+      chartToScreen:(point)=>this.chartToScreenCoords(point.time,point.price),
+      chartW:this._chartW,
+    });
     ctx.restore();
     this._drawPriceAxis(ctx);this._drawLiveBadge(ctx);
-    if(this._drawMode)this._drawDrawHint(ctx);
+    if(this._drawingController?.state?.activeTool!=="select")this._drawDrawHint(ctx);
     if(this._mouse)this._drawCrosshair(ctx);
     if(this._mouse)this._drawTooltip(ctx);
   }
@@ -312,43 +334,18 @@ export class SessionChart {
 
   // ── Manual S/R ────────────────────────────────────────────────────────────
   _drawManualSRLines(ctx){
-    if(!this._manualSR.length)return;
-    ctx.font="9px 'JetBrains Mono',monospace";
-    this._manualSR.forEach(line=>{
-      const y=this._yForPrice(line.price),isSup=line.type==="support";
-      const color=isSup?C.manualSupport:C.manualResistance;
-      ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.setLineDash([7,3]);
-      ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(this._chartW,y);ctx.stroke();ctx.setLineDash([]);
-      const hasInsight = Boolean(line.humanInsightLinked);
-      const insightBadge = hasInsight ? " 🧠" : "";
-      const selected = Boolean(line.isSelected);
-      const tag=`${line.label||(isSup?"S":"R")}${insightBadge}  ${fmt(line.price,this.decimals)}  ✕`;
-      const tw=ctx.measureText(tag).width+14,tx=this._chartW-tw-10,ty=y-9;
-      ctx.fillStyle=selected ? "rgba(96,165,250,0.16)" : (isSup?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.15)");
-      ctx.strokeStyle=color;ctx.lineWidth=0.8;
-      ctx.beginPath();ctx.roundRect(tx,ty,tw,18,4);ctx.fill();ctx.stroke();
-      ctx.fillStyle=color;ctx.textAlign="left";ctx.fillText(tag,tx+7,y+3.5);
-      line._hz={tx,ty,tw,th:18,removeX:tx+tw-16,removeW:14};
+    renderDrawings(ctx,this._manualSR,this._drawingController?.state||{},{
+      chartW:this._chartW,
+      chartH:this._chartH,
+      padTop:PAD_TOP,
+      chartToScreen:(point)=>this.chartToScreenCoords(point.time,point.price),
     });
-  }
-
-  _drawPreviewLine(ctx,mouseY){
-    const price=this._priceAtY(mouseY),last=this.candles[this.candles.length-1];
-    const isSup=price<=(last?.close||price),color=isSup?C.manualSupport:C.manualResistance;
-    const label=isSup?"+ Soporte":"+ Resistencia";
-    ctx.strokeStyle=color;ctx.lineWidth=1;ctx.globalAlpha=0.4;ctx.setLineDash([5,4]);
-    ctx.beginPath();ctx.moveTo(0,mouseY);ctx.lineTo(this._chartW,mouseY);ctx.stroke();
-    ctx.setLineDash([]);ctx.globalAlpha=1;
-    ctx.font="9px 'JetBrains Mono',monospace";
-    const text=`${label}  ${fmt(price,this.decimals)}`,tw=ctx.measureText(text).width+12;
-    ctx.fillStyle=isSup?"rgba(34,197,94,0.18)":"rgba(239,68,68,0.18)";
-    ctx.beginPath();ctx.roundRect(this._chartW-tw-12,mouseY-9,tw,18,4);ctx.fill();
-    ctx.fillStyle=color;ctx.textAlign="left";ctx.fillText(text,this._chartW-tw-6,mouseY+3.5);
   }
 
   _drawDrawHint(ctx){
     ctx.font="10px 'JetBrains Mono',monospace";
-    const text="Modo dibujo — click para colocar S/R · Esc para salir";
+    const tool=this._drawingController?.state?.activeTool||"select";
+    const text=`Drawing mode (${tool}) — click to place points · Esc to cancel`;
     const tw=ctx.measureText(text).width+24,tx=(this._chartW-tw)/2;
     ctx.fillStyle=C.drawModeBg;ctx.beginPath();ctx.roundRect(tx,6,tw,20,4);ctx.fill();
     ctx.fillStyle=C.drawModeText;ctx.textAlign="left";ctx.fillText(text,tx+12,20);
@@ -474,21 +471,12 @@ export class SessionChart {
     ctx.fillText(`#${c.index}${c.timeLabel?"  "+c.timeLabel:""}`,tx+pad,ty+pad+5);
   }
 
-  // ── S/R placement/removal ─────────────────────────────────────────────────
-  _placeSR(mouseY){
-    const price=this._priceAtY(mouseY),last=this.candles[this.candles.length-1];
-    const type=price<=(last?.close||price)?"support":"resistance";
-    const id=`sr_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
-    this._manualSR=[...this._manualSR,{id,price,type,label:type==="support"?"S":"R"}];
-    const line=this._manualSR[this._manualSR.length-1];
-    this.onSRChange([...this._manualSR],{type:"created",line});this._dirty=true;
-  }
-
-  _removeSR(id){this._manualSR=this._manualSR.filter(l=>l.id!==id);this.onSRChange([...this._manualSR],{type:"removed",lineId:id});this._dirty=true;}
-
-  _hitTestSR(mx,my){
-    for(const line of this._manualSR){const z=line._hz;if(!z)continue;if(mx>=z.tx&&mx<=z.tx+z.tw&&my>=z.ty&&my<=z.ty+z.th)return line.id;}
-    return null;
+  _handleClearDrawings(){
+    if(!this._manualSR.length)return;
+    if(window.confirm("Clear all manual drawings for this session?")){
+      this._drawingController?.clearDrawings();
+      this._dirty=true;
+    }
   }
 
   // ── Events ────────────────────────────────────────────────────────────────
@@ -505,6 +493,7 @@ export class SessionChart {
     this._onTM=e=>this._handleTouchMove(e);
     this._onTE=()=>{this._dragging=false;};
     this._onC=e=>this._handleClick(e);
+    this._onCM=e=>this._handleContextMenu(e);
     this._onKD=e=>this._handleKeyDown(e);
     el.addEventListener("mousemove",this._onMM);el.addEventListener("mouseleave",this._onML);
     el.addEventListener("mousedown",this._onMD);el.addEventListener("mouseup",this._onMU);
@@ -512,6 +501,7 @@ export class SessionChart {
     el.addEventListener("touchstart",this._onTS,{passive:true});
     el.addEventListener("touchmove",this._onTM,{passive:false});
     el.addEventListener("touchend",this._onTE);el.addEventListener("click",this._onC);
+    el.addEventListener("contextmenu",this._onCM);
     window.addEventListener("keydown",this._onKD);
   }
 
@@ -522,23 +512,29 @@ export class SessionChart {
     el.removeEventListener("wheel",this._onW);
     el.removeEventListener("touchstart",this._onTS);el.removeEventListener("touchmove",this._onTM);
     el.removeEventListener("touchend",this._onTE);el.removeEventListener("click",this._onC);
+    el.removeEventListener("contextmenu",this._onCM);
     window.removeEventListener("keydown",this._onKD);
   }
 
   _handleKeyDown(e){
-    if(e.key==="Escape"){if(this._drawMode){this.toggleDrawMode();return;}if(this._fullscreen){this.toggleFullscreen();return;}}
+    if(e.key==="Escape"){
+      const canceled=this._drawingController?.cancelDraft();
+      if(canceled)return;
+      if(this._fullscreen){this.toggleFullscreen();return;}
+    }
     if((e.key==="f"||e.key==="F")&&!e.ctrlKey&&!e.metaKey&&(this._fullscreen||document.activeElement===this.canvas)){this.toggleFullscreen();}
   }
 
   _handleMouseMove(e){
     const{x,y}=this._logicalXY(e);this._mouse={x,y};this._dirty=true;
-    if(this._dragging&&!this._drawMode){const dx=x-this._dragX0;this._offsetX=this._dragOff0-dx/this._spacing;this._clampOffset();}
+    this._drawingController?.pointerMove({chartPoint:this.screenToChartCoords(x,y)});
+    if(this._dragging&&this._drawingController?.state?.activeTool==="select"){const dx=x-this._dragX0;this._offsetX=this._dragOff0-dx/this._spacing;this._clampOffset();}
     const i=clamp(Math.round(this._idxAtX(x)),0,this.candles.length-1);
     if(i!==this._hovIdx){this._hovIdx=i;const c=this.candles[i];if(c)this.onCandleHover(c.index);}
   }
 
   _handleMouseDown(e){
-    if(e.button!==0||this._drawMode)return;
+    if(e.button!==0||this._drawingController?.state?.activeTool!=="select")return;
     const{x}=this._logicalXY(e);this._dragging=true;this._dragX0=x;this._dragOff0=this._offsetX;
     this.canvas.style.cursor="grabbing";
   }
@@ -565,20 +561,22 @@ export class SessionChart {
 
   _handleClick(e){
     const{x,y}=this._logicalXY(e);
-    const hitLine=this._manualSR.find((line)=> {
-      const z=line._hz;
-      return z && x>=z.tx && x<=z.tx+z.tw && y>=z.ty && y<=z.ty+z.th;
-    });
-    if(hitLine){
-      const z=hitLine._hz;
-      if(z && x>=z.removeX && x<=z.removeX+z.removeW){this._removeSR(hitLine.id);return;}
-      this.onSRSelect({...hitLine});
-      this._dirty=true;
-      return;
+    if(y>PAD_TOP&&y<PAD_TOP+this._chartH){
+      const result=this._drawingController?.pointerDown({
+        chartPoint:this.screenToChartCoords(x,y),
+        screenPoint:{x,y},
+        button:e.button||0,
+      });
+      if(result?.consumed){this._dirty=true;return;}
     }
-    if(this._drawMode){if(y>PAD_TOP&&y<PAD_TOP+this._chartH)this._placeSR(y);return;}
     if(Math.abs(e.clientX-(this._dragX0||e.clientX))>5)return;
     const i=clamp(Math.round(this._idxAtX(x)),0,this.candles.length-1);
     const c=this.candles[i];if(c)this.onCandleClick(c.index);
+  }
+
+  _handleContextMenu(e){
+    e.preventDefault();
+    this._drawingController?.cancelDraft();
+    this._dirty=true;
   }
 }

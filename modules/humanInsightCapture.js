@@ -5,12 +5,15 @@ function dedupe(items = []) {
 }
 
 export function createHumanInsightDraft({ drawing = {}, symbol = "UNKNOWN", timeframe = "UNKNOWN" } = {}) {
+  const inferredBias = drawing.type === "support" ? "long"
+    : drawing.type === "resistance" ? "short"
+      : "neutral";
   return {
     id: `human_insight_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     drawing,
     selectedTags: [],
     conditionSelection: "if_fail_reverse",
-    directionBias: drawing.type === "support" ? "long" : "short",
+    directionBias: inferredBias,
     requireConfirmation: false,
     metadata: {
       createdAt: new Date().toISOString(),
@@ -41,7 +44,8 @@ export function updateHumanInsightDraft(draft = {}, patch = {}) {
 export function finalizeHumanInsightDraft(draft = {}) {
   if (!draft?.drawing?.id) return null;
   const selectedTags = dedupe(draft.selectedTags || []);
-  const inferredDirection = draft.directionBias || (draft.drawing?.type === "support" ? "long" : "short");
+  const inferredDirection = draft.directionBias
+    || (draft.drawing?.type === "support" ? "long" : draft.drawing?.type === "resistance" ? "short" : "neutral");
   const needsConfirmation = Boolean(draft.requireConfirmation || !selectedTags.length);
   const conditionSelection = draft.conditionSelection || "only_with_confirmation";
   return interpretHumanInsightSelection({
