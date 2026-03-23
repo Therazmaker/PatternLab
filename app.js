@@ -58,6 +58,9 @@ import { importCopilotFeedback, getCopilotFeedback, getCopilotFeedbackHistory, h
 import { evaluateCopilotFeedback } from "./modules/copilotFeedbackEvaluator.js";
 import { buildCopilotFeedbackEffects } from "./modules/copilotFeedbackBridge.js";
 import { renderCopilotFeedbackBlock, renderCopilotFeedbackTabPanel } from "./modules/copilotFeedbackPanel.js";
+import { buildDecisionTrace } from "./modules/decisionTraceBuilder.js";
+import { addDecisionTrace, getDecisionTraces, getAggregatedTraceStats, updateDecisionTrace } from "./modules/decisionTraceStore.js";
+import { evaluateForwardOutcome } from "./modules/forwardOutcomeEvaluator.js";
 import {
   fetchYahooCandles,
   normalizeYahooCandles,
@@ -4566,6 +4569,20 @@ function evaluateAndStoreCopilotFeedback(analysis, marketView) {
   }
   _lastCopilotEvaluation = evaluation;
   _lastCopilotEffects = effects;
+
+  // Build a decision trace for this candle and store it
+  const candles = marketView?.candles || [];
+  const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+  const trace = buildDecisionTrace({ candle: lastCandle, feedback, evaluation, effects, marketCtx });
+  addDecisionTrace(trace);
+
+  // Update forward evaluations for recent pending traces using the current candle history
+  const pendingTraces = getDecisionTraces().filter((t) => t.forward_eval?.block_quality === "pending");
+  for (const t of pendingTraces) {
+    const updated = evaluateForwardOutcome(t, candles);
+    if (updated !== t) updateDecisionTrace(t.candle_time, updated);
+  }
+
   return { feedback, evaluation, effects };
 }
 
@@ -4587,7 +4604,9 @@ function renderCopilotFeedbackTabUI() {
   const evaluation = _lastCopilotEvaluation;
   const effects = _lastCopilotEffects;
   const history = getCopilotFeedbackHistory();
-  els.copilotFeedbackPanel.innerHTML = renderCopilotFeedbackTabPanel(feedback, evaluation, effects, history);
+  const traces = getDecisionTraces();
+  const stats = getAggregatedTraceStats();
+  els.copilotFeedbackPanel.innerHTML = renderCopilotFeedbackTabPanel(feedback, evaluation, effects, history, traces, stats);
 
   const importBtn = document.getElementById("btn-copilot-import");
   const clearBtn = document.getElementById("btn-copilot-clear");
