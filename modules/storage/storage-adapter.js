@@ -31,6 +31,7 @@ const STORAGE_KEYS = [
   "operatorActions",
   "operatorPatternSummary",
   "learningModel",
+  "copilotFeedback",
 ];
 
 const defaultMetaFeedback = {
@@ -45,7 +46,7 @@ let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
   marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" }, autoIngestToSignals: true }, strategyRuns: [], strategyLifecycle: { versions: [], validations: [], liveInstances: [], degradationAlerts: [] },
-  tradeMemories: [], decisionMemories: [], operatorActions: [], operatorPatternSummary: null, learningModel: null,
+  tradeMemories: [], decisionMemories: [], operatorActions: [], operatorPatternSummary: null, learningModel: null, copilotFeedback: { current: null, history: [] },
 };
 
 function enqueueWrite(task) {
@@ -87,6 +88,7 @@ function normalizeCache(snapshot = {}) {
     operatorActions: Array.isArray(snapshot.operatorActions) ? snapshot.operatorActions : [],
     operatorPatternSummary: snapshot.operatorPatternSummary && typeof snapshot.operatorPatternSummary === "object" ? snapshot.operatorPatternSummary : null,
     learningModel: snapshot.learningModel && typeof snapshot.learningModel === "object" ? snapshot.learningModel : null,
+    copilotFeedback: snapshot.copilotFeedback && typeof snapshot.copilotFeedback === "object" ? { current: snapshot.copilotFeedback.current || null, history: Array.isArray(snapshot.copilotFeedback.history) ? snapshot.copilotFeedback.history : [] } : { current: null, history: [] },
   };
 }
 
@@ -120,6 +122,7 @@ function writeLegacyByDomain(domain) {
     case "operatorActions": writeLegacyValue(LEGACY_KEYS.operatorActions, cache.operatorActions); break;
     case "operatorPatternSummary": writeLegacyValue(LEGACY_KEYS.operatorPatternSummary, cache.operatorPatternSummary); break;
     case "learningModel": writeLegacyValue(LEGACY_KEYS.learningModel, cache.learningModel); break;
+    case "copilotFeedback": writeLegacyValue(LEGACY_KEYS.copilotFeedback, cache.copilotFeedback); break;
     default: break;
   }
 }
@@ -359,6 +362,13 @@ export function saveLearningModel(model) {
   return enqueueWrite(() => persistDomain("learningModel"));
 }
 
+export function loadCopilotFeedback() { return cache.copilotFeedback || { current: null, history: [] }; }
+export function saveCopilotFeedback(value) {
+  const base = { current: null, history: [] };
+  cache.copilotFeedback = value && typeof value === "object" ? { ...base, ...value } : { ...base };
+  return enqueueWrite(() => persistDomain("copilotFeedback"));
+}
+
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -416,6 +426,7 @@ export function exportMemory() {
       operatorActions: cache.operatorActions || [],
       operatorPatternSummary: cache.operatorPatternSummary || null,
       learningModel: cache.learningModel || null,
+      copilotFeedback: cache.copilotFeedback || { current: null, history: [] },
     },
   };
 }
@@ -486,11 +497,12 @@ export async function importMemory(payload, mode = "replace") {
     operatorActions: payload.data.operatorActions || [],
     operatorPatternSummary: payload.data.operatorPatternSummary || null,
     learningModel: payload.data.learningModel || null,
+    copilotFeedback: payload.data.copilotFeedback || cache.copilotFeedback,
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary", "learningModel"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary", "learningModel", "copilotFeedback"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 

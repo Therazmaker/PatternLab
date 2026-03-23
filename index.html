@@ -44,6 +44,7 @@
       <button class="tab-btn" data-tab="strategy-lab">Strategy Lab</button>
       <button class="tab-btn" data-tab="pattern-review">Pattern Review</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
+      <button class="tab-btn" data-tab="copilot-feedback">Copilot Feedback</button>
     </nav>
 
     <main class="layout">
@@ -627,6 +628,11 @@
           <div id="session-operator-feedback-status" class="muted tiny">Operator feedback ready.</div>
           <div id="session-operator-decision" class="panel-soft muted tiny">Decision After Operator Input will appear here after recalculation.</div>
         </article>
+        <article class="panel-soft session-copilot-feedback">
+          <h4>Copilot Feedback Layer</h4>
+          <p class="muted tiny">External structured guidance from ChatGPT. Assisted mode — no auto-execution. Import JSON from the Copilot Feedback tab.</p>
+          <div id="session-copilot-feedback-block" class="muted tiny">No copilot feedback loaded.</div>
+        </article>
         <div class="table-wrap"><table><thead><tr><th>index</th><th>time</th><th>open</th><th>high</th><th>low</th><th>close</th><th>color</th><th>analytical read</th><th>recorded signal</th><th>actions</th></tr></thead><tbody id="session-candles-body"></tbody></table></div>
         <h3>Past Sessions</h3><div id="past-sessions" class="stack"></div>
       </section>
@@ -904,6 +910,12 @@
         </article>
 
         <p id="settings-status" class="settings-status muted"></p>
+      </section>
+
+      <section class="panel tab-panel" data-panel="copilot-feedback">
+        <h2>Copilot Feedback Loop</h2>
+        <p class="muted tiny">Assisted mode only. Import a <code>patternlab_copilot_feedback_v1</code> JSON from ChatGPT. PatternLab will validate it, monitor triggers in real time and use it as an additional layer on the decision engine.</p>
+        <div id="copilot-feedback-panel"></div>
       </section>
 
     </main>

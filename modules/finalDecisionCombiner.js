@@ -26,7 +26,7 @@ function classifyDecision(score) {
   return "ALLOW";
 }
 
-export function combineFinalDecision(machineSignal = {}, structureFilterResult = {}, operatorModifier = {}, learningModifier = {}, triggerLineEffects = {}) {
+export function combineFinalDecision(machineSignal = {}, structureFilterResult = {}, operatorModifier = {}, learningModifier = {}, triggerLineEffects = {}, copilotEffects = {}) {
   const machineComponent = asSignedMachineComponent(machineSignal);
   const structureComponent = asStructureComponent(structureFilterResult);
   const operatorComponent = clamp(operatorModifier.modifierScore, -0.45, 0.45);
@@ -38,8 +38,9 @@ export function combineFinalDecision(machineSignal = {}, structureFilterResult =
       ? Number(triggerLineEffects.shortModifier || 0)
       : (Number(triggerLineEffects.longModifier || 0) + Number(triggerLineEffects.shortModifier || 0)) * 0.5;
   const triggerComponent = clamp(triggerComponentRaw, -0.45, 0.45);
+  const copilotComponent = clamp(Number(copilotEffects.copilotModifier || 0), -0.4, 0.4);
 
-  const totalScore = clamp(machineComponent + structureComponent + learningComponent + operatorComponent + triggerComponent, -1, 1);
+  const totalScore = clamp(machineComponent + structureComponent + learningComponent + operatorComponent + triggerComponent + copilotComponent, -1, 1);
   let finalDecision = classifyDecision(totalScore);
 
   const biasFromMachine = normalizeDirection(machineSignal.direction || machineSignal.bias || "NONE", "NONE");
@@ -54,6 +55,7 @@ export function combineFinalDecision(machineSignal = {}, structureFilterResult =
     `learning_component_${learningComponent >= 0 ? "supportive" : "protective"}`,
     `operator_component_${operatorComponent >= 0 ? "supportive" : "protective"}`,
     `trigger_component_${triggerComponent >= 0 ? "supportive" : "protective"}`,
+    `copilot_component_${copilotComponent >= 0 ? "supportive" : "protective"}`,
   ];
 
   if (operatorModifier.effectOnDecision === "block") reasonCodes.push("operator_blocking_modifier");
@@ -67,7 +69,17 @@ export function combineFinalDecision(machineSignal = {}, structureFilterResult =
   }
   if (triggerLineEffects.reasonCodes?.length) reasonCodes.push(...triggerLineEffects.reasonCodes.slice(0, 5));
 
-  const summaryText = `Final decision combined. Machine ${machineComponent.toFixed(2)} + structure ${structureComponent.toFixed(2)} + learning ${learningComponent.toFixed(2)} + operator ${operatorComponent.toFixed(2)} + trigger ${triggerComponent.toFixed(2)} = ${totalScore.toFixed(2)} -> ${finalDecision}.`;
+  // Copilot feedback overrides (assisted mode – never auto-executes)
+  if (copilotEffects.blockEntry === true) {
+    finalDecision = "BLOCK";
+    reasonCodes.push("copilot_entry_blocked");
+  } else if (copilotEffects.requireConfirmation === true && finalDecision === "ALLOW") {
+    finalDecision = "REQUIRES_MANUAL_CONFIRMATION";
+    reasonCodes.push("copilot_confirmation_required");
+  }
+  if (copilotEffects.reasonCodes?.length) reasonCodes.push(...copilotEffects.reasonCodes.slice(0, 5));
+
+  const summaryText = `Final decision combined. Machine ${machineComponent.toFixed(2)} + structure ${structureComponent.toFixed(2)} + learning ${learningComponent.toFixed(2)} + operator ${operatorComponent.toFixed(2)} + trigger ${triggerComponent.toFixed(2)} + copilot ${copilotComponent.toFixed(2)} = ${totalScore.toFixed(2)} -> ${finalDecision}.`;
 
   console.debug("Final decision combined", {
     machineComponent,
@@ -75,6 +87,7 @@ export function combineFinalDecision(machineSignal = {}, structureFilterResult =
     learningComponent,
     operatorComponent,
     triggerComponent,
+    copilotComponent,
     finalDecision,
   });
 
@@ -88,9 +101,11 @@ export function combineFinalDecision(machineSignal = {}, structureFilterResult =
       learningComponent: Number(learningComponent.toFixed(4)),
       operatorComponent: Number(operatorComponent.toFixed(4)),
       triggerComponent: Number(triggerComponent.toFixed(4)),
+      copilotComponent: Number(copilotComponent.toFixed(4)),
       finalDecision,
     },
     reasonCodes,
     summaryText,
   };
 }
+

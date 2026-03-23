@@ -21,6 +21,7 @@ export const LEGACY_KEYS = {
   operatorActions: "patternlab.operatorActions.v1",
   operatorPatternSummary: "patternlab.operatorPatternSummary.v1",
   learningModel: "patternlab.learningModel.v1",
+  copilotFeedback: "patternlab.copilotFeedback.v1",
 };
 
 const warnedQuotaKeys = new Set();

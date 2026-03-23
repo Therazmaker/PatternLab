@@ -376,3 +376,18 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
   padding: 4px 6px;
   background: rgba(30, 58, 95, 0.2);
 }
+
+/* =========================================================
+   Copilot Feedback Loop
+   ========================================================= */
+.session-copilot-feedback { margin-bottom: .7rem; }
+.copilot-feedback-block { font-size: .8rem; }
+.copilot-feedback-block p { margin: .2rem 0; }
+.copilot-rules-list { margin: .15rem 0 .3rem 1rem; padding: 0; }
+.copilot-rules-list li { margin-bottom: .15rem; }
+.badge-green { display:inline-block; font-size:.7rem; padding:.1rem .35rem; border-radius:999px; border:1px solid #22c55e; color:#22c55e; }
+.badge-red { display:inline-block; font-size:.7rem; padding:.1rem .35rem; border-radius:999px; border:1px solid #ef4444; color:#ef4444; }
+.badge-yellow { display:inline-block; font-size:.7rem; padding:.1rem .35rem; border-radius:999px; border:1px solid #f2bf6b; color:#f2bf6b; }
+.badge-muted { display:inline-block; font-size:.7rem; padding:.1rem .35rem; border-radius:999px; border:1px solid #475569; color:#94a3b8; }
+.copilot-feedback-tab textarea { width:100%; min-height:120px; background:#0f1923; border:1px solid #2d3f50; color:#cbd5e1; border-radius:6px; padding:.5rem; font-size:.8rem; font-family:monospace; resize:vertical; }
+.copilot-feedback-tab h3 { margin-top:1rem; margin-bottom:.3rem; font-size:.9rem; color:#94a3b8; }
