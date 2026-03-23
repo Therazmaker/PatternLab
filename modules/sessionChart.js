@@ -41,6 +41,12 @@ function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 function niceStep(range,ticks=6){if(!range||!isFinite(range))return 1;const rough=range/ticks,mag=Math.pow(10,Math.floor(Math.log10(rough))),norm=rough/mag;return(norm<1.5?1:norm<3.5?2:norm<7.5?5:10)*mag;}
 function inferDecimals(candles){const s=candles.map(c=>c.close).filter(Number.isFinite).slice(0,10);if(!s.length)return 4;const a=s.reduce((a,b)=>a+b,0)/s.length;return a>5000?1:a>100?2:a>1?4:5;}
 function fmt(p,dec){return Number.isFinite(p)?p.toFixed(dec):"—";}
+function toNumericTime(raw){
+  const numeric=Number(raw);
+  if(Number.isFinite(numeric))return numeric;
+  const parsed=Date.parse(String(raw||""));
+  return Number.isFinite(parsed)?parsed:NaN;
+}
 
 export class SessionChart {
   constructor(container,{onCandleClick,onCandleHover,onSRChange,onSRSelect}={}){
@@ -238,11 +244,20 @@ export class SessionChart {
   screenToChartCoords(x,y){
     const idx=clamp(this._idxAtX(x),0,Math.max(0,this.candles.length-1));
     const nearest=this.candles[Math.round(idx)];
-    return{time:Number(nearest?.timestamp??nearest?.index??Math.round(idx)),price:this._priceAtY(y)};
+    const ts=toNumericTime(nearest?.timestamp);
+    const indexValue=Number(nearest?.index);
+    return{
+      time:Number.isFinite(ts)?ts:Number.isFinite(indexValue)?indexValue:Math.round(idx),
+      price:this._priceAtY(y),
+    };
   }
   chartToScreenCoords(time,price){
-    const ts=Number(time);
-    let idx=this.candles.findIndex((c)=>Number(c.timestamp)===ts||Number(c.index)===ts);
+    const ts=toNumericTime(time);
+    let idx=this.candles.findIndex((c)=>{
+      const candleTs=toNumericTime(c.timestamp);
+      const candleIndex=Number(c.index);
+      return (Number.isFinite(ts)&&Number.isFinite(candleTs)&&candleTs===ts) || (Number.isFinite(ts)&&Number.isFinite(candleIndex)&&candleIndex===ts);
+    });
     if(idx<0)idx=clamp(Math.round(ts),0,Math.max(0,this.candles.length-1));
     return{x:this._xForIdx(idx),y:this._yForPrice(Number(price))};
   }
