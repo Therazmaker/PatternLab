@@ -58,6 +58,9 @@ import { importCopilotFeedback, getCopilotFeedback, getCopilotFeedbackHistory, h
 import { evaluateCopilotFeedback } from "./modules/copilotFeedbackEvaluator.js";
 import { buildCopilotFeedbackEffects } from "./modules/copilotFeedbackBridge.js";
 import { renderCopilotFeedbackBlock, renderCopilotFeedbackTabPanel } from "./modules/copilotFeedbackPanel.js";
+import { renderBrainDashboard } from "./modules/brainDashboard.js";
+import { buildBrainVerdict } from "./modules/unifiedDecisionCore.js";
+import { createBrainModeController } from "./modules/brainModeController.js";
 import { buildDecisionTrace } from "./modules/decisionTraceBuilder.js";
 import { addDecisionTrace, getDecisionTraces, getAggregatedTraceStats, updateDecisionTrace } from "./modules/decisionTraceStore.js";
 import { evaluateForwardOutcome } from "./modules/forwardOutcomeEvaluator.js";
@@ -290,6 +293,7 @@ els.sessionOperatorRecalculateBtn = document.getElementById("btn-session-operato
 els.sessionOperatorFeedbackStatus = document.getElementById("session-operator-feedback-status");
 els.sessionOperatorDecision = document.getElementById("session-operator-decision");
 els.sessionCopilotFeedbackBlock = document.getElementById("session-copilot-feedback-block");
+els.sessionBrainDashboard = document.getElementById("session-brain-dashboard");
 els.copilotFeedbackPanel = document.getElementById("copilot-feedback-panel");
 
 els.slSymbol = document.getElementById("sl-symbol");
@@ -360,6 +364,8 @@ let _sessionTriggerLines = [];
 let _sessionTriggerEvaluation = { activeTriggerEffects: [], aggregateEffect: {}, summaryText: "Trigger lines idle." };
 let _lastCopilotEvaluation = null;
 let _lastCopilotEffects = null;
+let _lastBrainVerdict = null;
+const brainModeController = createBrainModeController({ mode: "copilot", autoExecutionEnabled: false });
 let sessionHumanInsightDraft = null;
 let sessionAnalystState = { analystData: null, addedLevels: [], collapsed: false };
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
@@ -3462,6 +3468,26 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     btn.classList.toggle("operator-action-active");
     sessionOperatorState.operatorSelection = getSelectedSessionOperatorActions();
   });
+  els.sessionBrainDashboard?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-brain-action]");
+    if (!btn) return;
+    const action = btn.dataset.brainAction;
+    if (action === "approve") brainModeController.approveSuggestion();
+    else if (action === "wait") brainModeController.wait();
+    else if (action === "invalidate") brainModeController.invalidateIdea();
+    else if (action === "bias-long") brainModeController.setManualBiasOverride("long");
+    else if (action === "bias-short") brainModeController.setManualBiasOverride("short");
+    else if (action === "mode-observer") brainModeController.setMode("observer");
+    else if (action === "mode-copilot") brainModeController.setMode("copilot");
+    else if (action === "enable-executor") {
+      brainModeController.setMode("executor");
+      brainModeController.setExecutorEnabled(true);
+    } else if (action === "disable-executor") {
+      brainModeController.setExecutorEnabled(false);
+      brainModeController.setMode("copilot");
+    }
+    refreshSessionCandlesTab();
+  });
   els.sessionHumanInsightTags?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-human-tag]");
     if (!btn || !sessionHumanInsightDraft) return;
@@ -4595,6 +4621,12 @@ function renderSessionCopilotFeedbackBlock(analysis, marketView) {
   els.sessionCopilotFeedbackBlock.innerHTML = renderCopilotFeedbackBlock(feedback, evaluation, effects);
 }
 
+function renderBrainDashboardPanel() {
+  if (!els.sessionBrainDashboard) return;
+  const modeState = brainModeController.getState();
+  els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState);
+}
+
 /**
  * Render the full Copilot Feedback tab panel and wire dynamic events.
  */
@@ -4705,10 +4737,12 @@ function renderSessionOperatorDecisionPanel() {
 function updateSessionOperatorContext(analysis, marketView, livePlanRecord = null) {
   if (!analysis?.pseudoMl?.probability || !analysis?.overlays?.structureSummary) {
     sessionOperatorState = createSessionOperatorState();
+    _lastBrainVerdict = null;
     if (els.sessionOperatorNote) els.sessionOperatorNote.value = "";
     syncSessionOperatorActionButtons([]);
     setSessionOperatorFeedbackStatus("Operator feedback ready.", "muted");
     renderSessionOperatorDecisionPanel();
+    renderBrainDashboardPanel();
     return;
   }
   const machineSignal = {
@@ -4737,6 +4771,14 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   // Copilot feedback bridge – evaluate and apply as additional decision layer
   const { feedback: copilotFeedback, evaluation: copilotEvaluation, effects: copilotEffectsResult } = evaluateAndStoreCopilotFeedback(analysis, marketView);
   const copilotEffectsForDecision = copilotEffectsResult || {};
+  _lastBrainVerdict = buildBrainVerdict({
+    analysis,
+    marketView,
+    copilotFeedback,
+    copilotEvaluation,
+    modeState: brainModeController.getState(),
+    operatorState: sessionOperatorState,
+  });
   const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, {}, triggerLineEffects, copilotEffectsForDecision);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
   sessionOperatorState.currentContext = {
@@ -4765,6 +4807,7 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   if (!sessionOperatorState.recalculatedDecision) setSessionOperatorFeedbackStatus("Operator feedback ready.", "muted");
   renderSessionOperatorDecisionPanel();
   renderSessionCopilotFeedbackBlock(analysis, marketView);
+  renderBrainDashboardPanel();
 }
 
 // UI subscription point for live updates from the shadow monitor.
