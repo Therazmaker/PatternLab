@@ -44,16 +44,24 @@ function drawHandles(ctx, points = [], color = "#93c5fd") {
 }
 
 function normalizeDrawingPoint(point = {}) {
-<<<<<<< codex/fix-rendering-of-manual-chart-drawings-8x7tge
   const rawTime = point?.time ?? point?.timestamp ?? point?.x;
+
   const numericTime = Number(rawTime);
   const parsedTime = Date.parse(String(rawTime ?? ""));
-  const time = Number.isFinite(numericTime) ? numericTime : Number.isFinite(parsedTime) ? parsedTime : Number.NaN;
-=======
-  const time = Number(point?.time ?? point?.timestamp ?? point?.x);
->>>>>>> main
+
+  const time = Number.isFinite(numericTime)
+    ? numericTime
+    : Number.isFinite(parsedTime)
+    ? parsedTime
+    : NaN;
+
   const price = Number(point?.price ?? point?.value ?? point?.y);
-  if (!Number.isFinite(time) || !Number.isFinite(price)) return null;
+
+  if (!Number.isFinite(time) || !Number.isFinite(price)) {
+    console.warn("Invalid drawing point:", point, { time, price });
+    return null;
+  }
+
   return { time, price };
 }
 
