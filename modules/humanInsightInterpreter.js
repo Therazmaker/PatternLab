@@ -26,7 +26,10 @@ function clamp(value, min = 0, max = 1) {
 }
 
 function normalizeDirection(directionBias = "short") {
-  return String(directionBias || "short").toLowerCase() === "long" ? "long" : "short";
+  const key = String(directionBias || "neutral").toLowerCase();
+  if (key === "long") return "long";
+  if (key === "short") return "short";
+  return "neutral";
 }
 
 function dedupe(items = []) {
@@ -63,7 +66,9 @@ function deriveEffect({
   directionBias = "short",
   requireConfirmation = false,
 } = {}) {
-  const isLong = normalizeDirection(directionBias) === "long";
+  const normalizedBias = normalizeDirection(directionBias);
+  const isLong = normalizedBias === "long";
+  const isShort = normalizedBias === "short";
   const baseBoost = selectedTags.includes("key_level") ? 0.16 : selectedTags.includes("strong_reaction_here") ? 0.14 : 0.1;
   const breakoutBoost = conditionType === "if_break" ? 0.06 : 0;
   const reversalBoost = conditionType === "if_not_break" ? 0.08 : 0;
@@ -71,8 +76,8 @@ function deriveEffect({
   const reduceOpposite = clamp(boostBias * 0.85, 0, 1);
 
   return {
-    boostBias: Number(boostBias.toFixed(3)),
-    reduceOpposite: Number(reduceOpposite.toFixed(3)),
+    boostBias: Number((isLong || isShort ? boostBias : Math.min(boostBias, 0.06)).toFixed(3)),
+    reduceOpposite: Number((isLong || isShort ? reduceOpposite : Math.min(reduceOpposite, 0.08)).toFixed(3)),
     requireConfirmation: Boolean(requireConfirmation || conditionType === "needs_confirmation"),
     blockOpposite: Boolean(selectedTags.includes("invalidation") || selectedTags.includes("key_level")) && isLong ? false : Boolean(selectedTags.includes("invalidation")),
   };

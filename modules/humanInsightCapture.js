@@ -40,11 +40,15 @@ export function updateHumanInsightDraft(draft = {}, patch = {}) {
 
 export function finalizeHumanInsightDraft(draft = {}) {
   if (!draft?.drawing?.id) return null;
+  const selectedTags = dedupe(draft.selectedTags || []);
+  const inferredDirection = draft.directionBias || (draft.drawing?.type === "support" ? "long" : "short");
+  const needsConfirmation = Boolean(draft.requireConfirmation || !selectedTags.length);
+  const conditionSelection = draft.conditionSelection || "only_with_confirmation";
   return interpretHumanInsightSelection({
     id: draft.id,
-    selectedTags: draft.selectedTags,
-    conditionSelection: draft.conditionSelection,
-    directionBias: draft.directionBias,
-    requireConfirmation: draft.requireConfirmation,
+    selectedTags,
+    conditionSelection,
+    directionBias: inferredDirection,
+    requireConfirmation: needsConfirmation,
   }, draft.drawing, draft.metadata);
 }

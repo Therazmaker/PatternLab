@@ -127,6 +127,8 @@ import { computeOperatorModifier } from "./modules/operatorModifierEngine.js";
 import { combineFinalDecision } from "./modules/finalDecisionCombiner.js";
 import { createHumanInsightDraft, finalizeHumanInsightDraft, toggleHumanInsightTag, updateHumanInsightDraft } from "./modules/humanInsightCapture.js";
 import { evaluateHumanInsights } from "./modules/humanInsightEngine.js";
+import { reconcileHumanInsights, validateHumanInsight } from "./modules/humanInsightValidation.js";
+import { runHumanInsightDemoScenarios, runHumanInsightE2EChecklist } from "./modules/humanInsightDebug.js";
 import { logOperatorAction } from "./modules/operatorActionLogger.js";
 import { buildOperatorActionRecord, createSessionOperatorState } from "./modules/operatorFeedbackPanel.js";
 import { listStrategies, getDefaultParams, getStrategyById } from "./modules/strategyRegistry.js";
@@ -815,6 +817,50 @@ function getHumanInsightContext(analysis, marketView) {
   };
 }
 
+function getSessionDrawingIds() {
+  return (Array.isArray(_sessionManualSR) ? _sessionManualSR : []).map((line) => line.id).filter(Boolean);
+}
+
+function persistSessionHumanInsights() {
+  try { localStorage.setItem(SESSION_HUMAN_INSIGHTS_KEY, JSON.stringify(_sessionHumanInsights)); } catch {}
+}
+
+function reconcileSessionHumanInsightState({ reason = "sync", keepOrphaned = true } = {}) {
+  const marketView = getSessionMarketView();
+  _sessionHumanInsights = reconcileHumanInsights(_sessionHumanInsights, {
+    drawingIds: getSessionDrawingIds(),
+    symbol: marketView.symbol,
+    timeframe: marketView.timeframe,
+    keepOrphaned,
+  });
+  sessionOperatorState.humanInsights = [..._sessionHumanInsights];
+  persistSessionHumanInsights();
+  if (reason) {
+    console.debug("Human insight restored from storage", {
+      reason,
+      totalInsights: _sessionHumanInsights.length,
+      orphaned: _sessionHumanInsights.filter((insight) => insight?.metadata?.isOrphaned).length,
+    });
+  }
+}
+
+function evaluateSessionHumanInsights({ analysis = null, marketView = null, reason = "update" } = {}) {
+  if (!analysis || !marketView) return null;
+  const evaluation = evaluateHumanInsights(_sessionHumanInsights, getHumanInsightContext(analysis, marketView));
+  sessionOperatorState.activeHumanInsightEffects = evaluation.effects;
+  sessionOperatorState.humanInsights = [..._sessionHumanInsights];
+  console.debug("Insight evaluated", {
+    insightId: evaluation.activeInsights?.[0]?.id || null,
+    drawingId: evaluation.activeInsights?.[0]?.linkedDrawingId || null,
+    conditionType: evaluation.activeInsights?.[0]?.condition?.type || null,
+    directionBias: evaluation.activeInsights?.[0]?.condition?.directionBias || null,
+    activationResult: (evaluation.activeInsights || []).length > 0,
+    effectSummary: evaluation.summaryText,
+    reason,
+  });
+  return evaluation;
+}
+
 function buildHumanInsightOperatorModifier(machineSignal = {}, humanEvaluation = { effects: {} }) {
   const effects = humanEvaluation.effects || {};
   const direction = String(machineSignal.direction || "NONE").toUpperCase();
@@ -847,9 +893,11 @@ function renderHumanInsightSummary() {
     return;
   }
   els.sessionHumanInsightSummary.innerHTML = _sessionHumanInsights.slice(-5).reverse().map((insight) => `
-    <div class="tiny">
+    <div class="tiny ${sessionOperatorState.selectedDrawingId === insight.linkedDrawingId ? "session-insight-selected" : ""}">
       <span class="badge">${insight.insightType}</span>
       <span class="badge">${insight.condition?.type}/${insight.condition?.directionBias}</span>
+      <span class="badge">${insight.metadata?.isOrphaned ? "orphaned" : `line:${insight.linkedDrawingId || "-"}`}</span>
+      ${sessionOperatorState.selectedDrawingId === insight.linkedDrawingId ? '<span class="badge v3-session">selected drawing</span>' : ""}
       <span class="muted">${insight.metadata?.symbol || "-"} ${insight.metadata?.timeframe || "-"} · ${new Date(insight.metadata?.createdAt || Date.now()).toLocaleTimeString()}</span>
     </div>
   `).join("");
@@ -858,6 +906,7 @@ function renderHumanInsightSummary() {
 function renderHumanInsightDraftPanel() {
   if (!els.sessionHumanInsightPanel) return;
   const draft = sessionHumanInsightDraft;
+  sessionOperatorState.humanInsightDraft = draft || null;
   if (!draft) {
     els.sessionHumanInsightPanel.classList.add("hidden");
     return;
@@ -1149,12 +1198,42 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
             symbol: marketView.symbol,
             timeframe: marketView.timeframe,
           });
+          sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
+          sessionOperatorState.selectedDrawingId = eventMeta.line.id;
+          console.debug("Human insight draft opened", {
+            insightId: sessionHumanInsightDraft.id,
+            drawingId: eventMeta.line.id,
+            conditionType: sessionHumanInsightDraft.conditionSelection,
+            directionBias: sessionHumanInsightDraft.directionBias,
+            activationResult: false,
+            effectSummary: "draft_created",
+          });
           renderHumanInsightDraftPanel();
         } else if (eventMeta?.type === "removed" && eventMeta.lineId) {
           _sessionHumanInsights = _sessionHumanInsights.filter((insight) => insight.linkedDrawingId !== eventMeta.lineId);
-          try { localStorage.setItem(SESSION_HUMAN_INSIGHTS_KEY, JSON.stringify(_sessionHumanInsights)); } catch {}
+          if (sessionHumanInsightDraft?.drawing?.id === eventMeta.lineId) sessionHumanInsightDraft = null;
+          sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
+          if (sessionOperatorState.selectedDrawingId === eventMeta.lineId) sessionOperatorState.selectedDrawingId = null;
+          reconcileSessionHumanInsightState({ reason: "drawing_removed", keepOrphaned: true });
+          console.debug("Linked drawing removed, insight cleaned", {
+            insightId: null,
+            drawingId: eventMeta.lineId,
+            conditionType: null,
+            directionBias: null,
+            activationResult: false,
+            effectSummary: "linked_insights_removed",
+          });
+          refreshSessionCandlesTab();
           renderHumanInsightSummary();
         }
+      },
+      onSRSelect: (line) => {
+        sessionOperatorState.selectedDrawingId = line?.id || null;
+        const linked = _sessionHumanInsights.find((insight) => insight.linkedDrawingId === line?.id);
+        if (linked) {
+          setSessionOperatorFeedbackStatus(`Drawing selected: ${linked.insightType} (${linked.condition?.directionBias}).`, "muted");
+        }
+        renderHumanInsightSummary();
       },
       onCandleHover: (idx) => {
         // Update toolbar OHLC bar
@@ -1185,6 +1264,13 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
     _chartSymbolEl.textContent = mv?.symbol ? (mv.symbol + '  ' + (mv.timeframe || '')) : (session?.asset || '—');
   }
 
+  const selectedDrawingId = sessionOperatorState.selectedDrawingId;
+  const linesWithInsightMeta = _sessionManualSR.map((line) => ({
+    ...line,
+    humanInsightLinked: _sessionHumanInsights.some((insight) => insight.linkedDrawingId === line.id && !insight?.metadata?.isOrphaned),
+    isSelected: selectedDrawingId === line.id,
+  }));
+
   _sessionChart.setData({
     candles,
     overlays,
@@ -1198,7 +1284,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
       showMa:        sessionAnalysisPrefs.showMa,
     },
   });
-  _sessionChart.setManualSR(_sessionManualSR);
+  _sessionChart.setManualSR(linesWithInsightMeta);
 }
 function renderSessionTable(session, explanations = []) {
   if (!els.sessionCandlesBody) return;
@@ -1374,6 +1460,7 @@ function refreshSessionCandlesTab() {
         : null,
     }),
   };
+  reconcileSessionHumanInsightState({ reason: "refresh", keepOrphaned: true });
   if (viewed?.candles?.length && !selectedSessionCandleIndex) selectedSessionCandleIndex = viewed.candles[viewed.candles.length - 1].index;
   if (!viewed?.candles?.some((c) => c.index === selectedSessionCandleIndex)) selectedSessionCandleIndex = viewed?.candles?.[viewed.candles.length - 1]?.index || null;
   renderSessionHeader();
@@ -3116,6 +3203,7 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     const btn = event.target.closest("[data-human-tag]");
     if (!btn || !sessionHumanInsightDraft) return;
     sessionHumanInsightDraft = toggleHumanInsightTag(sessionHumanInsightDraft, btn.dataset.humanTag);
+    sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
     renderHumanInsightDraftPanel();
   });
   els.sessionHumanInsightCondition?.addEventListener("change", () => {
@@ -3123,36 +3211,56 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     sessionHumanInsightDraft = updateHumanInsightDraft(sessionHumanInsightDraft, {
       conditionSelection: els.sessionHumanInsightCondition.value,
     });
+    sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
   });
   els.sessionHumanInsightDirection?.addEventListener("change", () => {
     if (!sessionHumanInsightDraft) return;
     sessionHumanInsightDraft = updateHumanInsightDraft(sessionHumanInsightDraft, {
       directionBias: els.sessionHumanInsightDirection.value,
     });
+    sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
   });
   els.sessionHumanInsightConfirmation?.addEventListener("change", () => {
     if (!sessionHumanInsightDraft) return;
     sessionHumanInsightDraft = updateHumanInsightDraft(sessionHumanInsightDraft, {
       requireConfirmation: Boolean(els.sessionHumanInsightConfirmation.checked),
     });
+    sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
   });
   els.sessionHumanInsightSaveBtn?.addEventListener("click", () => {
     if (!sessionHumanInsightDraft) return;
     const insight = finalizeHumanInsightDraft(sessionHumanInsightDraft);
     if (!insight) return;
+    const validation = validateHumanInsight(insight);
+    if (!validation.valid) {
+      setSessionOperatorFeedbackStatus(`Insight invalid: ${validation.issues.join(", ")}`, "error");
+      return;
+    }
+    _sessionHumanInsights = _sessionHumanInsights.filter((row) => row.linkedDrawingId !== insight.linkedDrawingId);
     _sessionHumanInsights = [..._sessionHumanInsights, insight];
-    try { localStorage.setItem(SESSION_HUMAN_INSIGHTS_KEY, JSON.stringify(_sessionHumanInsights)); } catch {}
-    console.debug("Human insight created", insight);
+    reconcileSessionHumanInsightState({ reason: "insight_saved", keepOrphaned: true });
+    console.debug("Human insight saved", {
+      insightId: insight.id,
+      drawingId: insight.linkedDrawingId,
+      conditionType: insight.condition?.type,
+      directionBias: insight.condition?.directionBias,
+      activationResult: false,
+      effectSummary: `${insight.effect?.boostBias || 0}/${insight.effect?.reduceOpposite || 0}`,
+    });
     sessionHumanInsightDraft = null;
+    sessionOperatorState.humanInsightDraft = null;
     renderHumanInsightDraftPanel();
     renderHumanInsightSummary();
+    refreshSessionCandlesTab();
     setSessionOperatorFeedbackStatus("Human insight saved and ready for live evaluation.", "success");
   });
   els.sessionHumanInsightSkipBtn?.addEventListener("click", () => {
     sessionHumanInsightDraft = null;
+    sessionOperatorState.humanInsightDraft = null;
     renderHumanInsightDraftPanel();
   });
   els.sessionOperatorRecalculateBtn?.addEventListener("click", () => {
+    refreshSessionCandlesTab();
     const machineSignal = sessionOperatorState.currentSignal;
     const currentContext = sessionOperatorState.currentContext;
     if (!machineSignal || !currentContext) {
@@ -4131,12 +4239,33 @@ function renderSessionOperatorDecisionPanel() {
   if (!els.sessionOperatorDecision) return;
   const before = sessionOperatorState.currentSignal;
   const recalculated = sessionOperatorState.recalculatedDecision;
+  const humanEval = sessionOperatorState.currentContext?.humanInsightEvaluation || null;
+  const hasActiveHuman = Boolean((humanEval?.activeInsights || []).length);
+  const activeHuman = humanEval?.activeInsights?.[0] || null;
+  const effect = humanEval?.effects || {};
+  const humanImpact = [
+    effect.longModifier > 0.08 ? "boost long" : null,
+    effect.shortModifier > 0.08 ? "boost short" : null,
+    effect.longModifier < -0.08 ? "reduce long" : null,
+    effect.shortModifier < -0.08 ? "reduce short" : null,
+    effect.requireConfirmation ? "require confirmation" : null,
+    effect.blockLong ? "block long" : null,
+    effect.blockShort ? "block short" : null,
+  ].filter(Boolean);
+  const effectBlock = `
+    <div class="panel-soft">
+      <p class="tiny"><strong>Human Insight Effect</strong></p>
+      <p class="muted tiny">Status: ${hasActiveHuman ? "Active" : "Inactive"} · Bias: ${activeHuman?.condition?.directionBias || "neutral"}</p>
+      <p class="muted tiny">Impact: ${humanImpact.length ? humanImpact.join(", ") : "neutral / no active override"}</p>
+      <p class="muted tiny">Explanation: ${humanEval?.summaryText || "Human insight layer idle (no active insights)."}</p>
+    </div>
+  `;
   if (!before) {
-    els.sessionOperatorDecision.innerHTML = `<span class="muted tiny">Waiting for live Session Candle signal context.</span>`;
+    els.sessionOperatorDecision.innerHTML = `<span class="muted tiny">Waiting for live Session Candle signal context.</span>${effectBlock}`;
     return;
   }
   if (!recalculated) {
-    els.sessionOperatorDecision.innerHTML = `<p class="muted tiny">Decision snapshot loaded. Select actions and click recalculate.</p><p class="muted tiny">Machine snapshot → ${before.direction} · confidence ${formatConfidence(before.confidence || 0)} · B ${formatNumber(before.bullishScore, 1)} / Br ${formatNumber(before.bearishScore, 1)}</p>`;
+    els.sessionOperatorDecision.innerHTML = `<p class="muted tiny">Decision snapshot loaded. Select actions and click recalculate.</p><p class="muted tiny">Machine snapshot → ${before.direction} · confidence ${formatConfidence(before.confidence || 0)} · B ${formatNumber(before.bullishScore, 1)} / Br ${formatNumber(before.bearishScore, 1)}</p>${effectBlock}`;
     return;
   }
   const beforeDecision = before.baseDecision || {};
@@ -4152,6 +4281,7 @@ function renderSessionOperatorDecisionPanel() {
     </div>
     <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)}</p>
     ${humanSummary ? `<p class="muted tiny"><strong>Human Insight:</strong> ${humanSummary}</p>` : ""}
+    ${effectBlock}
     <p class="muted tiny">${recalculated.summaryText || "Decision recalculated with operator layer."}</p>
     <p class="muted tiny">${sessionOperatorState.recalculatedDecisionExplanation || ""}</p>
   `;
@@ -4176,7 +4306,7 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   const structureFilterResult = {
     decision: livePlanRecord?.policy?.structureDecision || "ALLOW",
   };
-  const humanInsightEvaluation = evaluateHumanInsights(_sessionHumanInsights, getHumanInsightContext(analysis, marketView));
+  const humanInsightEvaluation = evaluateSessionHumanInsights({ analysis, marketView, reason: "context_update" }) || evaluateHumanInsights(_sessionHumanInsights, getHumanInsightContext(analysis, marketView));
   const humanInsightModifier = buildHumanInsightOperatorModifier(machineSignal, humanInsightEvaluation);
   const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
@@ -4196,6 +4326,8 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     context20Snapshot: marketView.candles.slice(-20),
     humanInsightEvaluation,
   };
+  sessionOperatorState.humanInsights = [..._sessionHumanInsights];
+  sessionOperatorState.activeHumanInsightEffects = humanInsightEvaluation.effects || null;
   if (!sessionOperatorState.recalculatedDecision) setSessionOperatorFeedbackStatus("Operator feedback ready.", "muted");
   renderSessionOperatorDecisionPanel();
 }
@@ -4834,6 +4966,7 @@ async function init() {
   botCompilerState = loadBotCompilerState();
   try { _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_SR_KEY) || '[]') || []; } catch { _sessionManualSR = []; }
   try { _sessionHumanInsights = JSON.parse(localStorage.getItem(SESSION_HUMAN_INSIGHTS_KEY) || "[]") || []; } catch { _sessionHumanInsights = []; }
+  reconcileSessionHumanInsightState({ reason: "initial_load", keepOrphaned: true });
   sessionAnalystState.addedLevels = [..._sessionManualSR];
   const activeSession = state.sessions.find((session) => session.status === "active");
   setActiveSessionId(activeSession?.id || null);
@@ -4863,6 +4996,8 @@ async function init() {
   syncSessionAnalysisToggleUI();
   if (els.sessionDate) els.sessionDate.value = new Date().toISOString().slice(0, 10);
   marketDataCandles = loadMarketData();
+  window.__patternlabRunHumanInsightChecklist = () => runHumanInsightE2EChecklist();
+  window.__patternlabRunHumanInsightDemo = () => runHumanInsightDemoScenarios();
   marketDataMeta = { ...marketDataMeta, ...(loadMarketDataMeta() || {}) };
   if (els.mdSource) els.mdSource.value = marketDataMeta.source || MARKET_DATA_SOURCES.YAHOO;
   if (els.mdTimeframe) els.mdTimeframe.value = marketDataMeta.selectedTimeframe || "5m";
