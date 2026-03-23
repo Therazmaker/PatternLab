@@ -11,6 +11,9 @@ import { buildContextSignature } from "./contextSignatureBuilder.js";
 import { createOperatorActionLogger } from "./operatorActionLogger.js";
 import { evaluateOperatorAction } from "./operatorOutcomeEvaluator.js";
 import { analyzeOperatorPatterns } from "./operatorPatternAnalyzer.js";
+import { analyzeOutcome } from "./diagnosticEngine.js";
+import { applyLearningModifier } from "./learningModifier.js";
+import { updateLearningModel } from "./learningEngine.js";
 import {
   loadDecisionMemories,
   loadOperatorActions,
@@ -76,6 +79,39 @@ function buildMachineDecisionTrace(record = {}) {
     probabilityBias: record.policy?.probabilityBias || "neutral",
     probabilityConfidence: toNumber(record.policy?.probabilityConfidence, 0),
     plan: record.plan || null,
+  };
+}
+
+function buildDecisionContext({
+  id,
+  machineSignal,
+  probability,
+  regime,
+  featuresState,
+  operatorActions = [],
+  operatorNote = "",
+  triggerLines = {},
+}) {
+  return {
+    tradeId: id,
+    signal: machineSignal,
+    context: {
+      regime: regime?.regime || "unknown",
+      bullishScore: toNumber(probability?.bullishScore, 0),
+      bearishScore: toNumber(probability?.bearishScore, 0),
+      confidence: toNumber(probability?.confidence, 0),
+      pattern: (featuresState?.seededMatches || [])[0]?.patternId || "unknown",
+      nearSupport: Boolean(featuresState?.nearSupport),
+      nearResistance: Boolean(featuresState?.nearResistance),
+      compression: Boolean(featuresState?.structure?.compression || featuresState?.compression),
+      momentumState: Number(regime?.strength || 0) >= 70 ? "strong" : Number(regime?.strength || 0) >= 45 ? "medium" : "weak",
+      structurePosition: featuresState?.structure?.entryLocationScore >= 70 ? "optimal" : featuresState?.structure?.entryLocationScore >= 45 ? "neutral" : "late",
+      operatorActions: Array.isArray(operatorActions) ? operatorActions : [],
+      humanInsights: operatorNote ? [operatorNote] : [],
+      triggerLines,
+      failedBreakout: Boolean(triggerLines?.failedBreakout),
+      confirmationSeen: Boolean(triggerLines?.confirmationSeen),
+    },
   };
 }
 
@@ -223,18 +259,49 @@ export function createLiveShadowMonitor(options = {}) {
       confidence: probability.confidence,
     }, contextSignature, operatorPatternSummary, null);
 
-    const combinedDecision = combineFinalDecision({
+    const machineSignal = {
       direction: probability.bias === "bullish" ? "LONG" : probability.bias === "bearish" ? "SHORT" : "NONE",
       bullishScore: probability.bullishScore,
       bearishScore: probability.bearishScore,
       confidence: Number(decision.confidence || 0),
-    }, {
+    };
+
+    const structureFilterResult = {
       decision: decision.evidence?.structure?.decision || "ALLOW",
       reasons: decision.evidence?.structure?.reasons || [],
-    }, operatorModifier);
+    };
+    const learningContext = {
+      nearSupport: features.state?.nearSupport,
+      nearResistance: features.state?.nearResistance,
+      compression: features.state?.structure?.entryLocationScore < 45,
+      momentumState: Number(regime.strength || 0) >= 70 ? "strong" : Number(regime.strength || 0) >= 45 ? "medium" : "weak",
+      failedBreakout: Boolean(features.state?.structure?.structureBreakState === "failed"),
+    };
+    const learningModifier = applyLearningModifier(machineSignal, structureFilterResult, learningContext);
+    const mergedOperatorModifier = {
+      ...operatorModifier,
+      modifierScore: Number(operatorModifier.modifierScore || 0) + Number(learningModifier.modifierScore || 0),
+    };
+
+    const combinedDecision = combineFinalDecision(machineSignal, {
+      ...structureFilterResult,
+      decision: learningModifier.structureOverride,
+    }, mergedOperatorModifier);
 
     const id = createRecordId(candle, candleIndex);
     if (records.some((row) => row.id === id)) return null;
+
+    const decisionContext = buildDecisionContext({
+      id,
+      machineSignal,
+      probability,
+      regime,
+      featuresState: features.state,
+      triggerLines: {
+        failedBreakout: features.state?.structure?.structureBreakState === "failed",
+        confirmationSeen: Number(probability.confidence || 0) >= 0.55,
+      },
+    });
 
     return {
       id,
@@ -272,6 +339,7 @@ export function createLiveShadowMonitor(options = {}) {
         finalBias: combinedDecision.finalBias,
         finalConfidence: combinedDecision.confidence,
         finalDecisionSummary: combinedDecision.summaryText,
+        learningReasonCodes: learningModifier.reasonCodes || [],
         bullishScore: probability.bullishScore,
         bearishScore: probability.bearishScore,
         neutralScore: probability.neutralScore,
@@ -310,7 +378,9 @@ export function createLiveShadowMonitor(options = {}) {
         probability,
         contextSignature,
         operatorModifier,
+        learningModifier,
       },
+      decisionContext,
       outcome: buildDefaultOutcome(decision.action),
       decisionTrace: {
         machine: {
@@ -339,6 +409,11 @@ export function createLiveShadowMonitor(options = {}) {
       },
       learningMemory: {
         patterns: [],
+      },
+      learningFeedback: {
+        lastDiagnosis: null,
+        adjustmentsApplied: null,
+        patternsDetected: [],
       },
       _meta: {
         policyVersion: decision.policyVersion,
@@ -463,12 +538,17 @@ export function createLiveShadowMonitor(options = {}) {
           status: "resolved",
           resolutionTimestamp: Date.now(),
           result: mapReplayOutcome(replay),
+          outcome: mapReplayOutcome(replay),
           pnlPct: toNumber(replay.pnlPct, 0),
+          pnl: toNumber(replay.pnlPct, 0),
           rMultiple: toNumber(replay.pnlR, 0),
           maxFavorableExcursion: toNumber(replay.maxFavorableExcursion, 0),
           maxAdverseExcursion: toNumber(replay.maxAdverseExcursion, 0),
+          maxDrawdown: toNumber(replay.maxAdverseExcursion, 0),
           barsElapsed: Number(replay.barsToResolution || 0),
+          duration: Number(replay.barsToResolution || 0),
           resolutionReason: replay.outcomeType || guard.reason || "resolved",
+          exitReason: replay.outcomeType || guard.reason || "resolved",
         },
         outcomeComparison: {
           machineOnly: replayDecisionForComparison(record?.decisionTrace?.machine || buildMachineDecisionTrace(record), candles, record.candleIndex, maxHoldBars),
@@ -480,6 +560,31 @@ export function createLiveShadowMonitor(options = {}) {
             resolutionReason: replay.outcomeType || "timeout",
           },
         },
+      };
+
+      const diagnosticResult = analyzeOutcome(next.decisionContext || {}, {
+        outcome: next.outcome.result,
+        pnl: next.outcome.pnl,
+        duration: next.outcome.duration,
+        maxDrawdown: next.outcome.maxDrawdown,
+        exitReason: next.outcome.exitReason,
+      });
+      const learningUpdate = updateLearningModel(diagnosticResult, {
+        outcomeType: next.outcome.result,
+        outcome: next.outcome,
+        direction: next.decisionContext?.signal?.direction || next.policy?.action || "NONE",
+      });
+      next.learningFeedback = {
+        lastDiagnosis: diagnosticResult,
+        adjustmentsApplied: learningUpdate.weightAdjustments || {},
+        patternsDetected: Object.keys(learningUpdate.model?.patternMemory || {}).slice(0, 8),
+      };
+      next.learningMemory = {
+        ...(next.learningMemory || {}),
+        patterns: [...new Set([
+          ...(next.learningMemory?.patterns || []),
+          ...Object.keys(learningUpdate.model?.patternMemory || {}),
+        ])].slice(0, 15),
       };
 
       records[idx] = next;

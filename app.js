@@ -263,6 +263,7 @@ els.mdOperatorActions = document.getElementById("md-operator-actions");
 els.mdOperatorNote = document.getElementById("md-operator-note");
 els.mdOperatorRecalculateBtn = document.getElementById("btn-operator-recalculate");
 els.mdOperatorFeedbackStatus = document.getElementById("md-operator-feedback-status");
+els.mdLearningFeedback = document.getElementById("md-learning-feedback");
 els.sessionOperatorActions = document.getElementById("session-operator-actions");
 els.sessionOperatorNote = document.getElementById("session-operator-note");
 els.sessionOperatorRecalculateBtn = document.getElementById("btn-session-operator-recalculate");
@@ -4507,6 +4508,18 @@ function renderLiveShadowPanel() {
     els.mdLiveShadowDetail.innerHTML = selected
       ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">Machine action: ${selected.decisionTrace?.machine?.action || selected.policy.action} · confidence ${formatConfidence(selected.decisionTrace?.machine?.confidence ?? selected.policy.confidence)} · reason ${selected.decisionTrace?.machine?.reason || selected.policy.reason || "-"}</p><p class="muted">Operator corrected: ${selected.decisionTrace?.operatorCorrected?.finalAction || "not applied"}${selected.decisionTrace?.operatorCorrected?.finalState ? ` · ${selected.decisionTrace.operatorCorrected.finalState}` : ""}</p><p class="muted">Operator actions: ${(selected.operatorFeedback?.actions || []).join(", ") || "none"}${selected.operatorFeedback?.note ? ` · note: ${selected.operatorFeedback.note}` : ""}</p><p class="muted">Regime: ${selected.policy.regime || "ranging"} (${formatNumber(selected.policy.regimeStrength, 0)}) · ${selected.policy.regimeExplanation || ""}</p><p class="muted">Machine scores → Bullish ${formatNumber(selected.policy.bullishScore, 1)} · Bearish ${formatNumber(selected.policy.bearishScore, 1)} · Neutral ${formatNumber(selected.policy.neutralScore, 1)}</p><p class="muted">${selected.decisionTrace?.operatorCorrected ? `Operator scores → Bullish ${formatNumber(selected.decisionTrace.operatorCorrected.bullishScore, 1)} · Bearish ${formatNumber(selected.decisionTrace.operatorCorrected.bearishScore, 1)} · Neutral ${formatNumber(selected.decisionTrace.operatorCorrected.neutralScore, 1)}` : "Operator scores pending."}</p><p class="muted">${selected.decisionTrace?.operatorCorrected?.explanation || selected.policy.probabilityExplanation || ""}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Outcome compare: machine ${selected.outcomeComparison?.machineOnly?.result || "-"} vs operator ${selected.outcomeComparison?.operatorCorrected?.result || "-"} · actual ${selected.outcomeComparison?.actualOutcome?.result || "-"}</p><p class="muted">Learning memory: ${(selected.learningMemory?.patterns || []).join(", ") || "no patterns yet"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
       : `<p class="muted">Select a live decision row to inspect full details.</p>`;
+  }
+
+  if (els.mdLearningFeedback) {
+    const diag = selected?.learningFeedback?.lastDiagnosis || null;
+    const adjustments = selected?.learningFeedback?.adjustmentsApplied || null;
+    const patterns = selected?.learningFeedback?.patternsDetected || [];
+    els.mdLearningFeedback.innerHTML = diag
+      ? `<p><strong>Last trade diagnosis</strong>: ${diag.classification || "unclassified"}.</p>
+         <p class="muted">Reason codes: ${(diag.reasonCodes || []).join(", ") || "-"}</p>
+         <p class="muted">Adjustment applied: ${Object.keys(adjustments || {}).length ? Object.entries(adjustments).map(([k, v]) => `${k} ${formatNumber(v, 4)}`).join(" · ") : "none yet"}</p>
+         <p class="muted">Patterns detected: ${patterns.length ? patterns.join(", ") : "none yet"}</p>`
+      : `<p class="muted">Learning feedback will appear after a trade resolves.</p>`;
   }
 
   if (selected) {

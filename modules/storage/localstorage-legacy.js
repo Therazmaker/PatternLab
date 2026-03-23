@@ -20,6 +20,7 @@ export const LEGACY_KEYS = {
   decisionMemories: "patternlab.decisionMemories.v1",
   operatorActions: "patternlab.operatorActions.v1",
   operatorPatternSummary: "patternlab.operatorPatternSummary.v1",
+  learningModel: "patternlab.learningModel.v1",
 };
 
 const warnedQuotaKeys = new Set();
@@ -55,6 +56,7 @@ export function readLegacySnapshot() {
     decisionMemories: parseJson(localStorage.getItem(LEGACY_KEYS.decisionMemories), []),
     operatorActions: parseJson(localStorage.getItem(LEGACY_KEYS.operatorActions), []),
     operatorPatternSummary: parseJson(localStorage.getItem(LEGACY_KEYS.operatorPatternSummary), null),
+    learningModel: parseJson(localStorage.getItem(LEGACY_KEYS.learningModel), null),
   };
 }
 

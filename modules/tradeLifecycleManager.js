@@ -1,6 +1,8 @@
 import { createTradeMemoryLogger } from "./tradeMemoryLogger.js";
 import { diagnoseTrade } from "./tradeDiagnosticEngine.js";
 import { logDiagnosticScoreBreakdown } from "./diagnosticDebug.js";
+import { analyzeOutcome } from "./diagnosticEngine.js";
+import { updateLearningModel } from "./learningEngine.js";
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -55,6 +57,29 @@ export function createTradeLifecycleManager({
       timeframe: "5m",
       preTradeContext: {
         context20: snapshot,
+      },
+      decisionContext: {
+        tradeId,
+        signal: {
+          direction: ["LONG", "SHORT", "NONE"].includes(signal.direction) ? signal.direction : "NONE",
+        },
+        context: {
+          regime: snapshot?.regime || "unknown",
+          bullishScore: toNumber(signal.bullishScore, 0),
+          bearishScore: toNumber(signal.bearishScore, 0),
+          confidence: toNumber(signal.confidence, 0),
+          pattern: snapshot?.pattern || "unknown",
+          nearSupport: Boolean(snapshot?.nearSupport),
+          nearResistance: Boolean(snapshot?.nearResistance),
+          compression: Boolean(snapshot?.compression),
+          momentumState: snapshot?.momentumState || "unknown",
+          structurePosition: snapshot?.structurePosition || "unknown",
+          operatorActions: operatorAction?.action ? [operatorAction.action] : [],
+          humanInsights: operatorAction?.note ? [String(operatorAction.note)] : [],
+          triggerLines: snapshot?.triggerLines || {},
+          confirmationSeen: Boolean(snapshot?.confirmationSeen),
+          failedBreakout: Boolean(snapshot?.failedBreakout),
+        },
       },
       signal: {
         direction: ["LONG", "SHORT", "NONE"].includes(signal.direction) ? signal.direction : "NONE",
@@ -150,6 +175,10 @@ export function createTradeLifecycleManager({
     trade.outcome.result = result;
     trade.outcome.pnl = round(pnl);
     trade.outcome.pnlR = round(pnlR);
+    trade.outcome.outcome = result;
+    trade.outcome.duration = trade.outcome.barsHeld;
+    trade.outcome.maxDrawdown = round(trade.outcome.mae);
+    trade.outcome.exitReason = String(closeData.exitReason || closeData.reason || "closed");
 
     if (Number.isFinite(toNumber(closeData.barsHeld, NaN))) {
       trade.outcome.barsHeld = Math.max(trade.outcome.barsHeld, Number(closeData.barsHeld));
@@ -167,6 +196,18 @@ export function createTradeLifecycleManager({
     };
 
     finalized.diagnosis = diagnoseTrade(finalized);
+    finalized.learningDiagnosis = analyzeOutcome(finalized.decisionContext || {}, {
+      outcome: finalized.outcome.outcome,
+      pnl: finalized.outcome.pnl,
+      duration: finalized.outcome.duration,
+      maxDrawdown: finalized.outcome.maxDrawdown,
+      exitReason: finalized.outcome.exitReason,
+    });
+    finalized.learningUpdate = updateLearningModel(finalized.learningDiagnosis, {
+      outcomeType: finalized.outcome.outcome,
+      outcome: finalized.outcome,
+      direction: finalized.signal?.direction || "NONE",
+    });
 
     delete finalized.runtime;
     openTrades.delete(tradeId);

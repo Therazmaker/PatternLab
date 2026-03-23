@@ -30,6 +30,7 @@ const STORAGE_KEYS = [
   "decisionMemories",
   "operatorActions",
   "operatorPatternSummary",
+  "learningModel",
 ];
 
 const defaultMetaFeedback = {
@@ -44,7 +45,7 @@ let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
   marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" }, autoIngestToSignals: true }, strategyRuns: [], strategyLifecycle: { versions: [], validations: [], liveInstances: [], degradationAlerts: [] },
-  tradeMemories: [], decisionMemories: [], operatorActions: [], operatorPatternSummary: null,
+  tradeMemories: [], decisionMemories: [], operatorActions: [], operatorPatternSummary: null, learningModel: null,
 };
 
 function enqueueWrite(task) {
@@ -85,6 +86,7 @@ function normalizeCache(snapshot = {}) {
     decisionMemories: Array.isArray(snapshot.decisionMemories) ? snapshot.decisionMemories : [],
     operatorActions: Array.isArray(snapshot.operatorActions) ? snapshot.operatorActions : [],
     operatorPatternSummary: snapshot.operatorPatternSummary && typeof snapshot.operatorPatternSummary === "object" ? snapshot.operatorPatternSummary : null,
+    learningModel: snapshot.learningModel && typeof snapshot.learningModel === "object" ? snapshot.learningModel : null,
   };
 }
 
@@ -117,6 +119,7 @@ function writeLegacyByDomain(domain) {
     case "decisionMemories": writeLegacyValue(LEGACY_KEYS.decisionMemories, cache.decisionMemories); break;
     case "operatorActions": writeLegacyValue(LEGACY_KEYS.operatorActions, cache.operatorActions); break;
     case "operatorPatternSummary": writeLegacyValue(LEGACY_KEYS.operatorPatternSummary, cache.operatorPatternSummary); break;
+    case "learningModel": writeLegacyValue(LEGACY_KEYS.learningModel, cache.learningModel); break;
     default: break;
   }
 }
@@ -188,6 +191,7 @@ export function getStorageStatus() {
       tradeMemories: (cache.tradeMemories || []).length,
       decisionMemories: (cache.decisionMemories || []).length,
       operatorActions: (cache.operatorActions || []).length,
+      learningModel: cache.learningModel ? 1 : 0,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -349,6 +353,12 @@ export function saveOperatorPatternSummary(summary) {
   return enqueueWrite(() => persistDomain("operatorPatternSummary"));
 }
 
+export function loadLearningModel() { return cache.learningModel || null; }
+export function saveLearningModel(model) {
+  cache.learningModel = model && typeof model === "object" ? model : null;
+  return enqueueWrite(() => persistDomain("learningModel"));
+}
+
 export function exportDataset(payload) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -405,6 +415,7 @@ export function exportMemory() {
       decisionMemories: cache.decisionMemories || [],
       operatorActions: cache.operatorActions || [],
       operatorPatternSummary: cache.operatorPatternSummary || null,
+      learningModel: cache.learningModel || null,
     },
   };
 }
@@ -437,6 +448,7 @@ export function validateMemoryPayload(payload) {
       tradeMemories: Array.isArray(payload.data.tradeMemories) ? payload.data.tradeMemories.length : 0,
       decisionMemories: Array.isArray(payload.data.decisionMemories) ? payload.data.decisionMemories.length : 0,
       operatorActions: Array.isArray(payload.data.operatorActions) ? payload.data.operatorActions.length : 0,
+      learningModel: payload.data.learningModel ? 1 : 0,
     },
   };
 }
@@ -473,11 +485,12 @@ export async function importMemory(payload, mode = "replace") {
     decisionMemories: payload.data.decisionMemories || [],
     operatorActions: payload.data.operatorActions || [],
     operatorPatternSummary: payload.data.operatorPatternSummary || null,
+    learningModel: payload.data.learningModel || null,
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary", "learningModel"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 
