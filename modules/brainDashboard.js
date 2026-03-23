@@ -12,8 +12,12 @@ function chips(rows = []) {
   return rows.map((row) => `<span class="brain-chip">${row}</span>`).join(" ");
 }
 
-export function renderBrainDashboard(verdict = null, modeState = {}) {
+export function renderBrainDashboard(verdict = null, modeState = {}, executionControlState = {}) {
   if (!verdict) return '<article class="panel-soft brain-dashboard"><h4>Brain Dashboard</h4><p class="muted tiny">Waiting for market context...</p></article>';
+  const shadowExecutionEnabled = Boolean(executionControlState?.shadowExecutionEnabled);
+  const authority = executionControlState?.executionAuthority || "manual_only";
+  const manualConfirmationRequired = executionControlState?.manualConfirmationRequired !== false;
+  const authorityLabel = authority === "copilot" ? "Copilot" : authority === "shadow" ? "Shadow" : "Manual Only";
 
   const contextRows = (verdict.learned_context_match || []).slice(0, 3).map((ctx) => `
     <div class="brain-context-row">
@@ -68,6 +72,15 @@ export function renderBrainDashboard(verdict = null, modeState = {}) {
 
         <section>
           <h5>Execution Controls</h5>
+          <div class="button-row compact">
+            <button type="button" class="${shadowExecutionEnabled ? "primary" : "ghost"}" data-brain-action="toggle-shadow-auto">Shadow Auto: ${shadowExecutionEnabled ? "ON" : "OFF"}</button>
+            ${shadowExecutionEnabled ? "" : '<span class="badge">Copilot Control</span>'}
+          </div>
+          <p class="tiny">
+            <span class="badge">Execution Authority: ${authorityLabel}</span>
+            <span class="badge ${shadowExecutionEnabled ? "badge-green" : "badge-muted"}">Shadow Execution: ${shadowExecutionEnabled ? "Active" : "Paused"}</span>
+            <span class="badge">${manualConfirmationRequired ? "Manual Confirmation: Required" : "Manual Confirmation: Optional"}</span>
+          </p>
           <div class="button-row compact" id="brain-dashboard-controls">
             <button type="button" class="ghost" data-brain-action="approve">approve suggestion</button>
             <button type="button" class="ghost" data-brain-action="wait">wait</button>
