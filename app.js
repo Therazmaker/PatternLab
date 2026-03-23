@@ -51,7 +51,13 @@ import {
   saveSessions,
   saveSignals,
   validateMemoryPayload,
+  loadCopilotFeedback,
+  saveCopilotFeedback,
 } from "./modules/storage.js";
+import { importCopilotFeedback, getCopilotFeedback, getCopilotFeedbackHistory, hydrateCopilotFeedbackStore, serializeCopilotFeedbackStore } from "./modules/copilotFeedbackStore.js";
+import { evaluateCopilotFeedback } from "./modules/copilotFeedbackEvaluator.js";
+import { buildCopilotFeedbackEffects } from "./modules/copilotFeedbackBridge.js";
+import { renderCopilotFeedbackBlock, renderCopilotFeedbackTabPanel } from "./modules/copilotFeedbackPanel.js";
 import {
   fetchYahooCandles,
   normalizeYahooCandles,
@@ -280,6 +286,8 @@ els.sessionOperatorNote = document.getElementById("session-operator-note");
 els.sessionOperatorRecalculateBtn = document.getElementById("btn-session-operator-recalculate");
 els.sessionOperatorFeedbackStatus = document.getElementById("session-operator-feedback-status");
 els.sessionOperatorDecision = document.getElementById("session-operator-decision");
+els.sessionCopilotFeedbackBlock = document.getElementById("session-copilot-feedback-block");
+els.copilotFeedbackPanel = document.getElementById("copilot-feedback-panel");
 
 els.slSymbol = document.getElementById("sl-symbol");
 els.slTimeframe = document.getElementById("sl-timeframe");
@@ -347,6 +355,8 @@ let _sessionManualSR = []; // [{id,price,type,label}]
 let _sessionHumanInsights = [];
 let _sessionTriggerLines = [];
 let _sessionTriggerEvaluation = { activeTriggerEffects: [], aggregateEffect: {}, summaryText: "Trigger lines idle." };
+let _lastCopilotEvaluation = null;
+let _lastCopilotEffects = null;
 let sessionHumanInsightDraft = null;
 let sessionAnalystState = { analystData: null, addedLevels: [], collapsed: false };
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
@@ -3178,6 +3188,9 @@ function setupTabs() {
         if (_sessionChart) { _sessionChart.destroy(); _sessionChart = null; }
         requestAnimationFrame(() => refreshSessionCandlesTab());
       }
+      if (tab === "copilot-feedback") {
+        renderCopilotFeedbackTabUI();
+      }
     });
   });
 }
@@ -3558,7 +3571,7 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     });
 
     const structureFilterResult = { decision: sessionOperatorState.currentSignal?.baseDecision?.finalDecision || "WARN" };
-    const recalculated = combineFinalDecision(machineSignal, structureFilterResult, operatorModifier, {}, currentContext?.triggerLineEffects || {});
+    const recalculated = combineFinalDecision(machineSignal, structureFilterResult, operatorModifier, {}, currentContext?.triggerLineEffects || {}, currentContext?.copilotEffects || {});
     const explanation = `${machineSignal.direction} signal ${operatorModifier.modifierScore < -0.1 ? "weakened" : operatorModifier.modifierScore > 0.1 ? "reinforced" : "adjusted"} due to ${actions.join(" + ")}. ${operatorModifier.summaryText}`;
     sessionOperatorState.recalculatedDecision = recalculated;
     sessionOperatorState.recalculatedDecisionExplanation = explanation;
@@ -4498,6 +4511,123 @@ function setSessionOperatorFeedbackStatus(message, kind = "muted") {
   els.sessionOperatorFeedbackStatus.textContent = message;
 }
 
+// ---------------------------------------------------------------------------
+// Copilot Feedback Loop helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a market context object from the current session analysis for the evaluator.
+ */
+function getCopilotMarketContext(analysis, marketView) {
+  const candles = marketView?.candles || [];
+  const last = candles[candles.length - 1] || null;
+  const structure = analysis?.overlays?.structureSummary || {};
+  return {
+    price: Number(last?.close || 0),
+    currentPrice: Number(analysis?.overlays?.currentPrice || last?.close || 0),
+    bias: analysis?.pseudoMl?.probability?.bias || "neutral",
+    direction: analysis?.pseudoMl?.probability?.bias === "bullish" ? "LONG" : analysis?.pseudoMl?.probability?.bias === "bearish" ? "SHORT" : "NONE",
+    regime: analysis?.pseudoMl?.regime?.regime || "",
+    structure,
+    candleClosed: Boolean(last && !marketView?.openCandle),
+    newHigh: false,
+    newLow: false,
+  };
+}
+
+/**
+ * Evaluate copilot feedback against the current market context and emit alerts.
+ */
+function evaluateAndStoreCopilotFeedback(analysis, marketView) {
+  const feedback = getCopilotFeedback();
+  if (!feedback) return { feedback: null, evaluation: null, effects: null };
+
+  const marketCtx = getCopilotMarketContext(analysis, marketView);
+  const evaluation = evaluateCopilotFeedback(feedback, marketCtx);
+  const effects = buildCopilotFeedbackEffects(feedback, evaluation);
+
+  // Emit console alerts when scenario status changes
+  const prev = _lastCopilotEvaluation;
+  if (prev && prev.primaryStatus !== evaluation.primaryStatus) {
+    const primary = feedback.scenario_primary?.name || "primary";
+    if (evaluation.primaryStatus === "validated") {
+      console.info(`[Copilot] Primary scenario validated: ${primary}`);
+    } else if (evaluation.primaryStatus === "invalidated") {
+      console.warn(`[Copilot] Primary scenario invalidated: ${primary}`);
+    }
+  }
+  if (prev && evaluation.alternateStatus && prev.alternateStatus !== evaluation.alternateStatus) {
+    const alt = feedback.scenario_alternate?.name || "alternate";
+    if (evaluation.alternateStatus === "validated") {
+      console.info(`[Copilot] Alternate scenario validated: ${alt}`);
+    } else if (evaluation.alternateStatus === "invalidated") {
+      console.warn(`[Copilot] Alternate scenario invalidated: ${alt}`);
+    }
+  }
+  _lastCopilotEvaluation = evaluation;
+  _lastCopilotEffects = effects;
+  return { feedback, evaluation, effects };
+}
+
+/**
+ * Render the Copilot Feedback block in Session Candle.
+ */
+function renderSessionCopilotFeedbackBlock(analysis, marketView) {
+  if (!els.sessionCopilotFeedbackBlock) return;
+  const { feedback, evaluation, effects } = evaluateAndStoreCopilotFeedback(analysis, marketView);
+  els.sessionCopilotFeedbackBlock.innerHTML = renderCopilotFeedbackBlock(feedback, evaluation, effects);
+}
+
+/**
+ * Render the full Copilot Feedback tab panel and wire dynamic events.
+ */
+function renderCopilotFeedbackTabUI() {
+  if (!els.copilotFeedbackPanel) return;
+  const feedback = getCopilotFeedback();
+  const evaluation = _lastCopilotEvaluation;
+  const effects = _lastCopilotEffects;
+  const history = getCopilotFeedbackHistory();
+  els.copilotFeedbackPanel.innerHTML = renderCopilotFeedbackTabPanel(feedback, evaluation, effects, history);
+
+  const importBtn = document.getElementById("btn-copilot-import");
+  const clearBtn = document.getElementById("btn-copilot-clear");
+  const jsonInput = document.getElementById("copilot-json-input");
+  const statusEl = document.getElementById("copilot-import-status");
+
+  if (importBtn && jsonInput) {
+    importBtn.addEventListener("click", () => {
+      const raw = jsonInput.value.trim();
+      if (!raw) {
+        if (statusEl) { statusEl.textContent = "Please paste a JSON first."; statusEl.className = "quick-add-feedback muted"; }
+        return;
+      }
+      const result = importCopilotFeedback(raw);
+      if (!result.ok) {
+        if (statusEl) { statusEl.textContent = `Validation errors: ${result.errors.join("; ")}`; statusEl.className = "quick-add-feedback error"; }
+        return;
+      }
+      // Persist to storage
+      saveCopilotFeedback(serializeCopilotFeedbackStore());
+      if (statusEl) { statusEl.textContent = "Feedback imported and saved successfully."; statusEl.className = "quick-add-feedback success"; }
+      // Re-render the panel with the new data
+      renderCopilotFeedbackTabUI();
+      // Also update Session Candle block if it's visible
+      if (els.sessionCopilotFeedbackBlock) {
+        const currentFeedback = getCopilotFeedback();
+        const noCtx = { feedback: currentFeedback, evaluation: null, effects: null };
+        els.sessionCopilotFeedbackBlock.innerHTML = renderCopilotFeedbackBlock(noCtx.feedback, noCtx.evaluation, noCtx.effects);
+      }
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      if (jsonInput) jsonInput.value = "";
+      if (statusEl) { statusEl.textContent = ""; statusEl.className = "quick-add-feedback muted"; }
+    });
+  }
+}
+
 function renderSessionOperatorDecisionPanel() {
   if (!els.sessionOperatorDecision) return;
   const before = sessionOperatorState.currentSignal;
@@ -4545,7 +4675,7 @@ function renderSessionOperatorDecisionPanel() {
       <span class="badge">Before ${beforeDecision.finalDecision || "WARN"} / ${beforeDecision.finalBias || "NONE"} · ${formatConfidence(beforeDecision.confidence || 0)}</span>
       <span class="badge">After ${recalculated.finalDecision} / ${recalculated.finalBias} · ${formatConfidence(recalculated.confidence)}</span>
     </div>
-    <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Learning modifier ${formatNumber(breakdown.learningComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)} · Trigger modifier ${formatNumber(breakdown.triggerComponent, 3)} · Final ${recalculated.finalDecision}</p>
+    <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Learning modifier ${formatNumber(breakdown.learningComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)} · Trigger modifier ${formatNumber(breakdown.triggerComponent, 3)} · Copilot modifier ${formatNumber(breakdown.copilotComponent, 3)} · Final ${recalculated.finalDecision}</p>
     ${humanSummary ? `<p class="muted tiny"><strong>Human Insight:</strong> ${humanSummary}</p>` : ""}
     ${effectBlock}
     <p class="muted tiny">${recalculated.summaryText || "Decision recalculated with operator layer."}</p>
@@ -4585,7 +4715,10 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   syncTriggerRuntimeState(triggerEvaluation);
   _sessionTriggerLines = loadTriggerLines();
   const triggerLineEffects = buildTriggerLineEffects(triggerEvaluation.activeTriggerEffects);
-  const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, {}, triggerLineEffects);
+  // Copilot feedback bridge – evaluate and apply as additional decision layer
+  const { feedback: copilotFeedback, evaluation: copilotEvaluation, effects: copilotEffectsResult } = evaluateAndStoreCopilotFeedback(analysis, marketView);
+  const copilotEffectsForDecision = copilotEffectsResult || {};
+  const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, {}, triggerLineEffects, copilotEffectsForDecision);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
   sessionOperatorState.currentContext = {
     symbol: marketView.symbol,
@@ -4604,11 +4737,15 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     humanInsightEvaluation,
     triggerLineEvaluation: triggerEvaluation,
     triggerLineEffects,
+    copilotFeedback,
+    copilotEvaluation,
+    copilotEffects: copilotEffectsForDecision,
   };
   sessionOperatorState.humanInsights = [..._sessionHumanInsights];
   sessionOperatorState.activeHumanInsightEffects = humanInsightEvaluation.effects || null;
   if (!sessionOperatorState.recalculatedDecision) setSessionOperatorFeedbackStatus("Operator feedback ready.", "muted");
   renderSessionOperatorDecisionPanel();
+  renderSessionCopilotFeedbackBlock(analysis, marketView);
 }
 
 // UI subscription point for live updates from the shadow monitor.
@@ -5363,6 +5500,9 @@ async function init() {
   selectedStrategyRunId = strategyRuns[0]?.id || "";
   livePatternSignals = loadLivePatternSignals();
   livePatternSummary = loadLivePatternSummary();
+  // Hydrate copilot feedback store from persisted state
+  const storedCopilot = loadCopilotFeedback();
+  if (storedCopilot) hydrateCopilotFeedbackStore(storedCopilot);
   setupTabs();
   setupEvents();
   setupMarketDataEvents();
