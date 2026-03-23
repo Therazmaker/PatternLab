@@ -328,7 +328,8 @@ let sessionReplayTimer = null;
 let editingSessionCandleIndex = null;
 let sessionCandleDraft = null;
 let _sessionChart = null; // SessionChart Canvas instance
-const SESSION_SR_KEY = 'patternlab.sessionManualSR.v1';
+const SESSION_DRAWINGS_KEY = "patternlab.sessionDrawings.v1";
+const SESSION_SR_KEY_LEGACY = "patternlab.sessionManualSR.v1";
 const SESSION_HUMAN_INSIGHTS_KEY = "patternlab.sessionHumanInsights.v1";
 let _sessionManualSR = []; // [{id,price,type,label}]
 let _sessionHumanInsights = [];
@@ -775,7 +776,10 @@ function signalBadgeLabel(stateValue) {
 function hasManualLevel(price, type) {
   const p = Number(price);
   if (!Number.isFinite(p)) return false;
-  return _sessionManualSR.some((line) => line.type === type && Math.abs(Number(line.price) - p) <= Math.max(Math.abs(p) * 0.0002, 1e-9));
+  return _sessionManualSR.some((line) => {
+    const role = line.structureRole || line.type;
+    return role === type && Math.abs(Number(line.price) - p) <= Math.max(Math.abs(p) * 0.0002, 1e-9);
+  });
 }
 
 function addManualLevel({ price, type, source = "analyst_auto", confirmedBy = "operator" }) {
@@ -783,17 +787,30 @@ function addManualLevel({ price, type, source = "analyst_auto", confirmedBy = "o
   if (!Number.isFinite(p)) return false;
   if (hasManualLevel(p, type)) return false;
   const id = `sr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const marketView = getSessionMarketView();
+  const anchor = marketView?.candles?.[marketView.candles.length - 1];
+  const anchorTime = Number(anchor?.timestamp ?? anchor?.index ?? Date.now());
   const line = {
     id,
+    type: "horizontal_line",
+    points: [{ time: anchorTime, price: Number(p.toFixed(6)) }],
     price: Number(p.toFixed(6)),
-    type: type === "support" ? "support" : "resistance",
     label: type === "support" ? "S" : "R",
+    extra: { channelOffset: null },
     source,
     confirmedBy,
+    metadata: {
+      symbol: marketView?.symbol || "UNKNOWN",
+      timeframe: marketView?.timeframe || "UNKNOWN",
+      createdAt: new Date().toISOString(),
+      source: "operator_manual",
+      active: true,
+    },
+    structureRole: type === "support" ? "support" : "resistance",
   };
   _sessionManualSR = [..._sessionManualSR, line];
   sessionAnalystState.addedLevels = [...sessionAnalystState.addedLevels, line];
-  try { localStorage.setItem(SESSION_SR_KEY, JSON.stringify(_sessionManualSR)); } catch {}
+  try { localStorage.setItem(SESSION_DRAWINGS_KEY, JSON.stringify(_sessionManualSR)); } catch {}
   if (_sessionChart) _sessionChart.setManualSR(_sessionManualSR);
   console.debug("[SessionAnalyst] + chart level added", line);
   return true;
@@ -819,6 +836,31 @@ function getHumanInsightContext(analysis, marketView) {
 
 function getSessionDrawingIds() {
   return (Array.isArray(_sessionManualSR) ? _sessionManualSR : []).map((line) => line.id).filter(Boolean);
+}
+
+function normalizeStoredSessionDrawings(rows = [], marketView = null) {
+  const anchor = marketView?.candles?.[marketView.candles.length - 1];
+  const anchorTime = Number(anchor?.timestamp ?? anchor?.index ?? Date.now());
+  return (Array.isArray(rows) ? rows : []).map((line) => {
+    if (Array.isArray(line?.points) && line.points.length) return line;
+    const price = Number(line?.price);
+    return {
+      id: line?.id || `drawing_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: "horizontal_line",
+      points: [{ time: anchorTime, price: Number.isFinite(price) ? price : 0 }],
+      price: Number.isFinite(price) ? price : 0,
+      extra: { channelOffset: null },
+      label: line?.label || "H",
+      structureRole: line?.type === "support" ? "support" : line?.type === "resistance" ? "resistance" : line?.structureRole,
+      metadata: {
+        symbol: line?.metadata?.symbol || marketView?.symbol || "UNKNOWN",
+        timeframe: line?.metadata?.timeframe || marketView?.timeframe || "UNKNOWN",
+        createdAt: line?.metadata?.createdAt || new Date().toISOString(),
+        source: "operator_manual",
+        active: true,
+      },
+    };
+  }).filter((line) => Number.isFinite(Number(line?.price)));
 }
 
 function persistSessionHumanInsights() {
@@ -876,7 +918,7 @@ function buildHumanInsightOperatorModifier(machineSignal = {}, humanEvaluation =
   else if (modifierScore <= -0.12) effectOnDecision = "soft_warn";
 
   if (Math.abs(modifierScore) > 0.01 || effectOnDecision !== "none") {
-    console.debug("Insight affected decision", { modifierScore, effectOnDecision, direction, summaryText: humanEvaluation.summaryText });
+    console.debug("Drawing affected decision", { modifierScore, effectOnDecision, direction, summaryText: humanEvaluation.summaryText });
   }
 
   return {
@@ -1190,8 +1232,15 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
       },
       onSRChange: (lines, eventMeta = null) => {
         _sessionManualSR = lines;
-        try { localStorage.setItem(SESSION_SR_KEY, JSON.stringify(lines)); } catch {}
+        try { localStorage.setItem(SESSION_DRAWINGS_KEY, JSON.stringify(lines)); } catch {}
         if (eventMeta?.type === "created" && eventMeta.line) {
+          console.debug("Drawing completed", {
+            drawingId: eventMeta.line.id,
+            type: eventMeta.line.type,
+            points: eventMeta.line.points || [],
+            symbol: eventMeta.line?.metadata?.symbol || null,
+            timeframe: eventMeta.line?.metadata?.timeframe || null,
+          });
           const marketView = getSessionMarketView();
           sessionHumanInsightDraft = createHumanInsightDraft({
             drawing: eventMeta.line,
@@ -1200,7 +1249,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
           });
           sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
           sessionOperatorState.selectedDrawingId = eventMeta.line.id;
-          console.debug("Human insight draft opened", {
+          console.debug("Human Insight draft opened for drawing", {
             insightId: sessionHumanInsightDraft.id,
             drawingId: eventMeta.line.id,
             conditionType: sessionHumanInsightDraft.conditionSelection,
@@ -1215,7 +1264,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
           sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
           if (sessionOperatorState.selectedDrawingId === eventMeta.lineId) sessionOperatorState.selectedDrawingId = null;
           reconcileSessionHumanInsightState({ reason: "drawing_removed", keepOrphaned: true });
-          console.debug("Linked drawing removed, insight cleaned", {
+          console.debug("Drawing deleted", {
             insightId: null,
             drawingId: eventMeta.lineId,
             conditionType: null,
@@ -1225,10 +1274,38 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
           });
           refreshSessionCandlesTab();
           renderHumanInsightSummary();
+        } else if (eventMeta?.type === "cleared") {
+          const removedIds = Array.isArray(eventMeta.lineIds) ? eventMeta.lineIds : [];
+          _sessionHumanInsights = _sessionHumanInsights.filter((insight) => !removedIds.includes(insight.linkedDrawingId));
+          if (sessionHumanInsightDraft?.drawing?.id && removedIds.includes(sessionHumanInsightDraft.drawing.id)) sessionHumanInsightDraft = null;
+          sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
+          if (sessionOperatorState.selectedDrawingId && removedIds.includes(sessionOperatorState.selectedDrawingId)) {
+            sessionOperatorState.selectedDrawingId = null;
+          }
+          reconcileSessionHumanInsightState({ reason: "drawing_cleared", keepOrphaned: true });
+          console.debug("Drawing deleted", {
+            insightId: null,
+            drawingId: removedIds.join(","),
+            conditionType: null,
+            directionBias: null,
+            activationResult: false,
+            effectSummary: "all_drawings_removed",
+          });
+          refreshSessionCandlesTab();
+          renderHumanInsightSummary();
         }
       },
       onSRSelect: (line) => {
         sessionOperatorState.selectedDrawingId = line?.id || null;
+        if (line) {
+          console.debug("Drawing selected", {
+            drawingId: line.id,
+            type: line.type,
+            points: line.points || [],
+            symbol: line?.metadata?.symbol || null,
+            timeframe: line?.metadata?.timeframe || null,
+          });
+        }
         const linked = _sessionHumanInsights.find((insight) => insight.linkedDrawingId === line?.id);
         if (linked) {
           setSessionOperatorFeedbackStatus(`Drawing selected: ${linked.insightType} (${linked.condition?.directionBias}).`, "muted");
@@ -1254,6 +1331,8 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
 
   const overlays = {
     ...(marketAnalysis?.analysis?.overlays || {}),
+    symbol: marketAnalysis?.marketView?.symbol || session?.asset || "UNKNOWN",
+    timeframe: marketAnalysis?.marketView?.timeframe || "UNKNOWN",
     _explanations: explanations,
   };
 
@@ -4964,7 +5043,11 @@ async function init() {
   replaceSessions(loadSessions(normalizeSession));
   metaFeedback = loadMetaFeedback();
   botCompilerState = loadBotCompilerState();
-  try { _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_SR_KEY) || '[]') || []; } catch { _sessionManualSR = []; }
+  try {
+    _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_DRAWINGS_KEY) || localStorage.getItem(SESSION_SR_KEY_LEGACY) || "[]") || [];
+  } catch { _sessionManualSR = []; }
+  _sessionManualSR = normalizeStoredSessionDrawings(_sessionManualSR, getSessionMarketView());
+  try { localStorage.setItem(SESSION_DRAWINGS_KEY, JSON.stringify(_sessionManualSR)); } catch {}
   try { _sessionHumanInsights = JSON.parse(localStorage.getItem(SESSION_HUMAN_INSIGHTS_KEY) || "[]") || []; } catch { _sessionHumanInsights = []; }
   reconcileSessionHumanInsightState({ reason: "initial_load", keepOrphaned: true });
   sessionAnalystState.addedLevels = [..._sessionManualSR];
