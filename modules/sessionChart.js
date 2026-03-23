@@ -39,11 +39,12 @@ function inferDecimals(candles){const s=candles.map(c=>c.close).filter(Number.is
 function fmt(p,dec){return Number.isFinite(p)?p.toFixed(dec):"—";}
 
 export class SessionChart {
-  constructor(container,{onCandleClick,onCandleHover,onSRChange}={}){
+  constructor(container,{onCandleClick,onCandleHover,onSRChange,onSRSelect}={}){
     this.container=container;
     this.onCandleClick=onCandleClick||((x)=>{});
     this.onCandleHover=onCandleHover||((x)=>{});
     this.onSRChange=onSRChange||((x)=>{});
+    this.onSRSelect=onSRSelect||((x)=>{});
     this.candles=[];this.overlays={};this.livePlan=null;
     this.explanations=[];this.selectedIdx=null;this.prefs={};this.decimals=4;
     this._manualSR=[];
@@ -318,13 +319,16 @@ export class SessionChart {
       const color=isSup?C.manualSupport:C.manualResistance;
       ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.setLineDash([7,3]);
       ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(this._chartW,y);ctx.stroke();ctx.setLineDash([]);
-      const tag=`${line.label||(isSup?"S":"R")}  ${fmt(line.price,this.decimals)}  ✕`;
+      const hasInsight = Boolean(line.humanInsightLinked);
+      const insightBadge = hasInsight ? " 🧠" : "";
+      const selected = Boolean(line.isSelected);
+      const tag=`${line.label||(isSup?"S":"R")}${insightBadge}  ${fmt(line.price,this.decimals)}  ✕`;
       const tw=ctx.measureText(tag).width+14,tx=this._chartW-tw-10,ty=y-9;
-      ctx.fillStyle=isSup?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.15)";
+      ctx.fillStyle=selected ? "rgba(96,165,250,0.16)" : (isSup?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.15)");
       ctx.strokeStyle=color;ctx.lineWidth=0.8;
       ctx.beginPath();ctx.roundRect(tx,ty,tw,18,4);ctx.fill();ctx.stroke();
       ctx.fillStyle=color;ctx.textAlign="left";ctx.fillText(tag,tx+7,y+3.5);
-      line._hz={tx,ty,tw,th:18};
+      line._hz={tx,ty,tw,th:18,removeX:tx+tw-16,removeW:14};
     });
   }
 
@@ -561,8 +565,17 @@ export class SessionChart {
 
   _handleClick(e){
     const{x,y}=this._logicalXY(e);
-    const hitId=this._hitTestSR(x,y);
-    if(hitId){this._removeSR(hitId);return;}
+    const hitLine=this._manualSR.find((line)=> {
+      const z=line._hz;
+      return z && x>=z.tx && x<=z.tx+z.tw && y>=z.ty && y<=z.ty+z.th;
+    });
+    if(hitLine){
+      const z=hitLine._hz;
+      if(z && x>=z.removeX && x<=z.removeX+z.removeW){this._removeSR(hitLine.id);return;}
+      this.onSRSelect({...hitLine});
+      this._dirty=true;
+      return;
+    }
     if(this._drawMode){if(y>PAD_TOP&&y<PAD_TOP+this._chartH)this._placeSR(y);return;}
     if(Math.abs(e.clientX-(this._dragX0||e.clientX))>5)return;
     const i=clamp(Math.round(this._idxAtX(x)),0,this.candles.length-1);

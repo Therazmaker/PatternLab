@@ -1,3 +1,5 @@
+import { validateHumanInsight } from "./humanInsightValidation.js";
+
 function clamp(value, min = 0, max = 1) {
   const num = Number(value);
   if (!Number.isFinite(num)) return min;
@@ -66,12 +68,37 @@ export function evaluateHumanInsights(insights = [], currentContext = {}) {
   };
 
   insights.forEach((insight) => {
+    const validation = validateHumanInsight(insight);
+    if (!validation.valid) {
+      console.debug("Orphan insight skipped", {
+        insightId: insight?.id,
+        drawingId: insight?.linkedDrawingId,
+        conditionType: insight?.condition?.type,
+        directionBias: insight?.condition?.directionBias,
+        activationResult: false,
+        effectSummary: validation.issues.join(","),
+      });
+      return;
+    }
+    if (insight?.metadata?.isOrphaned) {
+      console.debug("Orphan insight skipped", {
+        insightId: insight.id,
+        drawingId: insight.linkedDrawingId,
+        conditionType: insight.condition?.type,
+        directionBias: insight.condition?.directionBias,
+        activationResult: false,
+        effectSummary: insight.metadata?.orphanReason || "missing_linked_drawing",
+      });
+      return;
+    }
     const evaluation = evaluateSingleInsight(insight, currentContext);
     console.debug("Insight evaluated", {
       insightId: insight.id,
-      linkedDrawingId: insight.linkedDrawingId,
-      active: evaluation.active,
-      score: evaluation.score,
+      drawingId: insight.linkedDrawingId,
+      conditionType: insight.condition?.type,
+      directionBias: insight.condition?.directionBias,
+      activationResult: evaluation.active,
+      effectSummary: `${insight.effect?.boostBias || 0}/${insight.effect?.reduceOpposite || 0}`,
     });
     if (!evaluation.active) return;
 
@@ -94,9 +121,11 @@ export function evaluateHumanInsights(insights = [], currentContext = {}) {
 
     console.debug("Insight activated", {
       insightId: insight.id,
+      drawingId: insight.linkedDrawingId,
+      conditionType: insight.condition?.type,
       directionBias: insight.condition?.directionBias,
-      boostBias: boost,
-      reduceOpposite: reduce,
+      activationResult: true,
+      effectSummary: `boost=${boost},reduce=${reduce},confirm=${Boolean(insight.effect?.requireConfirmation)}`,
     });
 
     activeInsights.push({

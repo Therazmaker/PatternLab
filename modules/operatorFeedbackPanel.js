@@ -4,9 +4,14 @@ export function createSessionOperatorState() {
   return {
     currentSignal: null,
     currentContext: null,
+    humanInsightDraft: null,
+    humanInsights: [],
+    activeHumanInsightEffects: null,
+    selectedDrawingId: null,
     operatorSelection: [],
     operatorNote: "",
     recalculatedDecision: null,
+    recalculatedDecisionExplanation: "",
     lastOperatorActionId: null,
   };
 }
