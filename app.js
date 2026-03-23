@@ -3487,7 +3487,7 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     });
 
     const structureFilterResult = { decision: sessionOperatorState.currentSignal?.baseDecision?.finalDecision || "WARN" };
-    const recalculated = combineFinalDecision(machineSignal, structureFilterResult, operatorModifier, currentContext?.triggerLineEffects || {});
+    const recalculated = combineFinalDecision(machineSignal, structureFilterResult, operatorModifier, {}, currentContext?.triggerLineEffects || {});
     const explanation = `${machineSignal.direction} signal ${operatorModifier.modifierScore < -0.1 ? "weakened" : operatorModifier.modifierScore > 0.1 ? "reinforced" : "adjusted"} due to ${actions.join(" + ")}. ${operatorModifier.summaryText}`;
     sessionOperatorState.recalculatedDecision = recalculated;
     sessionOperatorState.recalculatedDecisionExplanation = explanation;
@@ -4473,7 +4473,7 @@ function renderSessionOperatorDecisionPanel() {
       <span class="badge">Before ${beforeDecision.finalDecision || "WARN"} / ${beforeDecision.finalBias || "NONE"} · ${formatConfidence(beforeDecision.confidence || 0)}</span>
       <span class="badge">After ${recalculated.finalDecision} / ${recalculated.finalBias} · ${formatConfidence(recalculated.confidence)}</span>
     </div>
-    <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)} · Trigger modifier ${formatNumber(breakdown.triggerComponent, 3)}</p>
+    <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Learning modifier ${formatNumber(breakdown.learningComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)} · Trigger modifier ${formatNumber(breakdown.triggerComponent, 3)} · Final ${recalculated.finalDecision}</p>
     ${humanSummary ? `<p class="muted tiny"><strong>Human Insight:</strong> ${humanSummary}</p>` : ""}
     ${effectBlock}
     <p class="muted tiny">${recalculated.summaryText || "Decision recalculated with operator layer."}</p>
@@ -4513,7 +4513,7 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   syncTriggerRuntimeState(triggerEvaluation);
   _sessionTriggerLines = loadTriggerLines();
   const triggerLineEffects = buildTriggerLineEffects(triggerEvaluation.activeTriggerEffects);
-  const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, triggerLineEffects);
+  const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, {}, triggerLineEffects);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
   sessionOperatorState.currentContext = {
     symbol: marketView.symbol,
@@ -4599,8 +4599,31 @@ function renderLiveShadowPanel() {
 
   const selected = filtered.find((row) => row.id === liveShadowSelectedId) || latest;
   if (els.mdLiveShadowDetail) {
+    const learning = selected?.stateSummary?.learningModifier || {};
+    const breakdown = selected?.policy?.decisionBreakdown || selected?.decisionTrace?.operatorCorrected?.decisionBreakdown || {};
+    const matchedPatterns = learning?.matchedPatterns || [];
+    const penalties = learning?.activePenalties || [];
+    const boosts = learning?.activeBoosts || [];
+    const learningImpactBlock = selected
+      ? `<div class="panel-soft">
+          <p><strong>Learning Impact</strong></p>
+          <p class="muted tiny">Matched pattern(s): ${matchedPatterns.length ? matchedPatterns.map((row) => row.name).join(", ") : "none"}</p>
+          <p class="muted tiny">learningModifierScore: ${formatNumber(learning.learningModifierScore ?? learning.modifierScore, 3)} · effect ${learning.modifierEffect || "none"}</p>
+          <p class="muted tiny">Active penalties/boosts: penalties ${penalties.length || 0} · boosts ${boosts.length || 0}</p>
+          <p class="muted tiny">Confirmation forced by learning: ${learning.forcedByLearning ? "yes" : "no"}${learning.requiresConfirmation ? " · confirmation active" : ""}</p>
+          <p class="muted tiny">Why: ${learning.explanation || "No active learned impact."}</p>
+        </div>`
+      : "";
+    const patternTracingBlock = selected
+      ? `<div class="panel-soft">
+          <p><strong>Pattern Match Trace</strong></p>
+          ${matchedPatterns.length
+    ? matchedPatterns.map((row) => `<p class="muted tiny">${row.name} · occurrences ${row.occurrences} · win rate ${formatPct(Number(row.winRate || 0) * 100, 1)} · avg return ${formatNumber(row.avgReturn, 4)} · adjustment ${formatNumber(row.adjustmentApplied, 4)} (${row.evidenceTier})</p>`).join("")
+    : `<p class="muted tiny">No learned losing/winning pattern matched this context.</p>`}
+        </div>`
+      : "";
     els.mdLiveShadowDetail.innerHTML = selected
-      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">Machine action: ${selected.decisionTrace?.machine?.action || selected.policy.action} · confidence ${formatConfidence(selected.decisionTrace?.machine?.confidence ?? selected.policy.confidence)} · reason ${selected.decisionTrace?.machine?.reason || selected.policy.reason || "-"}</p><p class="muted">Operator corrected: ${selected.decisionTrace?.operatorCorrected?.finalAction || "not applied"}${selected.decisionTrace?.operatorCorrected?.finalState ? ` · ${selected.decisionTrace.operatorCorrected.finalState}` : ""}</p><p class="muted">Operator actions: ${(selected.operatorFeedback?.actions || []).join(", ") || "none"}${selected.operatorFeedback?.note ? ` · note: ${selected.operatorFeedback.note}` : ""}</p><p class="muted">Regime: ${selected.policy.regime || "ranging"} (${formatNumber(selected.policy.regimeStrength, 0)}) · ${selected.policy.regimeExplanation || ""}</p><p class="muted">Machine scores → Bullish ${formatNumber(selected.policy.bullishScore, 1)} · Bearish ${formatNumber(selected.policy.bearishScore, 1)} · Neutral ${formatNumber(selected.policy.neutralScore, 1)}</p><p class="muted">${selected.decisionTrace?.operatorCorrected ? `Operator scores → Bullish ${formatNumber(selected.decisionTrace.operatorCorrected.bullishScore, 1)} · Bearish ${formatNumber(selected.decisionTrace.operatorCorrected.bearishScore, 1)} · Neutral ${formatNumber(selected.decisionTrace.operatorCorrected.neutralScore, 1)}` : "Operator scores pending."}</p><p class="muted">${selected.decisionTrace?.operatorCorrected?.explanation || selected.policy.probabilityExplanation || ""}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Outcome compare: machine ${selected.outcomeComparison?.machineOnly?.result || "-"} vs operator ${selected.outcomeComparison?.operatorCorrected?.result || "-"} · actual ${selected.outcomeComparison?.actualOutcome?.result || "-"}</p><p class="muted">Learning memory: ${(selected.learningMemory?.patterns || []).join(", ") || "no patterns yet"}</p><p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
+      ? `<p><strong>${selected.symbol} ${selected.timeframe}</strong> · ${formatTs(selected.timestamp)}</p><p class="muted">Machine action: ${selected.decisionTrace?.machine?.action || selected.policy.action} · confidence ${formatConfidence(selected.decisionTrace?.machine?.confidence ?? selected.policy.confidence)} · reason ${selected.decisionTrace?.machine?.reason || selected.policy.reason || "-"}</p><p class="muted">Operator corrected: ${selected.decisionTrace?.operatorCorrected?.finalAction || "not applied"}${selected.decisionTrace?.operatorCorrected?.finalState ? ` · ${selected.decisionTrace.operatorCorrected.finalState}` : ""}</p><p class="muted">Operator actions: ${(selected.operatorFeedback?.actions || []).join(", ") || "none"}${selected.operatorFeedback?.note ? ` · note: ${selected.operatorFeedback.note}` : ""}</p><p class="muted">Regime: ${selected.policy.regime || "ranging"} (${formatNumber(selected.policy.regimeStrength, 0)}) · ${selected.policy.regimeExplanation || ""}</p><p class="muted">Machine scores → Bullish ${formatNumber(selected.policy.bullishScore, 1)} · Bearish ${formatNumber(selected.policy.bearishScore, 1)} · Neutral ${formatNumber(selected.policy.neutralScore, 1)}</p><p class="muted">${selected.decisionTrace?.operatorCorrected ? `Operator scores → Bullish ${formatNumber(selected.decisionTrace.operatorCorrected.bullishScore, 1)} · Bearish ${formatNumber(selected.decisionTrace.operatorCorrected.bearishScore, 1)} · Neutral ${formatNumber(selected.decisionTrace.operatorCorrected.neutralScore, 1)}` : "Operator scores pending."}</p><p class="muted">${selected.decisionTrace?.operatorCorrected?.explanation || selected.policy.probabilityExplanation || ""}</p><p class="muted">Warnings: ${(selected.policy.warnings || []).join(", ") || "none"}</p><p class="muted">Structure: ${selected.policy.structureDecision || "allow"} · ${(selected.policy.structureReasons || []).join(" ") || "No structure warnings."}</p><p class="muted">Decision breakdown → base machine score ${formatNumber(breakdown.machineComponent, 3)} · structure modifier ${formatNumber(breakdown.structureComponent, 3)} · learning modifier ${formatNumber(breakdown.learningComponent, 3)} · operator modifier ${formatNumber(breakdown.operatorComponent, 3)} · trigger modifier ${formatNumber(breakdown.triggerComponent, 3)} · final decision ${selected.policy.finalDecision || breakdown.finalDecision || "-"}</p><p class="muted">Bias ${selected.stateSummary.structureBias || "-"} · break ${selected.stateSummary.structureBreakState || "-"} · entry ${formatNumber(selected.stateSummary.entryLocationScore, 1)} · S ${formatNumber(selected.stateSummary.supportDistancePct, 2)}% / R ${formatNumber(selected.stateSummary.resistanceDistancePct, 2)}%</p><p class="muted">Neurons: ${(selected.stateSummary.activeNeurons || []).slice(0, 8).join(", ") || "none"}</p><p class="muted">Action scores: ${JSON.stringify(selected.policy.actionScores || {})}</p><p class="muted">Outcome ${selected.outcome.status}${selected.outcome.result ? ` · ${selected.outcome.result}` : ""} · bars ${selected.outcome.barsElapsed ?? "-"}</p><p class="muted">Outcome compare: machine ${selected.outcomeComparison?.machineOnly?.result || "-"} vs operator ${selected.outcomeComparison?.operatorCorrected?.result || "-"} · actual ${selected.outcomeComparison?.actualOutcome?.result || "-"}</p><p class="muted">Learning memory: ${(selected.learningMemory?.patterns || []).join(", ") || "no patterns yet"}</p>${learningImpactBlock}${patternTracingBlock}<p class="muted">Unified pipeline: ${state.signals.some((row) => row.id === selected.id) ? "Imported to Feed/Stats" : "Monitor only"}</p>`
       : `<p class="muted">Select a live decision row to inspect full details.</p>`;
   }
 
@@ -4608,12 +4631,28 @@ function renderLiveShadowPanel() {
     const diag = selected?.learningFeedback?.lastDiagnosis || null;
     const adjustments = selected?.learningFeedback?.adjustmentsApplied || null;
     const patterns = selected?.learningFeedback?.patternsDetected || [];
+    const learning = selected?.stateSummary?.learningModifier || {};
+    const learningModel = learning?.model || {};
+    const currentRules = [
+      { name: "penalize long near resistance in compression", value: learningModel?.weights?.longNearResistance },
+      { name: "penalize short near support in compression", value: learningModel?.weights?.shortNearSupport },
+      { name: "boost short after failed breakout", value: learningModel?.weights?.shortAfterFailedBreakout },
+      { name: "require confirmation in weak momentum ranges", value: learningModel?.weights?.momentumWeakPenalty },
+    ]
+      .filter((row) => Math.abs(Number(row.value || 0)) > 0.02)
+      .sort((a, b) => Math.abs(Number(b.value || 0)) - Math.abs(Number(a.value || 0)))
+      .slice(0, 6);
+    const replay = selected?.learningFeedback?.impactReplay || null;
     els.mdLearningFeedback.innerHTML = diag
       ? `<p><strong>Last trade diagnosis</strong>: ${diag.classification || "unclassified"}.</p>
          <p class="muted">Reason codes: ${(diag.reasonCodes || []).join(", ") || "-"}</p>
          <p class="muted">Adjustment applied: ${Object.keys(adjustments || {}).length ? Object.entries(adjustments).map(([k, v]) => `${k} ${formatNumber(v, 4)}`).join(" · ") : "none yet"}</p>
-         <p class="muted">Patterns detected: ${patterns.length ? patterns.join(", ") : "none yet"}</p>`
-      : `<p class="muted">Learning feedback will appear after a trade resolves.</p>`;
+         <p class="muted">Patterns detected: ${patterns.length ? patterns.join(", ") : "none yet"}</p>
+         <p><strong>Current Learned Rules</strong></p>
+         ${currentRules.length ? currentRules.map((row) => `<p class="muted tiny">• ${row.name} (${row.value > 0 ? "+" : ""}${formatNumber(row.value, 4)})</p>`).join("") : `<p class="muted tiny">No strong active penalties/boosts yet.</p>`}
+         <p><strong>Replay debug (before/after learning)</strong></p>
+         ${replay ? `<p class="muted tiny">Before learning: ${replay.before.decision} / ${replay.before.bias} (score ${formatNumber(replay.before.totalScore, 3)}, learning ${formatNumber(replay.before.learningModifier, 3)})</p><p class="muted tiny">After learning: ${replay.after.decision} / ${replay.after.bias} (score ${formatNumber(replay.after.totalScore, 3)}, learning ${formatNumber(replay.after.learningModifier, 3)})</p><p class="muted tiny">Delta: ${replay.changed ? "decision changed" : "score changed without class change"} · ${replay.explanation || ""}</p>` : `<p class="muted tiny">Replay debug populates after decision resolution updates learning.</p>`}`
+      : `<p class="muted">Learning feedback will appear after a trade resolves.</p><p><strong>Current Learned Rules</strong></p>${currentRules.length ? currentRules.map((row) => `<p class="muted tiny">• ${row.name} (${row.value > 0 ? "+" : ""}${formatNumber(row.value, 4)})</p>`).join("") : `<p class="muted tiny">No strong active penalties/boosts yet.</p>`}`;
   }
 
   if (selected) {

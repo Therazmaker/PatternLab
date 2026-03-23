@@ -278,15 +278,11 @@ export function createLiveShadowMonitor(options = {}) {
       failedBreakout: Boolean(features.state?.structure?.structureBreakState === "failed"),
     };
     const learningModifier = applyLearningModifier(machineSignal, structureFilterResult, learningContext);
-    const mergedOperatorModifier = {
-      ...operatorModifier,
-      modifierScore: Number(operatorModifier.modifierScore || 0) + Number(learningModifier.modifierScore || 0),
-    };
 
     const combinedDecision = combineFinalDecision(machineSignal, {
       ...structureFilterResult,
       decision: learningModifier.structureOverride,
-    }, mergedOperatorModifier);
+    }, operatorModifier, learningModifier);
 
     const id = createRecordId(candle, candleIndex);
     if (records.some((row) => row.id === id)) return null;
@@ -339,6 +335,7 @@ export function createLiveShadowMonitor(options = {}) {
         finalBias: combinedDecision.finalBias,
         finalConfidence: combinedDecision.confidence,
         finalDecisionSummary: combinedDecision.summaryText,
+        decisionBreakdown: combinedDecision.decisionBreakdown,
         learningReasonCodes: learningModifier.reasonCodes || [],
         bullishScore: probability.bullishScore,
         bearishScore: probability.bearishScore,
@@ -574,10 +571,62 @@ export function createLiveShadowMonitor(options = {}) {
         outcome: next.outcome,
         direction: next.decisionContext?.signal?.direction || next.policy?.action || "NONE",
       });
+      const replayMachineSignal = {
+        direction: next.decisionTrace?.machine?.probabilityBias === "bullish"
+          ? "LONG"
+          : next.decisionTrace?.machine?.probabilityBias === "bearish"
+            ? "SHORT"
+            : (next.decisionContext?.signal?.direction || "NONE"),
+        bullishScore: next.decisionTrace?.machine?.bullishScore || next.policy?.bullishScore || 0,
+        bearishScore: next.decisionTrace?.machine?.bearishScore || next.policy?.bearishScore || 0,
+        confidence: next.decisionTrace?.machine?.confidence || next.policy?.confidence || 0,
+      };
+      const replayStructure = { decision: next.policy?.structureDecision || "ALLOW" };
+      const replayLearningContext = {
+        nearSupport: next.stateSummary?.nearSupport,
+        nearResistance: next.stateSummary?.nearResistance,
+        compression: Number(next.stateSummary?.entryLocationScore || 0) < 45,
+        momentumState: Number(next.policy?.regimeStrength || 0) >= 70 ? "strong" : Number(next.policy?.regimeStrength || 0) >= 45 ? "medium" : "weak",
+        failedBreakout: String(next.stateSummary?.structureBreakState || "") === "failed",
+      };
+      const replayLearningModifier = applyLearningModifier(replayMachineSignal, replayStructure, replayLearningContext);
+      const replayAfterDecision = combineFinalDecision(
+        replayMachineSignal,
+        { ...replayStructure, decision: replayLearningModifier.structureOverride },
+        next.stateSummary?.operatorModifier || {},
+        replayLearningModifier,
+      );
+      const replayBeforeScore = Number(next.policy?.decisionBreakdown?.machineComponent || 0)
+        + Number(next.policy?.decisionBreakdown?.structureComponent || 0)
+        + Number(next.policy?.decisionBreakdown?.learningComponent || 0)
+        + Number(next.policy?.decisionBreakdown?.operatorComponent || 0)
+        + Number(next.policy?.decisionBreakdown?.triggerComponent || 0);
+      const impactReplay = {
+        before: {
+          decision: next.policy?.finalDecision || next.policy?.action || "WARN",
+          bias: next.policy?.finalBias || "NONE",
+          totalScore: Number(replayBeforeScore.toFixed(4)),
+          learningModifier: Number(next.stateSummary?.learningModifier?.modifierScore || 0),
+        },
+        after: {
+          decision: replayAfterDecision.finalDecision,
+          bias: replayAfterDecision.finalBias,
+          totalScore: Number((Number(replayAfterDecision.decisionBreakdown?.machineComponent || 0)
+            + Number(replayAfterDecision.decisionBreakdown?.structureComponent || 0)
+            + Number(replayAfterDecision.decisionBreakdown?.learningComponent || 0)
+            + Number(replayAfterDecision.decisionBreakdown?.operatorComponent || 0)
+            + Number(replayAfterDecision.decisionBreakdown?.triggerComponent || 0)).toFixed(4)),
+          learningModifier: Number(replayLearningModifier.modifierScore || 0),
+        },
+        changed: (next.policy?.finalDecision || next.policy?.action || "WARN") !== replayAfterDecision.finalDecision
+          || (next.policy?.finalBias || "NONE") !== replayAfterDecision.finalBias,
+        explanation: replayLearningModifier.explanation || "",
+      };
       next.learningFeedback = {
         lastDiagnosis: diagnosticResult,
         adjustmentsApplied: learningUpdate.weightAdjustments || {},
         patternsDetected: Object.keys(learningUpdate.model?.patternMemory || {}).slice(0, 8),
+        impactReplay,
       };
       next.learningMemory = {
         ...(next.learningMemory || {}),
