@@ -22,6 +22,8 @@ export const LEGACY_KEYS = {
   operatorPatternSummary: "patternlab.operatorPatternSummary.v1",
 };
 
+const warnedQuotaKeys = new Set();
+
 function parseJson(raw, fallback) {
   try {
     return raw ? JSON.parse(raw) : fallback;
@@ -68,9 +70,29 @@ export function clearLegacyData() {
 }
 
 export function writeLegacyValue(key, value) {
-  if (value === null || value === undefined || value === "") {
-    localStorage.removeItem(key);
-    return;
+  try {
+    if (value === null || value === undefined || value === "") {
+      localStorage.removeItem(key);
+      warnedQuotaKeys.delete(key);
+      return false;
+    }
+    localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
+    warnedQuotaKeys.delete(key);
+    return false;
+  } catch (error) {
+    const isQuotaExceeded = (
+      error?.name === "QuotaExceededError"
+      || error?.name === "NS_ERROR_DOM_QUOTA_REACHED"
+      || error?.code === 22
+      || error?.code === 1014
+    );
+    if (isQuotaExceeded) {
+      if (!warnedQuotaKeys.has(key)) {
+        warnedQuotaKeys.add(key);
+        console.warn(`[Storage] Legacy write skipped for '${key}' because localStorage quota was exceeded.`);
+      }
+      return true;
+    }
+    throw error;
   }
-  localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
 }
