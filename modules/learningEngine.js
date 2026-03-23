@@ -43,6 +43,7 @@ function mapReasonToPattern(reasonCodes = [], direction = "NONE") {
   if (reasonCodes.includes("failed_breakout_ignored") && direction === "LONG") return "failed_breakdown_long";
   if (reasonCodes.includes("entered_long_into_resistance")) return "long_into_resistance";
   if (reasonCodes.includes("entered_short_into_support")) return "short_into_support";
+  if (reasonCodes.includes("momentum_weak")) return "weak_momentum_penalty";
   return null;
 }
 
