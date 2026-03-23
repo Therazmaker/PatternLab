@@ -64,10 +64,11 @@ export class SessionChart {
     const el=this.container;
     el.style.cssText+=";position:relative;background:"+C.bg+";border-radius:8px;overflow:hidden;";
     this.canvas=document.createElement("canvas");
-    this.canvas.style.cssText="display:block;width:100%;cursor:crosshair;";
+    this.canvas.style.cssText="display:block;width:100%;cursor:crosshair;pointer-events:auto;position:relative;z-index:2;";
     el.appendChild(this.canvas);
     this.ctx=this.canvas.getContext("2d");
     this._buildToolbar();
+    this._buildDebugPanel();
     this._buildDrawingController();
     this._bindEvents();
     this._startLoop();
@@ -82,13 +83,24 @@ export class SessionChart {
   }
 
   _buildDrawingController(){
+    this._drawingStateVersion=0;
     this._drawingController=createChartDrawingController({
       getContext:()=>({
         symbol:this.overlays?.symbol||"UNKNOWN",
         timeframe:this.overlays?.timeframe||"UNKNOWN",
       }),
       chartToScreen:(point)=>this.chartToScreenCoords(point.time,point.price),
-      onStateChange:()=>{this._dirty=true;},
+      onStateChange:(drawingState={})=>{
+        this._dirty=true;
+        this._drawingStateVersion+=1;
+        this._updateDebugPanel(drawingState);
+        console.debug("Drawing render triggered",{
+          version:this._drawingStateVersion,
+          totalDrawings:Array.isArray(drawingState.drawings)?drawingState.drawings.length:0,
+          isDrawingInProgress:Boolean(drawingState.isDrawingInProgress),
+          activeTool:drawingState.activeTool||"select",
+        });
+      },
       onToolChange:(tool)=>{this._toolbar?.setActiveTool(tool);},
       onDrawingCreated:(drawing,rows)=>{
         this._manualSR=[...rows];
@@ -105,6 +117,26 @@ export class SessionChart {
       },
       onDrawingSelected:(drawing)=>this.onSRSelect(drawing),
     });
+  }
+
+  _buildDebugPanel(){
+    this._debugPanel=document.createElement("div");
+    this._debugPanel.style.cssText="position:absolute;left:8px;bottom:34px;z-index:11;background:rgba(2,6,23,.85);border:1px solid rgba(148,163,184,.35);border-radius:6px;padding:6px 8px;color:#cbd5e1;font:500 10px/1.35 'JetBrains Mono',monospace;pointer-events:none;max-width:330px;white-space:pre-wrap;";
+    this.container.appendChild(this._debugPanel);
+    this._updateDebugPanel(this._drawingController?.state||{});
+  }
+
+  _updateDebugPanel(drawingState={}){
+    if(!this._debugPanel)return;
+    const screen=drawingState?.lastClickScreenCoords||{};
+    const chart=drawingState?.lastClickChartCoords||{};
+    this._debugPanel.textContent=[
+      `activeTool: ${drawingState?.activeTool||"select"}`,
+      `lastClickScreenCoords: ${Number.isFinite(screen.x)?`${Math.round(screen.x)}, ${Math.round(screen.y)}`:"-"}`,
+      `lastClickChartCoords: ${Number.isFinite(chart.time)&&Number.isFinite(chart.price)?`${chart.time}, ${Number(chart.price).toFixed(this.decimals||4)}`:"-"}`,
+      `isDrawingInProgress: ${Boolean(drawingState?.isDrawingInProgress)}`,
+      `drawings.length: ${Array.isArray(drawingState?.drawings)?drawingState.drawings.length:0}`,
+    ].join("\n");
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -153,6 +185,7 @@ export class SessionChart {
     cancelAnimationFrame(this._raf);
     this._unbindEvents();
     this._toolbar?.destroy();
+    this._debugPanel?.remove();
     this.canvas.remove();
   }
 
@@ -492,12 +525,14 @@ export class SessionChart {
     this._onTS=e=>this._handleTouchStart(e);
     this._onTM=e=>this._handleTouchMove(e);
     this._onTE=()=>{this._dragging=false;};
+    this._onPD=e=>this._handlePointerDown(e);
     this._onC=e=>this._handleClick(e);
     this._onCM=e=>this._handleContextMenu(e);
     this._onKD=e=>this._handleKeyDown(e);
     el.addEventListener("mousemove",this._onMM);el.addEventListener("mouseleave",this._onML);
     el.addEventListener("mousedown",this._onMD);el.addEventListener("mouseup",this._onMU);
     el.addEventListener("wheel",this._onW,{passive:false});
+    el.addEventListener("pointerdown",this._onPD);
     el.addEventListener("touchstart",this._onTS,{passive:true});
     el.addEventListener("touchmove",this._onTM,{passive:false});
     el.addEventListener("touchend",this._onTE);el.addEventListener("click",this._onC);
@@ -510,6 +545,7 @@ export class SessionChart {
     el.removeEventListener("mousemove",this._onMM);el.removeEventListener("mouseleave",this._onML);
     el.removeEventListener("mousedown",this._onMD);el.removeEventListener("mouseup",this._onMU);
     el.removeEventListener("wheel",this._onW);
+    el.removeEventListener("pointerdown",this._onPD);
     el.removeEventListener("touchstart",this._onTS);el.removeEventListener("touchmove",this._onTM);
     el.removeEventListener("touchend",this._onTE);el.removeEventListener("click",this._onC);
     el.removeEventListener("contextmenu",this._onCM);
@@ -559,16 +595,25 @@ export class SessionChart {
     else if(e.touches.length===1&&this._dragging){const dx=e.touches[0].clientX-this._dragX0;this._offsetX=this._dragOff0-dx/this._spacing;this._clampOffset();this._dirty=true;}
   }
 
-  _handleClick(e){
+  _handlePointerDown(e){
     const{x,y}=this._logicalXY(e);
-    if(y>PAD_TOP&&y<PAD_TOP+this._chartH){
-      const result=this._drawingController?.pointerDown({
-        chartPoint:this.screenToChartCoords(x,y),
-        screenPoint:{x,y},
-        button:e.button||0,
-      });
-      if(result?.consumed){this._dirty=true;return;}
+    if(y<=PAD_TOP||y>=PAD_TOP+this._chartH)return;
+    const button=Number.isFinite(e.button)?e.button:0;
+    const result=this._drawingController?.pointerDown({
+      chartPoint:this.screenToChartCoords(x,y),
+      screenPoint:{x,y},
+      button,
+    });
+    if(result?.consumed){
+      this._skipNextClick=true;
+      this._dirty=true;
     }
+  }
+
+  _handleClick(e){
+    if(this._skipNextClick){this._skipNextClick=false;return;}
+    if(this._drawingController?.state?.activeTool!=="select")return;
+    const{x,y}=this._logicalXY(e);
     if(Math.abs(e.clientX-(this._dragX0||e.clientX))>5)return;
     const i=clamp(Math.round(this._idxAtX(x)),0,this.candles.length-1);
     const c=this.candles[i];if(c)this.onCandleClick(c.index);

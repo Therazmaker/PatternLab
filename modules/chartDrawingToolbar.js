@@ -32,6 +32,7 @@ export function createChartDrawingToolbar(container, {
 
   TOOL_LAYOUT.forEach((tool) => {
     const button = document.createElement("button");
+    button.type = "button";
     button.textContent = tool.label;
     button.title = tool.title;
     styleButton(button, tool.key === "select");
@@ -44,6 +45,7 @@ export function createChartDrawingToolbar(container, {
   });
 
   const clearButton = document.createElement("button");
+  clearButton.type = "button";
   clearButton.textContent = "Clear";
   clearButton.title = "Clear drawings";
   styleButton(clearButton, false);
@@ -54,6 +56,7 @@ export function createChartDrawingToolbar(container, {
   toolbar.appendChild(clearButton);
 
   const fsButton = document.createElement("button");
+  fsButton.type = "button";
   fsButton.textContent = "⛶ Full";
   fsButton.title = "Fullscreen";
   styleButton(fsButton, false);
