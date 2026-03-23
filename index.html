@@ -558,6 +558,7 @@
           <p class="muted tiny">Attach structured intuition to manual S/R lines so it can be evaluated live and affect decisions.</p>
           <div id="session-human-insight-panel" class="hidden">
             <p class="tiny"><strong>Quick insight panel</strong></p>
+            <p id="session-human-insight-classification" class="muted tiny">This looks like: —</p>
             <div id="session-human-insight-tags" class="button-row compact">
               <button type="button" class="ghost" data-human-tag="strong_reaction_here">Strong reaction here</button>
               <button type="button" class="ghost" data-human-tag="weak_momentum_now">Weak momentum now</button>
@@ -567,6 +568,20 @@
               <button type="button" class="ghost" data-human-tag="invalidation">Invalidation</button>
             </div>
             <div class="filters">
+              <label>Meaning
+                <select id="session-human-insight-meaning">
+                  <option value="support">support</option>
+                  <option value="resistance" selected>resistance</option>
+                  <option value="breakout_zone">breakout zone</option>
+                  <option value="invalidation">invalidation</option>
+                </select>
+              </label>
+              <label>Expectation
+                <select id="session-human-insight-expectation">
+                  <option value="rejection" selected>rejection</option>
+                  <option value="breakout">breakout</option>
+                </select>
+              </label>
               <label>Condition
                 <select id="session-human-insight-condition">
                   <option value="if_break_continue">If breaks → continue</option>
