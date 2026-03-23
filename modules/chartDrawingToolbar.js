@@ -1,6 +1,7 @@
 const TOOL_LAYOUT = [
   { key: "select", label: "Select", title: "Select drawing" },
   { key: "horizontal_line", label: "H-Line", title: "Draw horizontal line" },
+  { key: "trigger_line", label: "Trigger", title: "Draw trigger line" },
   { key: "trendline", label: "Trend", title: "Draw trendline" },
   { key: "channel", label: "Channel", title: "Draw channel" },
   { key: "erase", label: "Erase", title: "Erase drawing" },

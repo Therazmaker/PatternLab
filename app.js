@@ -129,6 +129,16 @@ import { createHumanInsightDraft, finalizeHumanInsightDraft, toggleHumanInsightT
 import { evaluateHumanInsights } from "./modules/humanInsightEngine.js";
 import { reconcileHumanInsights, validateHumanInsight } from "./modules/humanInsightValidation.js";
 import { runHumanInsightDemoScenarios, runHumanInsightE2EChecklist } from "./modules/humanInsightDebug.js";
+import {
+  createTriggerLineFromDrawing,
+  deleteTriggerLineByDrawingId,
+  loadTriggerLines,
+  saveTriggerLines,
+  updateTriggerLine,
+} from "./modules/triggerLineCapture.js";
+import { evaluateTriggerLines } from "./modules/triggerLineEvaluator.js";
+import { buildTriggerLineEffects } from "./modules/triggerLineSignalBridge.js";
+import { renderTriggerLinePanel } from "./modules/triggerLinePanel.js";
 import { logOperatorAction } from "./modules/operatorActionLogger.js";
 import { buildOperatorActionRecord, createSessionOperatorState } from "./modules/operatorFeedbackPanel.js";
 import { listStrategies, getDefaultParams, getStrategyById } from "./modules/strategyRegistry.js";
@@ -333,6 +343,8 @@ const SESSION_SR_KEY_LEGACY = "patternlab.sessionManualSR.v1";
 const SESSION_HUMAN_INSIGHTS_KEY = "patternlab.sessionHumanInsights.v1";
 let _sessionManualSR = []; // [{id,price,type,label}]
 let _sessionHumanInsights = [];
+let _sessionTriggerLines = [];
+let _sessionTriggerEvaluation = { activeTriggerEffects: [], aggregateEffect: {}, summaryText: "Trigger lines idle." };
 let sessionHumanInsightDraft = null;
 let sessionAnalystState = { analystData: null, addedLevels: [], collapsed: false };
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
@@ -869,6 +881,49 @@ function normalizeStoredSessionDrawings(rows = [], marketView = null) {
   }).filter((line) => Number.isFinite(Number(line?.price)));
 }
 
+function openTriggerSetupForm(drawing = {}) {
+  const isFailedBreakoutShort = window.confirm("Trigger setup preset: Failed breakout -> short bias? (OK = yes, Cancel = custom)");
+  if (isFailedBreakoutShort) {
+    return {
+      role: "failed_breakout_trigger",
+      condition: "if_not_break",
+      biasOnTrigger: "short",
+      importance: "high",
+      confirmationMode: "candle_close",
+      note: "Failed breakout trigger active -> short bias",
+    };
+  }
+  const roleInput = window.prompt("Trigger role: breakout_confirmation | failed_breakout_trigger | rejection_trigger | invalidation_line", "failed_breakout_trigger");
+  const conditionInput = window.prompt("Condition: if_break | if_not_break | if_rejects | if_stays_below | if_stays_above", "if_not_break");
+  const biasInput = window.prompt("Bias on trigger: long | short | neutral", "short");
+  const importanceInput = window.prompt("Importance: low | medium | high", "medium");
+  const confirmationInput = window.prompt("Confirmation mode: immediate | candle_close | follow_through", "candle_close");
+  const noteInput = window.prompt("Optional note", drawing?.label === "Trigger" ? "Trigger level from chart" : "");
+  return {
+    role: String(roleInput || "failed_breakout_trigger").trim(),
+    condition: String(conditionInput || "if_not_break").trim(),
+    biasOnTrigger: String(biasInput || "short").trim(),
+    importance: String(importanceInput || "medium").trim(),
+    confirmationMode: String(confirmationInput || "candle_close").trim(),
+    note: String(noteInput || "").trim(),
+  };
+}
+
+function syncTriggerRuntimeState(evaluation = null) {
+  if (!evaluation?.activeTriggerEffects?.length) return;
+  evaluation.activeTriggerEffects.forEach((row) => {
+    const target = _sessionTriggerLines.find((line) => line.id === row.triggerLineId);
+    if (!target) return;
+    updateTriggerLine(row.triggerLineId, {
+      runtimeState: {
+        status: row.status,
+        lastEvaluation: new Date().toISOString(),
+        lastReason: row.summaryText,
+      },
+    });
+  });
+}
+
 function persistSessionHumanInsights() {
   try { localStorage.setItem(SESSION_HUMAN_INSIGHTS_KEY, JSON.stringify(_sessionHumanInsights)); } catch {}
 }
@@ -1270,8 +1325,22 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
             effectSummary: `draft_created:${sessionHumanInsightDraft.classification?.label || "manual"}`,
           });
           renderHumanInsightDraftPanel();
+          if (eventMeta.line.type === "trigger_line") {
+            const formData = openTriggerSetupForm(eventMeta.line);
+            const createdTrigger = createTriggerLineFromDrawing(eventMeta.line, formData);
+            if (createdTrigger) {
+              _sessionTriggerLines = saveTriggerLines([...
+                _sessionTriggerLines.filter((row) => row.linkedDrawingId !== createdTrigger.linkedDrawingId),
+                createdTrigger,
+              ]);
+              setSessionOperatorFeedbackStatus(`Trigger line created @ ${Number(createdTrigger.level).toFixed(2)} (${createdTrigger.triggerConfig.condition} -> ${createdTrigger.triggerConfig.biasOnTrigger}).`, "success");
+            }
+          }
         } else if (eventMeta?.type === "removed" && eventMeta.lineId) {
           _sessionHumanInsights = _sessionHumanInsights.filter((insight) => insight.linkedDrawingId !== eventMeta.lineId);
+          if (deleteTriggerLineByDrawingId(eventMeta.lineId)) {
+            _sessionTriggerLines = loadTriggerLines();
+          }
           if (sessionHumanInsightDraft?.drawing?.id === eventMeta.lineId) sessionHumanInsightDraft = null;
           sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
           if (sessionOperatorState.selectedDrawingId === eventMeta.lineId) sessionOperatorState.selectedDrawingId = null;
@@ -1289,6 +1358,10 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
         } else if (eventMeta?.type === "cleared") {
           const removedIds = Array.isArray(eventMeta.lineIds) ? eventMeta.lineIds : [];
           _sessionHumanInsights = _sessionHumanInsights.filter((insight) => !removedIds.includes(insight.linkedDrawingId));
+          if (removedIds.length) {
+            removedIds.forEach((drawingId) => deleteTriggerLineByDrawingId(drawingId));
+            _sessionTriggerLines = loadTriggerLines();
+          }
           if (sessionHumanInsightDraft?.drawing?.id && removedIds.includes(sessionHumanInsightDraft.drawing.id)) sessionHumanInsightDraft = null;
           sessionOperatorState.humanInsightDraft = sessionHumanInsightDraft;
           if (sessionOperatorState.selectedDrawingId && removedIds.includes(sessionOperatorState.selectedDrawingId)) {
@@ -1360,11 +1433,15 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
   const triggeredInsightIds = new Set((sessionOperatorState.currentContext?.humanInsightEvaluation?.activeInsights || [])
     .filter((insight) => insight.isTriggered)
     .map((insight) => insight.linkedDrawingId));
+  const triggerByDrawingId = new Map(_sessionTriggerLines.map((line) => [line.linkedDrawingId, line]));
+  const triggerEvalById = new Map((_sessionTriggerEvaluation?.activeTriggerEffects || []).map((row) => [row.triggerLineId, row]));
   const linesWithInsightMeta = _sessionManualSR.map((line) => ({
     ...line,
     humanInsightLinked: _sessionHumanInsights.some((insight) => insight.linkedDrawingId === line.id && !insight?.metadata?.isOrphaned),
     humanInsightActive: activeInsightIds.has(line.id),
     humanInsightTriggered: triggeredInsightIds.has(line.id),
+    triggerStatus: triggerByDrawingId.get(line.id)?.id ? (triggerEvalById.get(triggerByDrawingId.get(line.id).id)?.status || "watching") : null,
+    triggerBias: triggerByDrawingId.get(line.id)?.triggerConfig?.biasOnTrigger || null,
     isSelected: selectedDrawingId === line.id,
   }));
 
@@ -1509,7 +1586,8 @@ function renderSessionSummary(session) {
   const stats = computeSessionStats(session.candles);
   const marketView = getSessionMarketView();
   const live = marketDataMeta?.liveStatus || {};
-  els.sessionSummary.innerHTML = `<ul class="mini-list"><li><span>Total candles</span><strong>${stats.totalCandles}</strong></li><li><span>Green/Red/Doji</span><strong>${stats.greenCandles}/${stats.redCandles}/${stats.dojiCandles}</strong></li><li><span>High/Low</span><strong>${stats.highOfSession ?? "-"} / ${stats.lowOfSession ?? "-"}</strong></li><li><span>Range</span><strong>${stats.highOfSession !== null && stats.lowOfSession !== null ? (stats.highOfSession - stats.lowOfSession).toFixed(5) : "-"}</strong></li><li><span>Status</span><strong>${session.status}</strong></li><li><span>Live source</span><strong>${marketView.source} · ${marketView.symbol} ${marketView.timeframe}</strong></li><li><span>Live stream</span><strong>${live.connected ? "connected" : "offline/history only"}</strong></li></ul>`;
+  const triggerPanel = renderTriggerLinePanel(_sessionTriggerLines, _sessionTriggerEvaluation);
+  els.sessionSummary.innerHTML = `<ul class="mini-list"><li><span>Total candles</span><strong>${stats.totalCandles}</strong></li><li><span>Green/Red/Doji</span><strong>${stats.greenCandles}/${stats.redCandles}/${stats.dojiCandles}</strong></li><li><span>High/Low</span><strong>${stats.highOfSession ?? "-"} / ${stats.lowOfSession ?? "-"}</strong></li><li><span>Range</span><strong>${stats.highOfSession !== null && stats.lowOfSession !== null ? (stats.highOfSession - stats.lowOfSession).toFixed(5) : "-"}</strong></li><li><span>Status</span><strong>${session.status}</strong></li><li><span>Live source</span><strong>${marketView.source} · ${marketView.symbol} ${marketView.timeframe}</strong></li><li><span>Live stream</span><strong>${live.connected ? "connected" : "offline/history only"}</strong></li></ul>${triggerPanel}`;
 }
 
 function renderPastSessions() {
@@ -3408,7 +3486,7 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     });
 
     const structureFilterResult = { decision: sessionOperatorState.currentSignal?.baseDecision?.finalDecision || "WARN" };
-    const recalculated = combineFinalDecision(machineSignal, structureFilterResult, operatorModifier);
+    const recalculated = combineFinalDecision(machineSignal, structureFilterResult, operatorModifier, currentContext?.triggerLineEffects || {});
     const explanation = `${machineSignal.direction} signal ${operatorModifier.modifierScore < -0.1 ? "weakened" : operatorModifier.modifierScore > 0.1 ? "reinforced" : "adjusted"} due to ${actions.join(" + ")}. ${operatorModifier.summaryText}`;
     sessionOperatorState.recalculatedDecision = recalculated;
     sessionOperatorState.recalculatedDecisionExplanation = explanation;
@@ -4355,6 +4433,8 @@ function renderSessionOperatorDecisionPanel() {
   const hasActiveHuman = Boolean((humanEval?.activeInsights || []).length);
   const activeHuman = humanEval?.activeInsights?.[0] || null;
   const effect = humanEval?.effects || {};
+  const triggerEffects = sessionOperatorState.currentContext?.triggerLineEffects || {};
+  const triggerSummary = sessionOperatorState.currentContext?.triggerLineEvaluation?.summaryText || "";
   const humanImpact = [
     effect.longModifier > 0.08 ? "boost long" : null,
     effect.shortModifier > 0.08 ? "boost short" : null,
@@ -4370,6 +4450,7 @@ function renderSessionOperatorDecisionPanel() {
       <p class="muted tiny">Status: ${hasActiveHuman ? "Active" : "Inactive"} · Bias: ${activeHuman?.condition?.directionBias || "neutral"}</p>
       <p class="muted tiny">Impact: ${humanImpact.length ? humanImpact.join(", ") : "neutral / no active override"}</p>
       <p class="muted tiny">Explanation: ${humanEval?.summaryText || "Human insight layer idle (no active insights)."}</p>
+      <p class="muted tiny"><strong>Trigger Effect:</strong> long ${formatNumber(triggerEffects.longModifier, 2)} · short ${formatNumber(triggerEffects.shortModifier, 2)} · ${triggerEffects.requireConfirmation ? "require confirmation" : "standard confirmation"}${triggerSummary ? ` · ${triggerSummary}` : ""}</p>
     </div>
   `;
   if (!before) {
@@ -4391,7 +4472,7 @@ function renderSessionOperatorDecisionPanel() {
       <span class="badge">Before ${beforeDecision.finalDecision || "WARN"} / ${beforeDecision.finalBias || "NONE"} · ${formatConfidence(beforeDecision.confidence || 0)}</span>
       <span class="badge">After ${recalculated.finalDecision} / ${recalculated.finalBias} · ${formatConfidence(recalculated.confidence)}</span>
     </div>
-    <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)}</p>
+    <p class="muted tiny"><strong>Breakdown:</strong> Machine score ${formatNumber(breakdown.machineComponent, 3)} · Structure score ${formatNumber(breakdown.structureComponent, 3)} · Operator modifier ${formatNumber(breakdown.operatorComponent, 3)} · Trigger modifier ${formatNumber(breakdown.triggerComponent, 3)}</p>
     ${humanSummary ? `<p class="muted tiny"><strong>Human Insight:</strong> ${humanSummary}</p>` : ""}
     ${effectBlock}
     <p class="muted tiny">${recalculated.summaryText || "Decision recalculated with operator layer."}</p>
@@ -4420,7 +4501,18 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   };
   const humanInsightEvaluation = evaluateSessionHumanInsights({ analysis, marketView, reason: "context_update" }) || evaluateHumanInsights(_sessionHumanInsights, getHumanInsightContext(analysis, marketView));
   const humanInsightModifier = buildHumanInsightOperatorModifier(machineSignal, humanInsightEvaluation);
-  const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier);
+  const triggerEvaluation = evaluateTriggerLines(_sessionTriggerLines, {
+    currentPrice: analysis?.overlays?.currentPrice,
+    currentCandle: marketView?.candles?.[marketView.candles.length - 1] || null,
+    recentCandles: marketView?.candles?.slice(-8) || [],
+    currentSignal: machineSignal,
+    manualStructure: _sessionManualSR,
+  });
+  _sessionTriggerEvaluation = triggerEvaluation;
+  syncTriggerRuntimeState(triggerEvaluation);
+  _sessionTriggerLines = loadTriggerLines();
+  const triggerLineEffects = buildTriggerLineEffects(triggerEvaluation.activeTriggerEffects);
+  const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, triggerLineEffects);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
   sessionOperatorState.currentContext = {
     symbol: marketView.symbol,
@@ -4437,6 +4529,8 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     },
     context20Snapshot: marketView.candles.slice(-20),
     humanInsightEvaluation,
+    triggerLineEvaluation: triggerEvaluation,
+    triggerLineEffects,
   };
   sessionOperatorState.humanInsights = [..._sessionHumanInsights];
   sessionOperatorState.activeHumanInsightEffects = humanInsightEvaluation.effects || null;
@@ -5081,6 +5175,9 @@ async function init() {
   } catch { _sessionManualSR = []; }
   _sessionManualSR = normalizeStoredSessionDrawings(_sessionManualSR, getSessionMarketView());
   try { localStorage.setItem(SESSION_DRAWINGS_KEY, JSON.stringify(_sessionManualSR)); } catch {}
+  _sessionTriggerLines = loadTriggerLines();
+  _sessionTriggerLines = _sessionTriggerLines.filter((line) => _sessionManualSR.some((drawing) => drawing.id === line.linkedDrawingId));
+  _sessionTriggerLines = saveTriggerLines(_sessionTriggerLines);
   try { _sessionHumanInsights = JSON.parse(localStorage.getItem(SESSION_HUMAN_INSIGHTS_KEY) || "[]") || []; } catch { _sessionHumanInsights = []; }
   reconcileSessionHumanInsightState({ reason: "initial_load", keepOrphaned: true });
   sessionAnalystState.addedLevels = [..._sessionManualSR];
