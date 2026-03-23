@@ -183,5 +183,12 @@ export function evaluateCopilotFeedback(feedback, marketCtx = {}) {
     globalInvalidated,
     nextAction,
     explanation: parts.join(" "),
+    // Extended per-scenario detail used by the decision trace builder
+    primaryMatchedTriggers:  primaryTrigger.matchedRules,
+    primaryMissingTriggers:  primaryTrigger.unmatchedRules,
+    primaryInvalidatedRules: primaryInvalidation.matchedRules,
+    altMatchedTriggers:      alternate ? altTrigger.matchedRules       : [],
+    altMissingTriggers:      alternate ? altTrigger.unmatchedRules     : [],
+    altInvalidatedRules:     alternate ? altInvalidation.matchedRules  : [],
   };
 }
