@@ -313,6 +313,10 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
 .bot-historical-lab { margin-top: .8rem; }
 #session-live-plan { margin-bottom: .6rem; }
 .session-live-plan-head { display:flex; flex-wrap: wrap; gap:.35rem; margin-bottom: .35rem; }
+.session-human-insight { margin-bottom: .7rem; }
+#session-human-insight-summary { margin-top: .4rem; }
+#session-human-insight-summary .tiny { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; margin: .2rem 0; }
+.hidden { display: none !important; }
 .session-operator-feedback { margin-bottom: .7rem; }
 #session-operator-actions button { transition: all .12s ease; }
 #session-operator-feedback-status.success { color: var(--win); }

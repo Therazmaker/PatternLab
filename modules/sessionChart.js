@@ -6,7 +6,7 @@
  *  - Manual S/R drawing: click ✏ S/R button → click chart to place lines
  *  - Click the ✕ label on a manual line to remove it
  *  - Esc exits draw mode or fullscreen
- *  - onSRChange(lines) callback + setManualSR(lines) for persistence
+ *  - onSRChange(lines, eventMeta) callback + setManualSR(lines) for persistence
  */
 
 const C = {
@@ -476,10 +476,11 @@ export class SessionChart {
     const type=price<=(last?.close||price)?"support":"resistance";
     const id=`sr_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
     this._manualSR=[...this._manualSR,{id,price,type,label:type==="support"?"S":"R"}];
-    this.onSRChange([...this._manualSR]);this._dirty=true;
+    const line=this._manualSR[this._manualSR.length-1];
+    this.onSRChange([...this._manualSR],{type:"created",line});this._dirty=true;
   }
 
-  _removeSR(id){this._manualSR=this._manualSR.filter(l=>l.id!==id);this.onSRChange([...this._manualSR]);this._dirty=true;}
+  _removeSR(id){this._manualSR=this._manualSR.filter(l=>l.id!==id);this.onSRChange([...this._manualSR],{type:"removed",lineId:id});this._dirty=true;}
 
   _hitTestSR(mx,my){
     for(const line of this._manualSR){const z=line._hz;if(!z)continue;if(mx>=z.tx&&mx<=z.tx+z.tw&&my>=z.ty&&my<=z.ty+z.th)return line.id;}

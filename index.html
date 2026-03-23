@@ -553,6 +553,42 @@
         <div id="session-summary" class="panel-soft"></div>
         <div id="session-candle-status" class="quick-add-feedback muted"></div>
         <div id="session-live-plan" class="panel-soft muted tiny">No live trade plan for current symbol/timeframe.</div>
+        <article class="panel-soft session-human-insight">
+          <h4>Human Insight Layer v1</h4>
+          <p class="muted tiny">Attach structured intuition to manual S/R lines so it can be evaluated live and affect decisions.</p>
+          <div id="session-human-insight-panel" class="hidden">
+            <p class="tiny"><strong>Quick insight panel</strong></p>
+            <div id="session-human-insight-tags" class="button-row compact">
+              <button type="button" class="ghost" data-human-tag="strong_reaction_here">Strong reaction here</button>
+              <button type="button" class="ghost" data-human-tag="weak_momentum_now">Weak momentum now</button>
+              <button type="button" class="ghost" data-human-tag="breakout_expected">Breakout expected</button>
+              <button type="button" class="ghost" data-human-tag="rejection_likely">Rejection likely</button>
+              <button type="button" class="ghost" data-human-tag="key_level">Key level</button>
+              <button type="button" class="ghost" data-human-tag="invalidation">Invalidation</button>
+            </div>
+            <div class="filters">
+              <label>Condition
+                <select id="session-human-insight-condition">
+                  <option value="if_break_continue">If breaks → continue</option>
+                  <option value="if_fail_reverse" selected>If fails → reverse</option>
+                  <option value="only_with_confirmation">Only with confirmation</option>
+                </select>
+              </label>
+              <label>Direction bias
+                <select id="session-human-insight-direction">
+                  <option value="long">long</option>
+                  <option value="short">short</option>
+                </select>
+              </label>
+              <label class="inline-toggle"><input id="session-human-insight-confirmation" type="checkbox" /> Require confirmation</label>
+            </div>
+            <div class="button-row compact">
+              <button id="btn-session-human-insight-save" type="button" class="primary">Save insight</button>
+              <button id="btn-session-human-insight-skip" type="button" class="ghost">Skip</button>
+            </div>
+          </div>
+          <div id="session-human-insight-summary" class="stack"></div>
+        </article>
         <article class="panel-soft session-operator-feedback">
           <h4>Operator Feedback Layer</h4>
           <p class="muted tiny">Inline human-in-the-loop controls: adjust live decision using operator input and recalculate instantly.</p>
