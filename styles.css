@@ -313,6 +313,9 @@ button.danger { background: #3a1820; border-color: #7b2d38; color: #ffd5db; }
 .bot-historical-lab { margin-top: .8rem; }
 #session-live-plan { margin-bottom: .6rem; }
 .session-live-plan-head { display:flex; flex-wrap: wrap; gap:.35rem; margin-bottom: .35rem; }
+.session-scenario-card { margin: .65rem 0 .55rem; }
+.session-scenario-summary { margin-bottom: .55rem; }
+.session-scenario-card select { min-width: 180px; }
 .session-human-insight { margin-bottom: .7rem; }
 #session-human-insight-summary { margin-top: .4rem; }
 #session-human-insight-summary .tiny { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; margin: .2rem 0; }

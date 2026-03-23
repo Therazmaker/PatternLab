@@ -110,6 +110,10 @@ import { computeSessionStats, deriveCandleColor, normalizeSession } from "./modu
 import { SessionChart } from "./modules/sessionChart.js";
 import { buildSessionCandleExplanations, getDefaultSessionAnalysisConfig } from "./modules/sessionAnalysis.js";
 import { buildSessionCandleAnalysis } from "./modules/sessionCandleAnalysis.js";
+import { generateScenarioProjections } from "./modules/scenarioProjectionEngine.js";
+import { resolveScenarioSet } from "./modules/scenarioResolver.js";
+import { getLastResolvedScenarios, getScenarioMemoryRows } from "./modules/scenarioMemoryStore.js";
+import { updateScenarioContextStats } from "./modules/scenarioProbabilityUpdater.js";
 import { buildChatGPTAssistedExport } from "./modules/chatgptAssistedExport.js";
 import { analyzeSessionCandles } from "./modules/sessionAnalystEngine.js";
 import { renderAnalystPanel } from "./modules/analystPanel.js";
@@ -331,6 +335,12 @@ els.sessionToggleStructure = document.getElementById("session-toggle-structure")
 els.sessionToggleMa = document.getElementById("session-toggle-ma");
 els.sessionToggleLiveAnnotations = document.getElementById("session-toggle-live-annotations");
 els.sessionWindowSize = document.getElementById("session-window-size");
+els.sessionScenarioCard = document.getElementById("session-scenario-card");
+els.sessionScenarioSummary = document.getElementById("session-scenario-summary");
+els.sessionScenarioAcceptBtn = document.getElementById("btn-scenario-accept");
+els.sessionScenarioRejectBtn = document.getElementById("btn-scenario-reject");
+els.sessionScenarioInterestingBtn = document.getElementById("btn-scenario-interesting");
+els.sessionScenarioFollowSelect = document.getElementById("session-scenario-follow-select");
 
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
@@ -368,6 +378,13 @@ let _lastBrainVerdict = null;
 const brainModeController = createBrainModeController({ mode: "copilot", autoExecutionEnabled: false });
 let sessionHumanInsightDraft = null;
 let sessionAnalystState = { analystData: null, addedLevels: [], collapsed: false };
+let scenarioProjectionState = {
+  activeSet: null,
+  lastContextSignature: "",
+  lastCreationCandleTs: null,
+  humanSelection: { action: "none", override: "none", followedScenarioId: null },
+  dashboardSnapshot: null,
+};
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
 let sessionAnalysisPrefs = {
@@ -379,6 +396,7 @@ let sessionAnalysisPrefs = {
   showStructure: true,
   showMa: true,
   showLiveAnnotations: true,
+  showScenarioProjection: true,
   windowSize: 80,
 };
 
@@ -696,6 +714,7 @@ function loadSessionAnalysisPrefs() {
       showStructure: parsed?.showStructure !== false,
       showMa: parsed?.showMa !== false,
       showLiveAnnotations: parsed?.showLiveAnnotations !== false,
+      showScenarioProjection: parsed?.showScenarioProjection !== false,
       windowSize: [40, 60, 80, 120].includes(Number(parsed?.windowSize)) ? Number(parsed.windowSize) : 80,
     };
   } catch {
@@ -1437,6 +1456,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
 
   const overlays = {
     ...(marketAnalysis?.analysis?.overlays || {}),
+    scenarioProjection: scenarioProjectionState.activeSet,
     symbol: marketAnalysis?.marketView?.symbol || session?.asset || "UNKNOWN",
     timeframe: marketAnalysis?.marketView?.timeframe || "UNKNOWN",
     _explanations: explanations,
@@ -1477,6 +1497,7 @@ function drawSessionCandles(session, explanations = [], marketAnalysis = null, l
       showNear:      sessionAnalysisPrefs.showNear,
       showStructure: sessionAnalysisPrefs.showStructure,
       showMa:        sessionAnalysisPrefs.showMa,
+      showScenarioProjection: sessionAnalysisPrefs.showScenarioProjection,
     },
   });
   _sessionChart.setManualSR(linesWithInsightMeta);
@@ -1601,6 +1622,82 @@ function renderSessionTable(session, explanations = []) {
   });
 }
 
+function getScenarioRegimeNotes(scenarioSet) {
+  if (!scenarioSet?.scenarios?.length) return "Scenario engine idle.";
+  const primary = scenarioSet.scenarios[0];
+  const confidenceBand = primary?.probability >= 50 ? "high conviction context" : primary?.probability >= 35 ? "balanced outcomes" : "low conviction / split paths";
+  return `${confidenceBand} · matched contexts ${scenarioSet.matched_similar_contexts || 0}`;
+}
+
+function renderScenarioProjectionCard() {
+  if (!els.sessionScenarioCard || !els.sessionScenarioSummary) return;
+  const set = scenarioProjectionState.activeSet;
+  if (!set?.scenarios?.length) {
+    els.sessionScenarioCard.innerHTML = '<p class="muted tiny">Scenario Projection waits for at least 3 market candles.</p>';
+    els.sessionScenarioSummary.innerHTML = '<p class="muted tiny">Brain dashboard scenario summary unavailable.</p>';
+    return;
+  }
+  const sorted = set.scenarios.slice().sort((a, b) => b.probability - a.probability);
+  const primary = sorted[0];
+  const secondary = sorted[1] || null;
+  const noTrade = sorted.find((row) => row.type === "chop_no_trade");
+  const recent = getLastResolvedScenarios(5);
+  els.sessionScenarioCard.innerHTML = `
+    <div class="note-head">
+      <h4>Scenario Projection</h4>
+      <span class="badge">${primary?.status || "pending"}</span>
+    </div>
+    <p><strong>${primary?.name || "-"}</strong> · <span class="badge">${(primary?.probability || 0).toFixed(2)}%</span></p>
+    <p class="muted tiny"><strong>Next trigger:</strong> ${primary?.trigger || "-"}<br /><strong>Invalidation:</strong> ${primary?.invalidation || "-"}</p>
+    <p class="muted tiny">${getScenarioRegimeNotes(set)} · assist-only mode (auto execution OFF).</p>
+    <div class="button-row compact">
+      <button id="btn-scenario-accept" type="button" class="ghost">accept scenario</button>
+      <button id="btn-scenario-reject" type="button" class="ghost">reject scenario</button>
+      <button id="btn-scenario-interesting" type="button" class="ghost">interesting / no trade</button>
+      <select id="session-scenario-follow-select">
+        <option value="">followed scenario…</option>
+        ${sorted.map((row) => `<option value="${row.id}" ${scenarioProjectionState.humanSelection.followedScenarioId === row.id ? "selected" : ""}>${row.name}</option>`).join("")}
+      </select>
+    </div>
+  `;
+
+  els.sessionScenarioSummary.innerHTML = `
+    <div class="session-analysis-tags">
+      <span class="badge">Primary: ${primary?.name || "-"}</span>
+      <span class="badge">Secondary: ${secondary?.name || "-"}</span>
+      <span class="badge">No-trade: ${((noTrade?.probability || set.no_trade_probability || 0)).toFixed(2)}%</span>
+      <span class="badge">Matched contexts: ${set.matched_similar_contexts || 0}</span>
+    </div>
+    <ul class="mini-list">
+      ${recent.length ? recent.map((row) => `<li><span>${row.scenario_type} · ${row.final_status}</span><strong>${row.resolution_candles}c</strong></li>`).join("") : '<li><span class="muted">No resolved scenarios yet.</span></li>'}
+    </ul>
+  `;
+
+  els.sessionScenarioAcceptBtn = document.getElementById("btn-scenario-accept");
+  els.sessionScenarioRejectBtn = document.getElementById("btn-scenario-reject");
+  els.sessionScenarioInterestingBtn = document.getElementById("btn-scenario-interesting");
+  els.sessionScenarioFollowSelect = document.getElementById("session-scenario-follow-select");
+
+  els.sessionScenarioAcceptBtn?.addEventListener("click", () => {
+    scenarioProjectionState.humanSelection.action = "accept";
+    scenarioProjectionState.humanSelection.override = "accepted";
+    setSessionCandleStatus("Scenario marked as accepted by operator.", "success");
+  });
+  els.sessionScenarioRejectBtn?.addEventListener("click", () => {
+    scenarioProjectionState.humanSelection.action = "reject";
+    scenarioProjectionState.humanSelection.override = "rejected";
+    setSessionCandleStatus("Scenario set rejected by operator.", "warning");
+  });
+  els.sessionScenarioInterestingBtn?.addEventListener("click", () => {
+    scenarioProjectionState.humanSelection.action = "interesting_no_trade";
+    scenarioProjectionState.humanSelection.override = "no_trade";
+    setSessionCandleStatus("Scenario logged as interesting/no-trade.", "muted");
+  });
+  els.sessionScenarioFollowSelect?.addEventListener("change", () => {
+    scenarioProjectionState.humanSelection.followedScenarioId = els.sessionScenarioFollowSelect?.value || null;
+  });
+}
+
 function renderSessionSummary(session) {
   if (!els.sessionSummary) return;
   if (!session) { els.sessionSummary.innerHTML = '<p class="muted">Sin sesión activa.</p>'; return; }
@@ -1630,6 +1727,52 @@ function renderPastSessions() {
   }));
 }
 
+function updateScenarioProjectionEngine({ analysis, marketView, latestPolicy }) {
+  const candles = marketView?.candles || [];
+  if (!analysis || candles.length < 3) {
+    scenarioProjectionState.activeSet = null;
+    return null;
+  }
+  const lastCandleTs = candles[candles.length - 1]?.timestamp || candles[candles.length - 1]?.index || Date.now();
+  if (scenarioProjectionState.activeSet && !scenarioProjectionState.activeSet.resolved) {
+    const resolution = resolveScenarioSet({
+      scenarioSet: scenarioProjectionState.activeSet,
+      candles,
+      analysis,
+      humanSelection: {
+        ...scenarioProjectionState.humanSelection,
+        followedScenarioId: scenarioProjectionState.humanSelection.followedScenarioId,
+      },
+    });
+    scenarioProjectionState.activeSet = resolution.updatedSet;
+  }
+
+  const shouldCreateNewSet = !scenarioProjectionState.activeSet
+    || scenarioProjectionState.activeSet.resolved
+    || scenarioProjectionState.lastCreationCandleTs !== lastCandleTs;
+
+  if (shouldCreateNewSet) {
+    scenarioProjectionState.activeSet = generateScenarioProjections({
+      analysis,
+      brainVerdict: latestPolicy?.policy || null,
+      learnedRules: latestPolicy?.policy?.thesisTags || [],
+      learnedContexts: getScenarioMemoryRows().slice(-200),
+      frictionScore: analysis.overlays?.structureSummary?.entryQuality ? (100 - analysis.overlays.structureSummary.entryQuality) / 100 : 0.35,
+      humanOverrideMemory: scenarioProjectionState.humanSelection.override ? { [scenarioProjectionState.humanSelection.followedScenarioId]: scenarioProjectionState.humanSelection.override } : null,
+    });
+    scenarioProjectionState.lastCreationCandleTs = lastCandleTs;
+    scenarioProjectionState.lastContextSignature = scenarioProjectionState.activeSet?.context_signature || "";
+  }
+  scenarioProjectionState.dashboardSnapshot = {
+    primary: scenarioProjectionState.activeSet?.scenarios?.[0] || null,
+    secondary: scenarioProjectionState.activeSet?.scenarios?.[1] || null,
+    noTradeProbability: scenarioProjectionState.activeSet?.no_trade_probability || 0,
+    matchedContexts: scenarioProjectionState.activeSet?.matched_similar_contexts || 0,
+    lastResolved: getLastResolvedScenarios(5),
+  };
+  return scenarioProjectionState.activeSet;
+}
+
 function refreshSessionCandlesTab() {
   const active = getActiveSession();
   const viewed = state.sessions.find((s) => s.id === sessionHistoryId) || active;
@@ -1656,6 +1799,7 @@ function refreshSessionCandlesTab() {
         : null,
     }),
   };
+  const scenarioSet = updateScenarioProjectionEngine({ analysis: marketAnalysis.analysis, marketView, latestPolicy });
   reconcileSessionHumanInsightState({ reason: "refresh", keepOrphaned: true });
   if (viewed?.candles?.length && !selectedSessionCandleIndex) selectedSessionCandleIndex = viewed.candles[viewed.candles.length - 1].index;
   if (!viewed?.candles?.some((c) => c.index === selectedSessionCandleIndex)) selectedSessionCandleIndex = viewed?.candles?.[viewed.candles.length - 1]?.index || null;
@@ -1663,6 +1807,7 @@ function refreshSessionCandlesTab() {
   drawSessionCandles(viewed, explanations, marketAnalysis, livePlanRecord);
   renderSessionTable(viewed, explanations);
   renderSessionLivePlanPanel(livePlanRecord, marketView);
+  renderScenarioProjectionCard();
   renderHumanInsightDraftPanel();
   renderHumanInsightSummary();
   updateSessionOperatorContext(marketAnalysis.analysis, marketView, livePlanRecord);
@@ -5529,6 +5674,7 @@ async function init() {
     persistBotCompiler();
   }
   loadSessionAnalysisPrefs();
+  updateScenarioContextStats();
   syncSessionAnalysisToggleUI();
   if (els.sessionDate) els.sessionDate.value = new Date().toISOString().slice(0, 10);
   marketDataCandles = loadMarketData();

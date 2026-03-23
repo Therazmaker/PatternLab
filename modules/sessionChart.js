@@ -12,6 +12,7 @@
 import { createChartDrawingToolbar } from "./chartDrawingToolbar.js";
 import { createChartDrawingController } from "./chartDrawingController.js";
 import { renderDrawings, renderDrawingDraft } from "./drawingRenderLayer.js";
+import { renderScenarioOverlays } from "./scenarioOverlayRenderer.js";
 
 const C = {
   bg:"#0b1118",gridLine:"rgba(148,163,184,0.065)",gridBold:"rgba(148,163,184,0.14)",
@@ -233,7 +234,13 @@ export class SessionChart {
     let min=Infinity,max=-Infinity;
     for(let i=lo;i<=hi;i++){const c=this.candles[i];if(!c)continue;if(c.low<min)min=c.low;if(c.high>max)max=c.high;}
     const ovl=this.overlays,lp=this.livePlan?.plan;
-    [...this._manualSR.map(l=>l.price),ovl.nearestSupport,ovl.nearestResistance,ovl.recentHigh,ovl.recentLow,lp?.referencePrice,lp?.stopLoss,lp?.takeProfit]
+    const scenarioPrices=((ovl.scenarioProjection?.scenarios||[]).flatMap((scenario)=>[
+      ...((scenario.projected_path||[]).flatMap((point)=>[point.price_low,point.price_mid,point.price_high])),
+      scenario.trigger_price,
+      scenario.invalidation_price,
+      scenario.start_price,
+    ]));
+    [...this._manualSR.map(l=>l.price),...scenarioPrices,ovl.nearestSupport,ovl.nearestResistance,ovl.recentHigh,ovl.recentLow,lp?.referencePrice,lp?.stopLoss,lp?.takeProfit]
       .forEach(p=>{if(Number.isFinite(p)){min=Math.min(min,p);max=Math.max(max,p);}});
     if(!Number.isFinite(min)||!Number.isFinite(max))return{min:0,max:1};
     const pad=(max-min)*0.1||0.001;return{min:min-pad,max:max+pad};
@@ -290,7 +297,7 @@ export class SessionChart {
     ctx.save();ctx.beginPath();ctx.rect(0,PAD_TOP-2,this._chartW,this._chartH+TIME_AXIS_H+4);ctx.clip();
     this._drawGrid(ctx);this._drawContextBand(ctx);this._drawRangeLines(ctx);
     this._drawEmas(ctx);this._drawSRLines(ctx);
-    this._drawLivePlanLines(ctx);this._drawCandles(ctx);this._drawSwings(ctx);this._drawSignalDots(ctx);
+    this._drawLivePlanLines(ctx);this._drawCandles(ctx);this._drawSwings(ctx);this._drawSignalDots(ctx);this._drawScenarioProjection(ctx);
     this._drawManualSRLines(ctx);
     this._drawTimeAxis(ctx);
     renderDrawingDraft(ctx,this._drawingController?.state||{},{
@@ -488,6 +495,20 @@ export class SessionChart {
       const x=this._xForIdx(this.candles.indexOf(c)),y=this._yForPrice(c.low)+8;
       ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,3.5,0,Math.PI*2);ctx.fill();
       ctx.strokeStyle=color;ctx.globalAlpha=0.3;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=1;
+    });
+  }
+
+  _drawScenarioProjection(ctx){
+    if(!this.prefs.showScenarioProjection)return;
+    const scenarioSet=this.overlays?.scenarioProjection;
+    if(!scenarioSet?.scenarios?.length)return;
+    const anchorX=this._xForIdx(this.candles.length-1);
+    renderScenarioOverlays(ctx,{
+      scenarioSet,
+      maxVisible:3,
+      toY:(price)=>this._yForPrice(price),
+      anchorX,
+      spacing:this._spacing*0.8,
     });
   }
 
