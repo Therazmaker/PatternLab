@@ -139,6 +139,13 @@ import { createLiveShadowMonitor } from "./modules/liveShadowMonitor.js";
 import { createLiveShadowTimeline } from "./modules/liveShadowTimeline.js";
 import { computeLiveShadowStats } from "./modules/liveShadowStats.js";
 import { formatConfidence, formatNumber, formatPct, formatTs, getOutcomeBadgeClass } from "./modules/liveShadowFormatters.js";
+import {
+  DEFAULT_EXECUTION_CONTROL_STATE,
+  blockShadowTrade,
+  canShadowExecuteTrade,
+  getExecutionAuthority,
+  normalizeExecutionControlState,
+} from "./modules/executionAuthority.js";
 import { getOperatorActions } from "./modules/operatorFeedback.js";
 import { computeOperatorModifier } from "./modules/operatorModifierEngine.js";
 import { combineFinalDecision } from "./modules/finalDecisionCombiner.js";
@@ -424,6 +431,7 @@ let liveShadowFilters = { symbol: "all", timeframe: "all", action: "all", result
 let liveShadowAutoIngest = true;
 let liveShadowStats = computeLiveShadowStats([]);
 let liveShadowSelectedId = "";
+let executionControlState = { ...DEFAULT_EXECUTION_CONTROL_STATE };
 const OPERATOR_FEEDBACK_ACTIONS = getOperatorActions();
 let sessionOperatorState = createSessionOperatorState();
 let marketDataDiagnostics = null;
@@ -2876,6 +2884,7 @@ function importSignalsFromPreview(preview, importedMessage) {
 }
 
 function importStrategyRecordToSignals(record, options = {}) {
+  if (options?.origin === "shadow" && !allowShadowTradeExecution()) return false;
   const result = importStrategySignal(record, state.signals, options);
   if (!result.changed) return false;
   replaceSignals(result.signals);
@@ -2883,6 +2892,7 @@ function importStrategyRecordToSignals(record, options = {}) {
 }
 
 function syncLiveShadowToUnifiedPipeline(records = [], options = {}) {
+  if (options?.origin === "shadow" && !allowShadowTradeExecution()) return false;
   if (!Array.isArray(records) || !records.length) return false;
   let changed = false;
   let nextSignals = state.signals;
@@ -3624,6 +3634,16 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     else if (action === "bias-short") brainModeController.setManualBiasOverride("short");
     else if (action === "mode-observer") brainModeController.setMode("observer");
     else if (action === "mode-copilot") brainModeController.setMode("copilot");
+    else if (action === "toggle-shadow-auto") {
+      const nextEnabled = !executionControlState.shadowExecutionEnabled;
+      const nextAuthority = nextEnabled ? "shadow" : "copilot";
+      setExecutionControlState({
+        shadowExecutionEnabled: nextEnabled,
+        executionAuthority: nextAuthority,
+        manualConfirmationRequired: true,
+      });
+      persistLiveShadowState();
+    }
     else if (action === "enable-executor") {
       brainModeController.setMode("executor");
       brainModeController.setExecutorEnabled(true);
@@ -4633,6 +4653,36 @@ function renderMarketLiveStatus() {
   els.mdLiveStatus.innerHTML = `Live ${connected ? "connected" : "idle/disconnected"} · reconnects ${reconnectAttempts} · last tick ${lastMessage ? new Date(lastMessage).toLocaleTimeString() : "-"} · last close ${lastClose ? new Date(lastClose).toLocaleTimeString() : "-"}`;
 }
 
+function setExecutionControlState(nextState = {}, options = {}) {
+  const previous = executionControlState;
+  executionControlState = normalizeExecutionControlState({ ...executionControlState, ...nextState });
+  const authority = getExecutionAuthority(executionControlState);
+  if (!["shadow", "copilot", "manual_only"].includes(authority)) {
+    executionControlState = { ...executionControlState, executionAuthority: "manual_only" };
+  }
+  if (options.log !== false && previous.shadowExecutionEnabled !== executionControlState.shadowExecutionEnabled && !executionControlState.shadowExecutionEnabled) {
+    console.info("[Shadow] Execution paused by user");
+  }
+  if (options.log !== false) {
+    console.info(`[Execution] Active authority = ${executionControlState.executionAuthority}`);
+    if (executionControlState.executionAuthority === "copilot") console.info("[Brain] Copilot authority active");
+  }
+  return executionControlState;
+}
+
+function allowShadowTradeExecution() {
+  if (canShadowExecuteTrade(executionControlState)) return true;
+  const authority = getExecutionAuthority(executionControlState);
+  if (!executionControlState.shadowExecutionEnabled) {
+    blockShadowTrade("shadow execution paused, authority = copilot");
+    console.info("[Shadow] Trade blocked because authority belongs to copilot");
+    return false;
+  }
+  blockShadowTrade(`authority = ${authority}`);
+  console.info(`[Shadow] Trade blocked because authority belongs to ${authority}`);
+  return false;
+}
+
 function persistLiveShadowState() {
   return saveLiveShadowState({
     records: liveShadowMonitor.getRecords(),
@@ -4640,6 +4690,7 @@ function persistLiveShadowState() {
     latestStats: liveShadowStats,
     context: { source: getSelectedMarketDataSource(), symbol: getSelectedMarketDataSymbol(), timeframe: getSelectedMarketDataTimeframe() },
     autoIngestToSignals: liveShadowAutoIngest,
+    executionControlState,
   });
 }
 
@@ -4769,7 +4820,7 @@ function renderSessionCopilotFeedbackBlock(analysis, marketView) {
 function renderBrainDashboardPanel() {
   if (!els.sessionBrainDashboard) return;
   const modeState = brainModeController.getState();
-  els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState);
+  els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState, executionControlState);
 }
 
 /**
@@ -5114,7 +5165,7 @@ function emitLifecycleLiveSignalsFromRecord(record) {
       versionId: instance.versionId,
       strategyName: instance.strategyId,
     };
-    changed = importStrategyRecordToSignals(injected, { strategyId: instance.strategyId, strategyName: instance.strategyId, versionId: instance.versionId }) || changed;
+    changed = importStrategyRecordToSignals(injected, { strategyId: instance.strategyId, strategyName: instance.strategyId, versionId: instance.versionId, origin: "shadow" }) || changed;
   });
   return changed;
 }
@@ -5135,7 +5186,7 @@ async function applyLiveFuturesPolicyOnClose(closedCandle) {
   const latestRecords = liveShadowMonitor.getRecords();
   let signalsChanged = false;
   if (liveShadowAutoIngest && record) {
-    signalsChanged = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" }) || signalsChanged;
+    signalsChanged = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1", origin: "shadow" }) || signalsChanged;
     signalsChanged = emitLifecycleLiveSignalsFromRecord(record) || signalsChanged;
   }
   futuresPolicySnapshots = latestRecords.slice(0, 300).map((row) => ({
@@ -5253,7 +5304,7 @@ function refreshMarketDataUI() {
   const newlyResolved = liveShadowMonitor.resolvePending({ candles: marketDataCandles, maxHoldBars: Number(futuresPolicyConfig.maxHoldBars || 24) });
   let signalsChanged = false;
   if (liveShadowAutoIngest && newlyResolved.length) {
-    signalsChanged = syncLiveShadowToUnifiedPipeline(newlyResolved, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" });
+    signalsChanged = syncLiveShadowToUnifiedPipeline(newlyResolved, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1", origin: "shadow" });
   }
   if (signalsChanged) persist();
   if (newlyResolved.length) persistLiveShadowState();
@@ -5543,7 +5594,7 @@ function setupMarketDataEvents() {
   els.mdLiveShadowImportSelectedBtn?.addEventListener("click", async () => {
     const record = liveShadowMonitor.getRecords().find((row) => row.id === liveShadowSelectedId);
     if (!record) return;
-    const changed = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" });
+    const changed = importStrategyRecordToSignals(record, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1", origin: "shadow" });
     if (changed) {
       persist();
       rerender();
@@ -5581,7 +5632,7 @@ function setupMarketDataEvents() {
       setOperatorFeedbackStatus("Unable to apply operator feedback to this record.", "error");
       return;
     }
-    const changed = liveShadowAutoIngest ? importStrategyRecordToSignals(updated, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" }) : false;
+    const changed = liveShadowAutoIngest ? importStrategyRecordToSignals(updated, { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1", origin: "shadow" }) : false;
     if (changed) persist();
     await persistLiveShadowState();
     renderLiveShadowPanel();
@@ -5689,13 +5740,14 @@ async function init() {
   liveShadowFilters = { ...liveShadowFilters, ...(storedLiveShadow.filters || {}) };
   liveShadowStats = storedLiveShadow.latestStats || liveShadowStats;
   liveShadowAutoIngest = storedLiveShadow.autoIngestToSignals !== false;
+  setExecutionControlState(storedLiveShadow.executionControlState || DEFAULT_EXECUTION_CONTROL_STATE, { log: true });
   liveShadowMonitor.setRecords(Array.isArray(storedLiveShadow.records) ? storedLiveShadow.records : []);
   promotedPatterns = loadPromotedPatterns().map((row) => normalizePromotedPattern(row));
   seededPatterns = loadSeededPatterns();
   seededPatternResults = loadSeededPatternResults();
   replaceSignals(loadedSignals);
   if (liveShadowAutoIngest) {
-    const synced = syncLiveShadowToUnifiedPipeline(liveShadowMonitor.getRecords(), { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1" });
+    const synced = syncLiveShadowToUnifiedPipeline(liveShadowMonitor.getRecords(), { strategyId: "live-shadow-policy", strategyName: "Live Shadow Policy", versionId: "policy-v1", origin: "shadow" });
     if (synced) persist();
   }
   strategyRuns = getSavedStrategyRuns();
