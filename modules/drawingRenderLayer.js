@@ -43,35 +43,83 @@ function drawHandles(ctx, points = [], color = "#93c5fd") {
   ctx.restore();
 }
 
+function normalizeDrawingPoint(point = {}) {
+  const rawTime = point?.time ?? point?.timestamp ?? point?.x;
+  const numericTime = Number(rawTime);
+  const parsedTime = Date.parse(String(rawTime ?? ""));
+  const time = Number.isFinite(numericTime) ? numericTime : Number.isFinite(parsedTime) ? parsedTime : Number.NaN;
+  const price = Number(point?.price ?? point?.value ?? point?.y);
+  if (!Number.isFinite(time) || !Number.isFinite(price)) return null;
+  return { time, price };
+}
+
 export function renderDrawings(ctx, drawings = [], drawingState = {}, geometry = {}) {
   const chartW = Number(geometry.chartW || 0);
   const chartH = Number(geometry.chartH || 0);
   const padTop = Number(geometry.padTop || 0);
   const toScreen = geometry.chartToScreen;
+  const debug = geometry.debug !== false;
   if (!ctx || !toScreen) return;
+
+  if (debug) {
+    console.debug("Drawing render pass start", {
+      drawingsCount: Array.isArray(drawings) ? drawings.length : 0,
+      lastDrawing: Array.isArray(drawings) && drawings.length ? drawings[drawings.length - 1] : null,
+    });
+  }
 
   drawings.forEach((drawing) => {
     const isSelected = drawingState.selectedDrawingId === drawing.id;
-    const color = lineColor(drawing, isSelected);
-    const points = (drawing.points || []).map((point) => toScreen(point)).filter(Boolean);
+    const chartPoints = (drawing.points || []).map(normalizeDrawingPoint).filter(Boolean);
+    if (!chartPoints.length) {
+      if (debug) {
+        console.debug("Drawing skipped: no valid chart points", {
+          drawingId: drawing?.id ?? null,
+          type: drawing?.type ?? null,
+          rawPoints: drawing?.points ?? [],
+        });
+      }
+      return;
+    }
+    const points = chartPoints.map((point) => toScreen(point)).filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y));
     if (!points.length) return;
+    const color = drawing.type === "horizontal_line" ? "#ff00ff" : drawing.type === "trendline" ? "#00ffff" : lineColor(drawing, isSelected);
+    const [a, b] = points;
+    const inViewport = points.some((point) => point.x >= 0 && point.x <= chartW && point.y >= padTop && point.y <= padTop + chartH);
+    if (debug) {
+      console.debug("Rendering drawing", {
+        drawingId: drawing.id,
+        type: drawing.type,
+        x1: Number(a?.x),
+        y1: Number(a?.y),
+        x2: Number(b?.x),
+        y2: Number(b?.y),
+        inViewport,
+      });
+      if (!inViewport) {
+        console.debug("Drawing outside viewport", {
+          drawingId: drawing.id,
+          type: drawing.type,
+          points,
+          bounds: { left: 0, right: chartW, top: padTop, bottom: padTop + chartH },
+        });
+      }
+    }
 
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = isSelected ? 2.3 : 1.5;
+    ctx.lineWidth = 3;
     ctx.shadowBlur = isSelected ? 8 : 0;
     ctx.shadowColor = isSelected ? color : "transparent";
+    ctx.globalAlpha = 1;
 
     if (drawing.type === "horizontal_line") {
       const y = points[0].y;
-      ctx.setLineDash([7, 3]);
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(chartW, y);
       ctx.stroke();
-      ctx.setLineDash([]);
     } else if (drawing.type === "trendline") {
-      const [a, b] = points;
       if (!a || !b) {
         ctx.restore();
         return;
@@ -110,12 +158,20 @@ export function renderDrawings(ctx, drawings = [], drawingState = {}, geometry =
     if (isSelected) drawHandles(ctx, points, color);
     drawing._bounds = {
       points,
+      chartPoints,
+      inViewport,
       chartW,
       chartH,
       padTop,
     };
     ctx.restore();
   });
+
+  if (debug) {
+    console.debug("Drawing render pass end", {
+      drawingsCount: Array.isArray(drawings) ? drawings.length : 0,
+    });
+  }
 }
 
 export function renderDrawingDraft(ctx, drawingState = {}, geometry = {}) {

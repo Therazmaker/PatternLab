@@ -41,6 +41,12 @@ function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 function niceStep(range,ticks=6){if(!range||!isFinite(range))return 1;const rough=range/ticks,mag=Math.pow(10,Math.floor(Math.log10(rough))),norm=rough/mag;return(norm<1.5?1:norm<3.5?2:norm<7.5?5:10)*mag;}
 function inferDecimals(candles){const s=candles.map(c=>c.close).filter(Number.isFinite).slice(0,10);if(!s.length)return 4;const a=s.reduce((a,b)=>a+b,0)/s.length;return a>5000?1:a>100?2:a>1?4:5;}
 function fmt(p,dec){return Number.isFinite(p)?p.toFixed(dec):"—";}
+function toNumericTime(raw){
+  const numeric=Number(raw);
+  if(Number.isFinite(numeric))return numeric;
+  const parsed=Date.parse(String(raw||""));
+  return Number.isFinite(parsed)?parsed:NaN;
+}
 
 export class SessionChart {
   constructor(container,{onCandleClick,onCandleHover,onSRChange,onSRSelect}={}){
@@ -106,6 +112,13 @@ export class SessionChart {
         this._manualSR=[...rows];
         this.onSRChange([...this._manualSR],{type:"created",line:drawing});
         console.debug("Drawing persisted",{drawingId:drawing.id,type:drawing.type,points:drawing.points,symbol:drawing.metadata?.symbol,timeframe:drawing.metadata?.timeframe});
+        console.debug("Latest drawing after commit",{
+          drawingId:drawing.id,
+          type:drawing.type,
+          points:drawing.points||[],
+          hasInvalidPoint:(drawing.points||[]).some((point)=>!Number.isFinite(Number(point?.time))||!Number.isFinite(Number(point?.price))),
+          drawingsCount:Array.isArray(rows)?rows.length:0,
+        });
       },
       onDrawingDeleted:(drawing,rows)=>{
         this._manualSR=[...rows];
@@ -130,12 +143,25 @@ export class SessionChart {
     if(!this._debugPanel)return;
     const screen=drawingState?.lastClickScreenCoords||{};
     const chart=drawingState?.lastClickChartCoords||{};
+    const latestDrawing=Array.isArray(drawingState?.drawings)&&drawingState.drawings.length?drawingState.drawings[drawingState.drawings.length-1]:null;
+    const pointAChart=latestDrawing?.points?.[0]||null;
+    const pointBChart=latestDrawing?.points?.[1]||null;
+    const pointAScreen=pointAChart?this.chartToScreenCoords(pointAChart.time,pointAChart.price):null;
+    const pointBScreen=pointBChart?this.chartToScreenCoords(pointBChart.time,pointBChart.price):null;
+    const inViewport=[pointAScreen,pointBScreen].filter(Boolean).some((point)=>point.x>=0&&point.x<=this._chartW&&point.y>=PAD_TOP&&point.y<=PAD_TOP+this._chartH);
     this._debugPanel.textContent=[
       `activeTool: ${drawingState?.activeTool||"select"}`,
       `lastClickScreenCoords: ${Number.isFinite(screen.x)?`${Math.round(screen.x)}, ${Math.round(screen.y)}`:"-"}`,
       `lastClickChartCoords: ${Number.isFinite(chart.time)&&Number.isFinite(chart.price)?`${chart.time}, ${Number(chart.price).toFixed(this.decimals||4)}`:"-"}`,
       `isDrawingInProgress: ${Boolean(drawingState?.isDrawingInProgress)}`,
       `drawings.length: ${Array.isArray(drawingState?.drawings)?drawingState.drawings.length:0}`,
+      `latest.id: ${latestDrawing?.id||"-"}`,
+      `latest.type: ${latestDrawing?.type||"-"}`,
+      `pointA chart: ${pointAChart&&Number.isFinite(pointAChart.time)&&Number.isFinite(pointAChart.price)?`${pointAChart.time}, ${Number(pointAChart.price).toFixed(this.decimals||4)}`:"-"}`,
+      `pointB chart: ${pointBChart&&Number.isFinite(pointBChart.time)&&Number.isFinite(pointBChart.price)?`${pointBChart.time}, ${Number(pointBChart.price).toFixed(this.decimals||4)}`:"-"}`,
+      `pointA screen: ${pointAScreen&&Number.isFinite(pointAScreen.x)&&Number.isFinite(pointAScreen.y)?`${Math.round(pointAScreen.x)}, ${Math.round(pointAScreen.y)}`:"-"}`,
+      `pointB screen: ${pointBScreen&&Number.isFinite(pointBScreen.x)&&Number.isFinite(pointBScreen.y)?`${Math.round(pointBScreen.x)}, ${Math.round(pointBScreen.y)}`:"-"}`,
+      `inViewport: ${inViewport}`,
     ].join("\n");
   }
 
@@ -218,11 +244,20 @@ export class SessionChart {
   screenToChartCoords(x,y){
     const idx=clamp(this._idxAtX(x),0,Math.max(0,this.candles.length-1));
     const nearest=this.candles[Math.round(idx)];
-    return{time:Number(nearest?.timestamp??nearest?.index??Math.round(idx)),price:this._priceAtY(y)};
+    const ts=toNumericTime(nearest?.timestamp);
+    const indexValue=Number(nearest?.index);
+    return{
+      time:Number.isFinite(ts)?ts:Number.isFinite(indexValue)?indexValue:Math.round(idx),
+      price:this._priceAtY(y),
+    };
   }
   chartToScreenCoords(time,price){
-    const ts=Number(time);
-    let idx=this.candles.findIndex((c)=>Number(c.timestamp)===ts||Number(c.index)===ts);
+    const ts=toNumericTime(time);
+    let idx=this.candles.findIndex((c)=>{
+      const candleTs=toNumericTime(c.timestamp);
+      const candleIndex=Number(c.index);
+      return (Number.isFinite(ts)&&Number.isFinite(candleTs)&&candleTs===ts) || (Number.isFinite(ts)&&Number.isFinite(candleIndex)&&candleIndex===ts);
+    });
     if(idx<0)idx=clamp(Math.round(ts),0,Math.max(0,this.candles.length-1));
     return{x:this._xForIdx(idx),y:this._yForPrice(Number(price))};
   }
@@ -254,8 +289,9 @@ export class SessionChart {
     }
     ctx.save();ctx.beginPath();ctx.rect(0,PAD_TOP-2,this._chartW,this._chartH+TIME_AXIS_H+4);ctx.clip();
     this._drawGrid(ctx);this._drawContextBand(ctx);this._drawRangeLines(ctx);
-    this._drawEmas(ctx);this._drawSRLines(ctx);this._drawManualSRLines(ctx);
+    this._drawEmas(ctx);this._drawSRLines(ctx);
     this._drawLivePlanLines(ctx);this._drawCandles(ctx);this._drawSwings(ctx);this._drawSignalDots(ctx);
+    this._drawManualSRLines(ctx);
     this._drawTimeAxis(ctx);
     renderDrawingDraft(ctx,this._drawingController?.state||{},{
       chartToScreen:(point)=>this.chartToScreenCoords(point.time,point.price),
@@ -367,11 +403,14 @@ export class SessionChart {
 
   // ── Manual S/R ────────────────────────────────────────────────────────────
   _drawManualSRLines(ctx){
-    renderDrawings(ctx,this._manualSR,this._drawingController?.state||{},{
+    const drawingState=this._drawingController?.state||{};
+    const layerDrawings=Array.isArray(drawingState.drawings)&&drawingState.drawings.length?drawingState.drawings:this._manualSR;
+    renderDrawings(ctx,layerDrawings,drawingState,{
       chartW:this._chartW,
       chartH:this._chartH,
       padTop:PAD_TOP,
       chartToScreen:(point)=>this.chartToScreenCoords(point.time,point.price),
+      debug:true,
     });
   }
 
