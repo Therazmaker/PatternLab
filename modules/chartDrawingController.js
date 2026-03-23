@@ -92,6 +92,9 @@ export function createChartDrawingController({
     selectedDrawingId: null,
     drawingDraft: null,
     isDrawingInProgress: false,
+    pendingPointA: null,
+    lastClickScreenCoords: null,
+    lastClickChartCoords: null,
   };
 
   function emitState() {
@@ -116,8 +119,9 @@ export function createChartDrawingController({
     if (tool === "select" || tool === "erase") {
       state.drawingDraft = null;
       state.isDrawingInProgress = false;
+      state.pendingPointA = null;
     }
-    drawingLog("Drawing tool activated", null, { type: tool });
+    drawingLog("Tool selected", null, { activeTool: tool, type: tool });
     onToolChange?.(tool);
     emitState();
   }
@@ -146,6 +150,7 @@ export function createChartDrawingController({
   function clearDraft() {
     state.drawingDraft = null;
     state.isDrawingInProgress = false;
+    state.pendingPointA = null;
     emitState();
   }
 
@@ -153,7 +158,8 @@ export function createChartDrawingController({
     if (!state.isDrawingInProgress && !state.drawingDraft) return false;
     state.drawingDraft = null;
     state.isDrawingInProgress = false;
-    drawingLog("Drawing canceled", null, { type: state.activeTool });
+    state.pendingPointA = null;
+    drawingLog("Drawing aborted", null, { reason: "canceled", type: state.activeTool });
     emitState();
     return true;
   }
@@ -174,8 +180,10 @@ export function createChartDrawingController({
     state.selectedDrawingId = drawing.id;
     state.drawingDraft = null;
     state.isDrawingInProgress = false;
-    drawingLog("Drawing completed", drawing);
+    drawingLog("Drawing complete", drawing);
+    drawingLog("Drawing added to state", drawing, { totalDrawings: next.length });
     onDrawingCreated?.(drawing, next);
+    drawingLog("Drawing callback fired", drawing, { callback: "onDrawingCreated" });
     emitState();
     return true;
   }
@@ -241,7 +249,14 @@ export function createChartDrawingController({
   }
 
   function pointerDown({ chartPoint, screenPoint, button = 0 } = {}) {
-    if (!chartPoint || !screenPoint) return { consumed: false };
+    if (!chartPoint || !screenPoint) {
+      drawingLog("Drawing aborted", null, { reason: "missing_chart_or_screen_point" });
+      return { consumed: false };
+    }
+    state.lastClickScreenCoords = { ...screenPoint };
+    state.lastClickChartCoords = { ...chartPoint };
+    drawingLog("Chart click received", null, { x: screenPoint.x, y: screenPoint.y, button });
+    drawingLog("Chart coords mapped", null, { time: chartPoint.time, price: chartPoint.price });
     if (button === 2) {
       cancelDraft();
       return { consumed: true };
@@ -266,7 +281,8 @@ export function createChartDrawingController({
     if (!state.drawingDraft) {
       state.drawingDraft = { type, points: [chartPoint], extra: { channelOffset: null } };
       state.isDrawingInProgress = requiredPoints(type) > 1;
-      drawingLog("Drawing started", null, { type, points: state.drawingDraft.points });
+      state.pendingPointA = requiredPoints(type) > 1 ? { ...chartPoint } : null;
+      drawingLog("Drawing start", null, { type, pointA: state.pendingPointA || chartPoint });
       emitState();
       if (requiredPoints(type) === 1) {
         completeDrawing(state.drawingDraft);
@@ -288,8 +304,10 @@ export function createChartDrawingController({
         };
       }
       completeDrawing(state.drawingDraft);
+      state.pendingPointA = null;
     } else {
       state.isDrawingInProgress = true;
+      state.pendingPointA = nextPoints[0] ? { ...nextPoints[0] } : null;
       emitState();
     }
     return { consumed: true };

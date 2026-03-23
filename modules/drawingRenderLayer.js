@@ -1,13 +1,10 @@
 function lineColor(drawing = {}, isSelected = false) {
   if (drawing.type === "horizontal_line") {
-    const price = Number(drawing.price ?? drawing.points?.[0]?.price);
-    const anchor = Number(drawing.points?.[0]?.price);
-    const resistance = Number.isFinite(price) && Number.isFinite(anchor) ? price >= anchor : false;
-    const color = resistance ? "rgba(248,113,113,0.95)" : "rgba(74,222,128,0.95)";
-    return isSelected ? color.replace("0.95", "1") : color;
+    return isSelected ? "rgba(255,255,255,1)" : "rgba(250,204,21,0.98)";
   }
-  if (drawing.type === "channel") return isSelected ? "rgba(250,204,21,1)" : "rgba(250,204,21,0.9)";
-  return isSelected ? "rgba(96,165,250,1)" : "rgba(96,165,250,0.9)";
+  if (drawing.type === "trendline") return isSelected ? "rgba(255,255,255,1)" : "rgba(34,211,238,0.98)";
+  if (drawing.type === "channel") return isSelected ? "rgba(255,255,255,1)" : "rgba(34,211,238,0.9)";
+  return isSelected ? "rgba(255,255,255,1)" : "rgba(34,211,238,0.9)";
 }
 
 function distancePointToSegment(point, start, end) {
