@@ -20,7 +20,7 @@ function getReferencePrice(drawing = {}) {
 
 export function normalizeDrawing(raw = {}, { symbol = "UNKNOWN", timeframe = "UNKNOWN" } = {}) {
   const points = Array.isArray(raw.points) ? raw.points.map(clonePoint).filter((point) => Number.isFinite(point.time) && Number.isFinite(point.price)) : [];
-  const type = ["horizontal_line", "trendline", "channel"].includes(raw.type) ? raw.type : "horizontal_line";
+  const type = ["horizontal_line", "trigger_line", "trendline", "channel"].includes(raw.type) ? raw.type : "horizontal_line";
   const channelOffset = Number(raw?.extra?.channelOffset);
 
   const drawing = {
@@ -41,12 +41,13 @@ export function normalizeDrawing(raw = {}, { symbol = "UNKNOWN", timeframe = "UN
   };
 
   drawing.price = Number.isFinite(Number(raw.price)) ? Number(raw.price) : getReferencePrice(drawing);
-  drawing.label = raw.label || (drawing.type === "horizontal_line" ? "H" : drawing.type === "trendline" ? "T" : "C");
+  drawing.label = raw.label || (drawing.type === "horizontal_line" ? "H" : drawing.type === "trigger_line" ? "Trigger" : drawing.type === "trendline" ? "T" : "C");
   return drawing;
 }
 
 function requiredPoints(type = "horizontal_line") {
   if (type === "horizontal_line") return 1;
+  if (type === "trigger_line") return 1;
   if (type === "trendline") return 2;
   if (type === "channel") return 3;
   return 1;
@@ -114,7 +115,7 @@ export function createChartDrawingController({
   }
 
   function setTool(nextTool = "select") {
-    const tool = ["select", "horizontal_line", "trendline", "channel", "erase"].includes(nextTool) ? nextTool : "select";
+    const tool = ["select", "horizontal_line", "trigger_line", "trendline", "channel", "erase"].includes(nextTool) ? nextTool : "select";
     state.activeTool = tool;
     if (tool === "select" || tool === "erase") {
       state.drawingDraft = null;
@@ -192,7 +193,7 @@ export function createChartDrawingController({
     const points = drawing.points || [];
     if (!points.length) return false;
 
-    if (drawing.type === "horizontal_line") {
+    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line") {
       const y = chartToScreen?.({ time: points[0].time, price: points[0].price })?.y;
       return Number.isFinite(y) ? Math.abs(screenPoint.y - y) <= threshold : false;
     }

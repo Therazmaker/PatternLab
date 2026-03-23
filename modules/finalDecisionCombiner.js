@@ -26,13 +26,20 @@ function classifyDecision(score) {
   return "ALLOW";
 }
 
-export function combineFinalDecision(machineSignal = {}, structureFilterResult = {}, operatorModifier = {}) {
+export function combineFinalDecision(machineSignal = {}, structureFilterResult = {}, operatorModifier = {}, triggerLineEffects = {}) {
   const machineComponent = asSignedMachineComponent(machineSignal);
   const structureComponent = asStructureComponent(structureFilterResult);
   const operatorComponent = clamp(operatorModifier.modifierScore, -0.45, 0.45);
+  const triggerDirection = String(machineSignal.direction || machineSignal.bias || "NONE").toUpperCase();
+  const triggerComponentRaw = triggerDirection === "LONG"
+    ? Number(triggerLineEffects.longModifier || 0)
+    : triggerDirection === "SHORT"
+      ? Number(triggerLineEffects.shortModifier || 0)
+      : (Number(triggerLineEffects.longModifier || 0) + Number(triggerLineEffects.shortModifier || 0)) * 0.5;
+  const triggerComponent = clamp(triggerComponentRaw, -0.45, 0.45);
 
-  const totalScore = clamp(machineComponent + structureComponent + operatorComponent, -1, 1);
-  const finalDecision = classifyDecision(totalScore);
+  const totalScore = clamp(machineComponent + structureComponent + operatorComponent + triggerComponent, -1, 1);
+  let finalDecision = classifyDecision(totalScore);
 
   const biasFromMachine = normalizeDirection(machineSignal.direction || machineSignal.bias || "NONE", "NONE");
   const finalBias = totalScore > 0.07 ? (biasFromMachine === "NONE" ? "LONG" : biasFromMachine)
@@ -44,17 +51,25 @@ export function combineFinalDecision(machineSignal = {}, structureFilterResult =
     `machine_component_${machineComponent >= 0 ? "positive" : "negative"}`,
     `structure_component_${structureComponent >= 0 ? "supportive" : "penalized"}`,
     `operator_component_${operatorComponent >= 0 ? "supportive" : "protective"}`,
+    `trigger_component_${triggerComponent >= 0 ? "supportive" : "protective"}`,
   ];
 
   if (operatorModifier.effectOnDecision === "block") reasonCodes.push("operator_blocking_modifier");
   if (operatorModifier.effectOnDecision === "require_confirmation") reasonCodes.push("operator_requires_confirmation");
+  if (triggerLineEffects.requireConfirmation) reasonCodes.push("trigger_requires_confirmation");
+  if ((triggerDirection === "LONG" && triggerLineEffects.blockLong) || (triggerDirection === "SHORT" && triggerLineEffects.blockShort)) {
+    reasonCodes.push("trigger_bias_blocked");
+    finalDecision = "BLOCK";
+  }
+  if (triggerLineEffects.reasonCodes?.length) reasonCodes.push(...triggerLineEffects.reasonCodes.slice(0, 5));
 
-  const summaryText = `Final decision combined. Machine ${machineComponent.toFixed(2)} + structure ${structureComponent.toFixed(2)} + operator ${operatorComponent.toFixed(2)} = ${totalScore.toFixed(2)} -> ${finalDecision}.`;
+  const summaryText = `Final decision combined. Machine ${machineComponent.toFixed(2)} + structure ${structureComponent.toFixed(2)} + operator ${operatorComponent.toFixed(2)} + trigger ${triggerComponent.toFixed(2)} = ${totalScore.toFixed(2)} -> ${finalDecision}.`;
 
   console.debug("Final decision combined", {
     machineComponent,
     structureComponent,
     operatorComponent,
+    triggerComponent,
     finalDecision,
   });
 
@@ -66,6 +81,7 @@ export function combineFinalDecision(machineSignal = {}, structureFilterResult =
       machineComponent: Number(machineComponent.toFixed(4)),
       structureComponent: Number(structureComponent.toFixed(4)),
       operatorComponent: Number(operatorComponent.toFixed(4)),
+      triggerComponent: Number(triggerComponent.toFixed(4)),
     },
     reasonCodes,
     summaryText,

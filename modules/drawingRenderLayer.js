@@ -1,4 +1,9 @@
 function lineColor(drawing = {}, isSelected = false) {
+  if (drawing.type === "trigger_line") {
+    if (drawing.triggerStatus === "triggered") return isSelected ? "rgba(255,255,255,1)" : "rgba(248,113,113,0.98)";
+    if (drawing.triggerStatus === "invalidated") return isSelected ? "rgba(255,255,255,1)" : "rgba(125,211,252,0.9)";
+    return isSelected ? "rgba(255,255,255,1)" : "rgba(244,114,182,0.98)";
+  }
   if (drawing.type === "horizontal_line") {
     return isSelected ? "rgba(255,255,255,1)" : "rgba(250,204,21,0.98)";
   }
@@ -45,6 +50,33 @@ function drawHandles(ctx, points = [], color = "#93c5fd") {
 
 
 function drawInsightBadge(ctx, point = { x: 0, y: 0 }, drawing = {}) {
+  if (drawing.type === "trigger_line") {
+    const status = drawing.triggerStatus || "watching";
+    const triggerLabel = status === "triggered"
+      ? `${String(drawing.triggerBias || "neutral").toUpperCase()} trigger active`
+      : status === "invalidated"
+      ? "Trigger invalidated"
+      : "Trigger";
+    const color = status === "triggered" ? "#f97316" : status === "invalidated" ? "#38bdf8" : "#f472b6";
+
+    ctx.save();
+    ctx.font = "10px 'JetBrains Mono',monospace";
+    const padX = 6;
+    const width = Math.max(72, ctx.measureText(triggerLabel).width + padX * 2);
+    const x = point.x + 8;
+    const y = point.y - 36;
+    ctx.fillStyle = "rgba(9,16,28,0.9)";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, 16, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillText(triggerLabel, x + padX, y + 11);
+    ctx.restore();
+  }
+
   const isTriggered = Boolean(drawing.humanInsightTriggered);
   const isActive = Boolean(drawing.humanInsightActive);
   const isLinked = Boolean(drawing.humanInsightLinked);
@@ -122,7 +154,7 @@ export function renderDrawings(ctx, drawings = [], drawingState = {}, geometry =
     }
     const points = chartPoints.map((point) => toScreen(point)).filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y));
     if (!points.length) return;
-    const color = drawing.type === "horizontal_line" ? "#ff00ff" : drawing.type === "trendline" ? "#00ffff" : lineColor(drawing, isSelected);
+    const color = lineColor(drawing, isSelected);
     const [a, b] = points;
     const inViewport = points.some((point) => point.x >= 0 && point.x <= chartW && point.y >= padTop && point.y <= padTop + chartH);
     if (debug) {
@@ -152,12 +184,19 @@ export function renderDrawings(ctx, drawings = [], drawingState = {}, geometry =
     ctx.shadowColor = isSelected ? color : "transparent";
     ctx.globalAlpha = 1;
 
-    if (drawing.type === "horizontal_line") {
+    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line") {
       const y = points[0].y;
+      if (drawing.type === "trigger_line") ctx.setLineDash([10, 5]);
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(chartW, y);
       ctx.stroke();
+      if (drawing.type === "trigger_line") {
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+        ctx.font = "11px 'JetBrains Mono',monospace";
+        ctx.fillText("Trigger", 8, y - 8);
+      }
     } else if (drawing.type === "trendline") {
       if (!a || !b) {
         ctx.restore();
@@ -228,8 +267,9 @@ export function renderDrawingDraft(ctx, drawingState = {}, geometry = {}) {
   ctx.lineWidth = 1.2;
   ctx.setLineDash([5, 4]);
 
-  if (draft.type === "horizontal_line") {
+  if (draft.type === "horizontal_line" || draft.type === "trigger_line") {
     const y = previewPoints[previewPoints.length - 1].y;
+    if (draft.type === "trigger_line") ctx.setLineDash([8, 5]);
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(chartW, y);
@@ -267,7 +307,7 @@ export function hitTestDrawing(drawings = [], point = { x: 0, y: 0 }, chartToScr
   for (const drawing of ordered) {
     const pts = (drawing.points || []).map((p) => chartToScreen?.(p)).filter(Boolean);
     if (!pts.length) continue;
-    if (drawing.type === "horizontal_line") {
+    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line") {
       if (Math.abs(point.y - pts[0].y) <= 8) return drawing;
       continue;
     }
