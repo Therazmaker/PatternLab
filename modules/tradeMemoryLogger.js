@@ -38,6 +38,7 @@ function normalizeTradeMemory(tradeObject = {}) {
     preTradeContext: {
       context20: tradeObject?.preTradeContext?.context20 || null,
     },
+    decisionContext: tradeObject?.decisionContext && typeof tradeObject.decisionContext === "object" ? tradeObject.decisionContext : null,
     signal: {
       direction: ["LONG", "SHORT", "NONE"].includes(tradeObject?.signal?.direction) ? tradeObject.signal.direction : "NONE",
       bullishScore: Number(tradeObject?.signal?.bullishScore || 0),
@@ -63,8 +64,14 @@ function normalizeTradeMemory(tradeObject = {}) {
       barsHeld: Number(tradeObject?.outcome?.barsHeld || 0),
       mfe: Number(tradeObject?.outcome?.mfe || 0),
       mae: Number(tradeObject?.outcome?.mae || 0),
+      outcome: String(tradeObject?.outcome?.outcome || tradeObject?.outcome?.result || "open"),
+      duration: Number(tradeObject?.outcome?.duration || tradeObject?.outcome?.barsHeld || 0),
+      maxDrawdown: Number(tradeObject?.outcome?.maxDrawdown || tradeObject?.outcome?.mae || 0),
+      exitReason: String(tradeObject?.outcome?.exitReason || "closed"),
     },
     diagnosis: normalizeTradeDiagnosis(tradeObject?.diagnosis || {}),
+    learningDiagnosis: tradeObject?.learningDiagnosis || null,
+    learningUpdate: tradeObject?.learningUpdate || null,
   };
 }
 
