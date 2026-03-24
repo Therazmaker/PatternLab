@@ -33,8 +33,12 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   if (Number(verdict?.danger_score || 0) > 0.7) warnings.push("high danger context");
   if (String(verdict?.no_trade_reason || "").includes("repeated_loss_context")) warnings.push("repeated loss pattern");
   if (Number(verdict?.friction || 0) > 0.68) warnings.push("friction blocking entry");
-  if (verdict?.exploration_trade_allowed && String(verdict?.posture || "").toLowerCase() === "execute_on_confirmation") {
+  if (verdict?.exploration_trade_allowed && ["execute_on_confirmation", "exploration"].includes(String(verdict?.posture || "").toLowerCase())) {
     warnings.push("exploratory trade allowed despite wait");
+  }
+  if (verdict?.exploration_override_applied) {
+    warnings.push("Friction bypassed for exploration");
+    warnings.push("Danger context allowed for data collection");
   }
   const profile = executorState?.learningProfile || verdict?.learning_profile || {};
   const planContext = plan?.context_signature ? (opts?.contextRow || {}) : {};
@@ -71,11 +75,14 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
 
         <section>
           <h5>C. Next Trade</h5>
-          <p class="tiny">setup: <strong>${safe(plan.setup_name || verdict.next_candle_plan?.posture)}</strong></p>
+          <p class="tiny">setup: <strong>${safe(plan.setup_name || (verdict?.exploration_override_applied ? `exploratory_${safe(verdict.bias, "long")}` : verdict.next_candle_plan?.posture))}</strong></p>
           <p class="tiny">trigger: <strong>${safe(plan.trigger || verdict.next_candle_plan?.trigger_long || verdict.next_candle_plan?.trigger_short)}</strong></p>
           <p class="tiny">invalidation: <strong>${safe(plan.invalidation || verdict.next_candle_plan?.invalidation)}</strong></p>
           <p class="tiny">entry/stop/target: <strong>${safe(plan.planned_entry)}</strong> / <strong>${safe(plan.stop)}</strong> / <strong>${safe(plan.target)}</strong></p>
           <p class="tiny">scenario: <strong>${safe(plan.scenario_primary?.name || plan.scenario_primary?.type)}</strong> · alt: <strong>${safe(opts?.secondaryScenario?.name || opts?.secondaryScenario?.type)}</strong></p>
+          ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Exploratory Trade (Learning Mode)</span></p>' : ""}
+          ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Friction bypassed for exploration</span></p>' : ""}
+          ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Danger context allowed for data collection</span></p>' : ""}
         </section>
 
         <section>
@@ -92,6 +99,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">Exploratory trades left (context): <strong>${safe(exploratoryLeft, 0)}</strong> / ${safe(maxExploratoryTrades, 5)}</p>
           <p class="tiny">Context pause: <strong>${pauseRemaining > 0 ? `ACTIVE (${pauseRemaining} candles left)` : "inactive"}</strong></p>
           ${verdict?.exploration_trade_allowed ? '<p class="tiny"><span class="badge">exploratory trade allowed despite wait</span></p>' : ""}
+          ${verdict?.exploration_override_applied ? `<p class="tiny">bypassed blocks: <strong>${safe((verdict?.bypassed_blocks || []).join(", "), "none")}</strong> · reason mode: <strong>${safe(verdict.trade_reason_mode)}</strong></p>` : ""}
           <p class="tiny">trades executed: <strong>${safe(learning.tradesLearned, 0)}</strong> · contexts learned: <strong>${safe(learning.learnedContexts, 0)}</strong></p>
           <p class="tiny">dangerous contexts: <strong>${safe(learning.dangerousContexts, 0)}</strong> · reliable contexts: <strong>${safe(learning.reliableContexts, 0)}</strong></p>
           <p class="tiny">learning velocity: <strong>${safe(learning.learningVelocity, 0)}</strong></p>
