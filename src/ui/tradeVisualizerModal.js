@@ -3,6 +3,8 @@ import { getCurrentPacket, updateCurrentPacket } from "../../modules/sessionBrai
 let _modalRoot = null;
 let _refreshTimer = null;
 let _operatorNote = "";
+let _visualTrade = null;
+let _systemTradeProposal = null;
 
 function num(value, fallback = null) {
   const n = Number(value);
@@ -32,6 +34,10 @@ function fmtPrice(value) {
   return n === null ? "N/A" : n.toFixed(2);
 }
 
+function uid(prefix = "trade") {
+  return `${prefix}_${Date.now()}_${Math.round(Math.random() * 1e6)}`;
+}
+
 function readTarget(nextTrade = {}) {
   if (Array.isArray(nextTrade?.targets) && nextTrade.targets.length) {
     return num(nextTrade.targets[0]?.price_mid ?? nextTrade.targets[0]?.price ?? nextTrade.targets[0], null);
@@ -45,6 +51,117 @@ function getTradeLevels(nextTrade = {}) {
     invalidation: num(nextTrade?.invalidation_price ?? nextTrade?.invalidation, null),
     target: readTarget(nextTrade),
   };
+}
+
+function inferDirection(nextTrade = {}) {
+  const setup = String(nextTrade?.setup || "").toLowerCase();
+  const explicit = String(nextTrade?.direction || "").toLowerCase();
+  if (explicit === "long" || explicit === "short") return explicit;
+  if (setup.includes("short") || setup.includes("bear")) return "short";
+  return "long";
+}
+
+function avgCandleRange(candles = []) {
+  const rows = toRecentCandles(candles);
+  if (!rows.length) return 1;
+  const total = rows.reduce((sum, c) => sum + Math.max(1e-6, c.high - c.low), 0);
+  return total / rows.length;
+}
+
+function fallbackFromStructure(direction, candles = [], entry = null) {
+  const rows = toRecentCandles(candles);
+  const last = rows[rows.length - 1] || { close: 0, high: 0, low: 0 };
+  const range = avgCandleRange(rows);
+  const refEntry = num(entry, last.close);
+  const highs = rows.map((c) => c.high);
+  const lows = rows.map((c) => c.low);
+  const swingHigh = highs.length ? Math.max(...highs.slice(-10)) : last.high;
+  const swingLow = lows.length ? Math.min(...lows.slice(-10)) : last.low;
+  if (direction === "short") {
+    const stopLoss = Math.max(refEntry + range * 0.65, swingHigh + range * 0.12);
+    const takeProfit = Math.min(refEntry - range * 1.6, swingLow - range * 0.2);
+    return { entry: refEntry, stopLoss, takeProfit };
+  }
+  const stopLoss = Math.min(refEntry - range * 0.65, swingLow - range * 0.12);
+  const takeProfit = Math.max(refEntry + range * 1.6, swingHigh + range * 0.2);
+  return { entry: refEntry, stopLoss, takeProfit };
+}
+
+export function buildProposedTrade(packet = {}) {
+  const nextTrade = packet?.next_trade || {};
+  const levels = getTradeLevels(nextTrade);
+  const candles = packet?.market_state?.candles || [];
+  const direction = inferDirection(nextTrade);
+  const lastClose = num(candles?.[candles.length - 1]?.close, num(levels.trigger, 0));
+  const baseEntry = num(levels.trigger, lastClose);
+  const structure = fallbackFromStructure(direction, candles, baseEntry);
+
+  let entry = num(levels.trigger, structure.entry);
+  let stopLoss = num(levels.invalidation, structure.stopLoss);
+  let takeProfit = num(levels.target, structure.takeProfit);
+  const minGap = Math.max(1e-6, avgCandleRange(candles) * 0.2);
+
+  if (direction === "long") {
+    if (!(stopLoss < entry)) stopLoss = entry - minGap;
+    if (!(takeProfit > entry)) takeProfit = entry + minGap * 2;
+  } else {
+    if (!(stopLoss > entry)) stopLoss = entry + minGap;
+    if (!(takeProfit < entry)) takeProfit = entry - minGap * 2;
+  }
+
+  return {
+    id: uid("visual"),
+    direction,
+    entry,
+    stopLoss,
+    takeProfit,
+    status: "pending",
+    source: "system_auto",
+    createdAt: Date.now(),
+    notes: "Auto-proposed trade from packet structure.",
+  };
+}
+
+export function evaluateTradeStatus(trade = {}, candles = []) {
+  if (!trade || trade.status === "cancelled") return "cancelled";
+  const rows = toRecentCandles(candles);
+  if (!rows.length) return "pending";
+  const isLong = trade.direction !== "short";
+  const touchedAt = rows.findIndex((c) => c.low <= trade.entry && c.high >= trade.entry);
+  if (touchedAt < 0) return "pending";
+
+  for (let i = touchedAt; i < rows.length; i += 1) {
+    const c = rows[i];
+    if (isLong) {
+      if (c.low <= trade.stopLoss) return "stopped";
+      if (c.high >= trade.takeProfit) return "target_hit";
+    } else {
+      if (c.high >= trade.stopLoss) return "stopped";
+      if (c.low <= trade.takeProfit) return "target_hit";
+    }
+  }
+
+  return touchedAt === rows.length - 1 ? "triggered" : "active";
+}
+
+function calcTradeMetrics(trade = {}, candles = []) {
+  const rows = toRecentCandles(candles);
+  const current = rows[rows.length - 1]?.close ?? trade.entry;
+  const risk = Math.abs(trade.entry - trade.stopLoss);
+  const reward = Math.abs(trade.takeProfit - trade.entry);
+  const rr = risk > 1e-6 ? reward / risk : 0;
+  const dirMult = trade.direction === "short" ? -1 : 1;
+  const distanceToEntry = (current - trade.entry) * dirMult;
+  const progress = reward > 1e-6 ? clamp01(((current - trade.entry) * dirMult) / reward) : 0;
+  const volatility = avgCandleRange(rows);
+  const slTight = volatility > 0 && risk < volatility * 0.7;
+  return { current, risk, reward, rr, distanceToEntry, progress, slTight };
+}
+
+function tradeSourceBadge(trade = {}, systemTrade = {}) {
+  if (!trade || trade.source === "system_auto") return "System Trade Proposal";
+  if (trade.direction && systemTrade?.direction && trade.direction !== systemTrade.direction) return "Operator Override Trade";
+  return "Operator Trade Active";
 }
 
 function buildRiskBanner(packet = {}) {
@@ -61,7 +178,7 @@ function buildRiskBanner(packet = {}) {
   return { tone: "mixed", title: "MIXED CONTEXT", sub: "Confirmation still required before execution." };
 }
 
-function buildBrainVoice(packet = {}, conflict = detectBiasConflict(packet), countdown = getTimeframeCountdown(5)) {
+function buildBrainVoice(packet = {}, conflict = detectBiasConflict(packet), countdown = getTimeframeCountdown(5), trade = null) {
   const nextTrade = packet?.next_trade || {};
   const learningState = packet?.learning_state || {};
   const brainState = packet?.brain_state || {};
@@ -101,7 +218,16 @@ function buildBrainVoice(packet = {}, conflict = detectBiasConflict(packet), cou
   const closeText = countdown.totalSeconds < 20
     ? "Avoid forcing a late entry near candle close. Wait for candle confirmation before acting."
     : "";
-  return `${setupText} ${directionText} ${learningText} ${qualityText} ${riskText} ${familiarityText} ${momentumText} ${conflictText} ${closeText}`.trim();
+  const tradeText = trade
+    ? (() => {
+        const metrics = calcTradeMetrics(trade, packet?.market_state?.candles || []);
+        if (metrics.rr < 1.2) return "Trade structure exists, but reward/risk is weak.";
+        if (metrics.slTight) return "Stop may be too tight for current candle range.";
+        if (trade.source === "operator_override") return `Operator ${trade.direction} override is active.`;
+        return "";
+      })()
+    : "";
+  return `${setupText} ${directionText} ${learningText} ${qualityText} ${riskText} ${familiarityText} ${momentumText} ${conflictText} ${tradeText} ${closeText}`.trim();
 }
 
 function buildSimulationRead(simulationResult = {}, packet = {}) {
@@ -229,7 +355,7 @@ export function simulateTradePaths(nextTrade = {}, candles = []) {
   };
 }
 
-function drawMiniChart(canvas, candles = [], nextTrade = {}) {
+function drawMiniChart(canvas, candles = [], nextTrade = {}, visualTrade = null) {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -242,7 +368,7 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}) {
   if (!rows.length) return;
 
   const levels = getTradeLevels(nextTrade);
-  const levelValues = [levels.trigger, levels.invalidation, levels.target].filter((v) => v !== null);
+  const levelValues = [levels.trigger, levels.invalidation, levels.target, visualTrade?.entry, visualTrade?.stopLoss, visualTrade?.takeProfit].filter((v) => v !== null && v !== undefined);
   const visibleMin = Math.min(...rows.map((c) => c.low), ...levelValues);
   const visibleMax = Math.max(...rows.map((c) => c.high), ...levelValues);
   const range = Math.max(visibleMax - visibleMin, 1e-6);
@@ -329,6 +455,30 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}) {
   drawLine(levels.invalidation, "#ef4444", "invalidation");
   drawLine(levels.target, "#22c55e", "target");
 
+  if (visualTrade) {
+    const entryY = y(visualTrade.entry);
+    const stopY = y(visualTrade.stopLoss);
+    const targetY = y(visualTrade.takeProfit);
+    const isLong = visualTrade.direction !== "short";
+    const profitTop = Math.min(entryY, targetY);
+    const profitBottom = Math.max(entryY, targetY);
+    const riskTop = Math.min(entryY, stopY);
+    const riskBottom = Math.max(entryY, stopY);
+    ctx.fillStyle = "rgba(34,197,94,.16)";
+    ctx.fillRect(inner.left, isLong ? profitTop : riskTop, usableW + 8, Math.abs((isLong ? profitBottom : riskBottom) - (isLong ? profitTop : riskTop)));
+    ctx.fillStyle = "rgba(239,68,68,.15)";
+    ctx.fillRect(inner.left, isLong ? riskTop : profitTop, usableW + 8, Math.abs((isLong ? riskBottom : profitBottom) - (isLong ? riskTop : profitTop)));
+    drawLine(visualTrade.entry, "#f8fafc", "Entry");
+    drawLine(visualTrade.stopLoss, "#ef4444", "SL");
+    drawLine(visualTrade.takeProfit, "#22c55e", "TP");
+    [entryY, stopY, targetY].forEach((lineY, idx) => {
+      ctx.beginPath();
+      ctx.fillStyle = idx === 0 ? "#e2e8f0" : idx === 1 ? "#f87171" : "#4ade80";
+      ctx.arc(inner.left + usableW - 8, lineY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
   if (zonePrice !== null) {
     const startX = inner.left + usableW - 30;
     const startY = y(zonePrice);
@@ -413,7 +563,7 @@ function buildEntryLogic(nextTrade = {}, packet = {}) {
   ];
 }
 
-function buildFinalVerdict(packet = {}, conflict = detectBiasConflict(packet), countdown = getTimeframeCountdown(5)) {
+function buildFinalVerdict(packet = {}, conflict = detectBiasConflict(packet), countdown = getTimeframeCountdown(5), trade = null) {
   const nextTrade = packet?.next_trade || {};
   const brainState = packet?.brain_state || {};
   const operatorOverride = getOperatorOverride(packet);
@@ -430,6 +580,15 @@ function buildFinalVerdict(packet = {}, conflict = detectBiasConflict(packet), c
   }
   if (noTradeLike || confidence < 0.08) {
     return { label: "NO TRADE", reason: "Context is too weak/noisy to justify execution." };
+  }
+  if (trade) {
+    const metrics = calcTradeMetrics(trade, packet?.market_state?.candles || []);
+    if (metrics.rr < 1.2) {
+      return { label: "WEAK R/R - WAIT", reason: "Trade structure exists, but reward/risk is below preferred threshold." };
+    }
+    if (metrics.slTight) {
+      return { label: "TIGHT STOP WARNING", reason: "Stop distance is tight versus recent candle range." };
+    }
   }
   if (countdown.totalSeconds < 20 || conflict.hasConflict) {
     return { label: "WAIT FOR CONFIRMATION", reason: conflict.hasConflict ? conflict.summary : "Candle is near close; wait for confirmation." };
@@ -454,8 +613,11 @@ function renderModal(packet = {}) {
   const countdown = getTimeframeCountdown(5);
   const entryLogic = buildEntryLogic(nextTrade, packet);
   const riskBanner = buildRiskBanner(packet);
-  const brainVoice = buildBrainVoice(packet, conflict, countdown);
-  const verdict = buildFinalVerdict(packet, conflict, countdown);
+  const activeTrade = _visualTrade || _systemTradeProposal || buildProposedTrade(packet);
+  const activeStatus = evaluateTradeStatus(activeTrade, packet?.market_state?.candles || []);
+  const metrics = calcTradeMetrics(activeTrade, packet?.market_state?.candles || []);
+  const brainVoice = buildBrainVoice(packet, conflict, countdown, activeTrade);
+  const verdict = buildFinalVerdict(packet, conflict, countdown, activeTrade);
   const sim = simulateTradePaths(nextTrade, packet?.market_state?.candles || []);
   return `
     <div class="tvm-backdrop" data-tvm-close="1"></div>
@@ -487,6 +649,7 @@ function renderModal(packet = {}) {
             <div class="tvm-kv"><span>Setup</span><strong id="tvm-quick-setup">${prettyLabel(setup, "Chop / No Trade")}</strong></div>
             <div class="tvm-kv"><span>Direction</span><strong id="tvm-quick-direction">${prettyLabel(effectiveDirection)}</strong></div>
             <div class="tvm-kv"><span>Confidence</span><strong id="tvm-quick-confidence">${Math.round(confidence * 100)}%</strong></div>
+            <p class="tiny"><span id="tvm-trade-source-badge" class="badge badge-blue">${tradeSourceBadge(activeTrade, _systemTradeProposal || activeTrade)}</span></p>
             ${operatorOverride ? `<p class="tiny"><span id="tvm-override-badge" class="badge badge-yellow">Operator Override: ${prettyLabel(operatorOverride)}</span></p>` : '<p class="tiny" id="tvm-override-badge"></p>'}
             <div class="tvm-summary-verdict" id="tvm-final-verdict"><strong>VERDICT: ${verdict.label}</strong><p class="tiny muted">${verdict.reason}</p></div>
           </div>
@@ -538,6 +701,25 @@ function renderModal(packet = {}) {
           <label class="tiny" for="tvm-note">Operator note</label>
           <textarea id="tvm-note" rows="4" placeholder="Add note for brain memory store">${_operatorNote}</textarea>
           <div class="button-row compact"><button class="ghost" type="button" data-tvm-action="save-note">Save Note</button></div>
+          <div class="tvm-trade-editor">
+            <div class="tiny"><strong>Visual Trade Editor</strong></div>
+            <div class="tvm-trade-form">
+              <label class="tiny">Direction
+                <select id="tvm-trade-direction">
+                  <option value="long" ${activeTrade.direction === "long" ? "selected" : ""}>Long</option>
+                  <option value="short" ${activeTrade.direction === "short" ? "selected" : ""}>Short</option>
+                </select>
+              </label>
+              <label class="tiny">Entry<input id="tvm-trade-entry" type="number" step="0.01" value="${activeTrade.entry.toFixed(2)}"></label>
+              <label class="tiny">Stop Loss<input id="tvm-trade-sl" type="number" step="0.01" value="${activeTrade.stopLoss.toFixed(2)}"></label>
+              <label class="tiny">Take Profit<input id="tvm-trade-tp" type="number" step="0.01" value="${activeTrade.takeProfit.toFixed(2)}"></label>
+            </div>
+            <div class="button-row compact">
+              <button class="ghost" type="button" data-tvm-action="use-auto-trade">Use Auto Trade</button>
+              <button class="ghost" type="button" data-tvm-action="apply-manual-trade">Apply Manual Trade</button>
+              <button class="ghost" type="button" data-tvm-action="reset-system-trade">Reset to System Proposal</button>
+            </div>
+          </div>
         </article>
 
         <article class="panel-soft tvm-area-sim">
@@ -551,6 +733,19 @@ function renderModal(packet = {}) {
           <div class="tvm-sim-read">
             <div class="tiny"><strong>Simulation Read</strong></div>
             <p class="tiny muted" id="tvm-sim-read">${buildSimulationRead(sim, packet)}</p>
+          </div>
+          <div class="tvm-sim-read">
+            <div class="tiny"><strong>Live Trade Info</strong></div>
+            <div class="tvm-plan-grid" id="tvm-live-trade-info">
+              <div class="tvm-kv"><span>Status</span><strong>${prettyLabel(activeStatus)}</strong></div>
+              <div class="tvm-kv"><span>Direction</span><strong>${prettyLabel(activeTrade.direction)}</strong></div>
+              <div class="tvm-kv"><span>Entry / SL / TP</span><strong>${fmtPrice(activeTrade.entry)} / ${fmtPrice(activeTrade.stopLoss)} / ${fmtPrice(activeTrade.takeProfit)}</strong></div>
+              <div class="tvm-kv"><span>Risk / Reward</span><strong class="${metrics.rr < 1.2 ? "tvm-rr-weak" : ""}">${metrics.rr.toFixed(2)}</strong></div>
+              <div class="tvm-kv"><span>Risk pts</span><strong>${metrics.risk.toFixed(2)}</strong></div>
+              <div class="tvm-kv"><span>Reward pts</span><strong>${metrics.reward.toFixed(2)}</strong></div>
+              <div class="tvm-kv"><span>Distance to Entry</span><strong>${metrics.distanceToEntry.toFixed(2)}</strong></div>
+              <div class="tvm-kv"><span>Unrealized Progress</span><strong>${Math.round(metrics.progress * 100)}%</strong></div>
+            </div>
           </div>
         </article>
       </div>
@@ -579,16 +774,17 @@ function updateNarrativePanels(root, packet = {}) {
   const conflict = detectBiasConflict(packet);
   const countdown = getTimeframeCountdown(5);
   const risk = buildRiskBanner(packet);
+  const activeTrade = _visualTrade || _systemTradeProposal || buildProposedTrade(packet);
   const riskEl = root.querySelector("#tvm-risk-banner");
   if (riskEl) {
     riskEl.className = `tvm-risk-banner tvm-risk-${risk.tone}`;
     riskEl.innerHTML = `<strong>${risk.title}</strong><div class="tiny">${risk.sub}</div>`;
   }
   const brainVoiceEl = root.querySelector("#tvm-brain-voice");
-  if (brainVoiceEl) brainVoiceEl.textContent = buildBrainVoice(packet, conflict, countdown);
+  if (brainVoiceEl) brainVoiceEl.textContent = buildBrainVoice(packet, conflict, countdown, activeTrade);
   const verdictEl = root.querySelector("#tvm-final-verdict");
   if (verdictEl) {
-    const verdict = buildFinalVerdict(packet, conflict, countdown);
+    const verdict = buildFinalVerdict(packet, conflict, countdown, activeTrade);
     verdictEl.innerHTML = `<strong>VERDICT: ${verdict.label}</strong><p class="tiny muted">${verdict.reason}</p>`;
   }
 
@@ -606,6 +802,8 @@ function updateNarrativePanels(root, packet = {}) {
     overrideBadgeEl.className = operatorOverride ? "badge badge-yellow" : "";
     overrideBadgeEl.textContent = operatorOverride ? `Operator Override: ${prettyLabel(operatorOverride)}` : "";
   }
+  const tradeBadgeEl = root.querySelector("#tvm-trade-source-badge");
+  if (tradeBadgeEl) tradeBadgeEl.textContent = tradeSourceBadge(activeTrade, _systemTradeProposal || activeTrade);
 
   const countdownEl = root.querySelector("#tvm-countdown");
   if (countdownEl) {
@@ -638,8 +836,51 @@ function updateNarrativePanels(root, packet = {}) {
   }
 }
 
+function readTradeEditor(root, baseTrade = {}) {
+  const direction = root.querySelector("#tvm-trade-direction")?.value || baseTrade.direction || "long";
+  return {
+    ...baseTrade,
+    direction,
+    entry: num(root.querySelector("#tvm-trade-entry")?.value, baseTrade.entry),
+    stopLoss: num(root.querySelector("#tvm-trade-sl")?.value, baseTrade.stopLoss),
+    takeProfit: num(root.querySelector("#tvm-trade-tp")?.value, baseTrade.takeProfit),
+  };
+}
+
+function syncTradeEditor(root, trade = {}) {
+  const d = root.querySelector("#tvm-trade-direction");
+  const e = root.querySelector("#tvm-trade-entry");
+  const sl = root.querySelector("#tvm-trade-sl");
+  const tp = root.querySelector("#tvm-trade-tp");
+  if (d) d.value = trade.direction;
+  if (e) e.value = num(trade.entry, 0).toFixed(2);
+  if (sl) sl.value = num(trade.stopLoss, 0).toFixed(2);
+  if (tp) tp.value = num(trade.takeProfit, 0).toFixed(2);
+}
+
+function updateLiveTradePanel(root, packet = {}) {
+  const holder = root.querySelector("#tvm-live-trade-info");
+  if (!holder || !_visualTrade) return;
+  const candles = packet?.market_state?.candles || [];
+  const status = evaluateTradeStatus(_visualTrade, candles);
+  _visualTrade = { ..._visualTrade, status };
+  const m = calcTradeMetrics(_visualTrade, candles);
+  holder.innerHTML = `
+    <div class="tvm-kv"><span>Status</span><strong>${prettyLabel(status)}</strong></div>
+    <div class="tvm-kv"><span>Direction</span><strong>${prettyLabel(_visualTrade.direction)}</strong></div>
+    <div class="tvm-kv"><span>Entry / SL / TP</span><strong>${fmtPrice(_visualTrade.entry)} / ${fmtPrice(_visualTrade.stopLoss)} / ${fmtPrice(_visualTrade.takeProfit)}</strong></div>
+    <div class="tvm-kv"><span>Risk / Reward</span><strong class="${m.rr < 1.2 ? "tvm-rr-weak" : ""}">${m.rr.toFixed(2)}</strong></div>
+    <div class="tvm-kv"><span>Risk pts</span><strong>${m.risk.toFixed(2)}</strong></div>
+    <div class="tvm-kv"><span>Reward pts</span><strong>${m.reward.toFixed(2)}</strong></div>
+    <div class="tvm-kv"><span>Distance to Entry</span><strong>${m.distanceToEntry.toFixed(2)}</strong></div>
+    <div class="tvm-kv"><span>Unrealized Progress</span><strong>${Math.round(m.progress * 100)}%</strong></div>
+  `;
+}
+
 export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
   const packet = brainPacket || getCurrentPacket() || {};
+  _systemTradeProposal = buildProposedTrade(packet);
+  _visualTrade = packet?.visual_trade ? { ...packet.visual_trade } : { ..._systemTradeProposal };
   if (_modalRoot) _modalRoot.remove();
   _modalRoot = document.createElement("div");
   _modalRoot.className = "tvm-root";
@@ -647,7 +888,23 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
   document.body.appendChild(_modalRoot);
 
   const chart = _modalRoot.querySelector("#tvm-chart");
-  drawMiniChart(chart, packet?.market_state?.candles || [], { ...(packet?.next_trade || {}), direction: getOperatorOverride(packet) || packet?.next_trade?.direction });
+  drawMiniChart(chart, packet?.market_state?.candles || [], { ...(packet?.next_trade || {}), direction: getOperatorOverride(packet) || packet?.next_trade?.direction }, _visualTrade);
+  updateLiveTradePanel(_modalRoot, packet);
+
+  const onTradeInput = () => {
+    if (!_modalRoot) return;
+    const livePacket = getCurrentPacket() || packet;
+    const nextManual = readTradeEditor(_modalRoot, _visualTrade || _systemTradeProposal);
+    const source = nextManual.direction !== (_systemTradeProposal?.direction || nextManual.direction) ? "operator_override" : "operator_manual";
+    _visualTrade = { ...nextManual, source, status: evaluateTradeStatus(nextManual, livePacket?.market_state?.candles || []) };
+    drawMiniChart(_modalRoot.querySelector("#tvm-chart"), livePacket?.market_state?.candles || [], livePacket?.next_trade || {}, _visualTrade);
+    updateLiveTradePanel(_modalRoot, livePacket);
+    updateNarrativePanels(_modalRoot, livePacket);
+  };
+  ["#tvm-trade-direction", "#tvm-trade-entry", "#tvm-trade-sl", "#tvm-trade-tp"].forEach((selector) => {
+    const el = _modalRoot.querySelector(selector);
+    if (el) el.addEventListener("input", onTradeInput);
+  });
 
   const close = () => {
     if (_refreshTimer) window.clearInterval(_refreshTimer);
@@ -688,6 +945,16 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
       controls?.saveOperatorNote?.(note, livePacket);
     } else if (action === "simulate") {
       updateSimulationBars(_modalRoot, livePacket?.next_trade || {}, livePacket?.market_state?.candles || []);
+    } else if (action === "use-auto-trade" || action === "reset-system-trade") {
+      _systemTradeProposal = buildProposedTrade(livePacket);
+      _visualTrade = { ..._systemTradeProposal, source: "system_auto", status: evaluateTradeStatus(_systemTradeProposal, livePacket?.market_state?.candles || []) };
+      syncTradeEditor(_modalRoot, _visualTrade);
+      updateCurrentPacket({ visual_trade: _visualTrade });
+    } else if (action === "apply-manual-trade") {
+      const edited = readTradeEditor(_modalRoot, _visualTrade || _systemTradeProposal);
+      const source = edited.direction !== (_systemTradeProposal?.direction || edited.direction) ? "operator_override" : "operator_manual";
+      _visualTrade = { ...edited, source, status: evaluateTradeStatus(edited, livePacket?.market_state?.candles || []), createdAt: _visualTrade?.createdAt || Date.now() };
+      updateCurrentPacket({ visual_trade: _visualTrade });
     }
     window.setTimeout(() => {
       const refreshed = getCurrentPacket();
@@ -696,9 +963,11 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
         _modalRoot.querySelector("#tvm-chart"),
         refreshed?.market_state?.candles || [],
         { ...(refreshed?.next_trade || {}), direction: getOperatorOverride(refreshed) || refreshed?.next_trade?.direction },
+        _visualTrade,
       );
       updateSimulationBars(_modalRoot, refreshed?.next_trade || {}, refreshed?.market_state?.candles || []);
       updateNarrativePanels(_modalRoot, refreshed);
+      updateLiveTradePanel(_modalRoot, refreshed);
     }, 120);
   });
 
@@ -710,9 +979,11 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
       _modalRoot.querySelector("#tvm-chart"),
       livePacket?.market_state?.candles || [],
       { ...(livePacket?.next_trade || {}), direction: getOperatorOverride(livePacket) || livePacket?.next_trade?.direction },
+      _visualTrade,
     );
     updateSimulationBars(_modalRoot, livePacket?.next_trade || {}, livePacket?.market_state?.candles || []);
     updateNarrativePanels(_modalRoot, livePacket);
+    updateLiveTradePanel(_modalRoot, livePacket);
   }, 1000);
 
   return { close };
