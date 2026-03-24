@@ -5429,11 +5429,21 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   });
   _lastBrainVerdict = orchestration.brainPacket;
   if (_lastBrainVerdict?.learningEffects?.signature) {
+    const confidenceComponents = _lastBrainVerdict?.confidence_components || {};
     persistLearnedContext({
       signature: _lastBrainVerdict.learningEffects.signature,
       learnedContextCurrent: _lastBrainVerdict.learningEffects.learnedContextCurrent,
     });
-    brainMemoryStore.upsertContext(_lastBrainVerdict.learningEffects.signature, _lastBrainVerdict.learningEffects.learnedContextCurrent, {
+    brainMemoryStore.upsertContext(_lastBrainVerdict.learningEffects.signature, {
+      ..._lastBrainVerdict.learningEffects.learnedContextCurrent,
+      persisted_confidence: Number(_lastBrainVerdict.confidence || 0),
+      confidence: Number(_lastBrainVerdict.confidence || 0),
+      last_confidence: Number(_lastBrainVerdict.confidence || 0),
+      confidence_previous: Number(confidenceComponents.previous_confidence || _lastBrainVerdict.confidence || 0),
+      confidence_new: Number(confidenceComponents.new_confidence || _lastBrainVerdict.confidence || 0),
+      confidence_blended: Number(confidenceComponents.blended_confidence || _lastBrainVerdict.confidence || 0),
+      reinforcement_confidence_delta: Number(confidenceComponents.reinforcement_delta || 0),
+    }, {
       sessionId: getActiveSession()?.id || null,
       symbol: marketView.symbol,
       timeframe: marketView.timeframe,

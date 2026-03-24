@@ -14,6 +14,10 @@ function normalizeLinear(value, min, max) {
   return clamp((toNumber(value, min) - min) / (max - min), 0, 1);
 }
 
+function blendConfidence(previous, computed) {
+  return clamp((previous * 0.6) + (computed * 0.4), 0, 1);
+}
+
 function computeRecencyFactor(lastOutcomes = []) {
   const rows = Array.isArray(lastOutcomes) ? lastOutcomes.slice(-3) : [];
   if (!rows.length) return 0.5;
@@ -40,6 +44,7 @@ export function computeConfidenceEngine({
   riskProfile = {},
   learningMode = "mixed",
   manualControls = null,
+  reinforcementConfidenceDelta = null,
 } = {}) {
   const samples = Math.max(0, toNumber(contextMemory?.samples ?? contextMemory?.counts, 0));
   const wins = Math.max(0, toNumber(contextMemory?.wins, 0));
@@ -90,14 +95,35 @@ export function computeConfidenceEngine({
     console.info(`[Confidence] boosted by manual override ${boost >= 0 ? "+" : ""}${boost.toFixed(2)}`);
   }
 
+  const previousConfidence = clamp(toNumber(
+    contextMemory?.persisted_confidence ?? contextMemory?.confidence ?? contextMemory?.last_confidence,
+    confidenceScore,
+  ), 0, 1);
+  const blendedConfidence = blendConfidence(previousConfidence, confidenceScore);
+  const reinforcementDelta = toNumber(
+    reinforcementConfidenceDelta ?? contextMemory?.reinforcement_confidence_delta,
+    0,
+  );
+  const finalConfidence = clamp(blendedConfidence + reinforcementDelta, 0, 1);
+
+  console.info(`[Confidence] previous ${previousConfidence.toFixed(3)} vs new ${confidenceScore.toFixed(3)} vs blended ${blendedConfidence.toFixed(3)}`);
+  if (Math.abs(reinforcementDelta) > 0.0001) {
+    console.info(`[Confidence] reinforcement delta applied ${reinforcementDelta >= 0 ? "+" : ""}${reinforcementDelta.toFixed(3)}`);
+    reasons.push(`reinforcement delta ${reinforcementDelta >= 0 ? "+" : ""}${reinforcementDelta.toFixed(3)}`);
+  }
+
   const output = {
-    confidence_score: Number(confidenceScore.toFixed(3)),
-    confidence_label: toConfidenceLabel(confidenceScore),
+    confidence_score: Number(finalConfidence.toFixed(3)),
+    confidence_label: toConfidenceLabel(finalConfidence),
     components: {
       winrate_factor: Number(winrateFactor.toFixed(3)),
       familiarity_factor: Number(familiarityFactor.toFixed(3)),
       scenario_factor: Number(scenarioFactor.toFixed(3)),
       recency_factor: Number(recencyFactor.toFixed(3)),
+      previous_confidence: Number(previousConfidence.toFixed(3)),
+      new_confidence: Number(confidenceScore.toFixed(3)),
+      blended_confidence: Number(blendedConfidence.toFixed(3)),
+      reinforcement_delta: Number(reinforcementDelta.toFixed(3)),
     },
     reason: reasons,
   };
