@@ -231,8 +231,12 @@ export class SessionChart {
   _priceRange(){
     const n=this.candles.length;if(!n)return{min:0,max:1};
     const lo=clamp(Math.floor(this._idxAtX(0))-1,0,n-1),hi=clamp(Math.ceil(this._idxAtX(this._chartW))+1,0,n-1);
-    let min=Infinity,max=-Infinity;
-    for(let i=lo;i<=hi;i++){const c=this.candles[i];if(!c)continue;if(c.low<min)min=c.low;if(c.high>max)max=c.high;}
+    let candleMin=Infinity,candleMax=-Infinity;
+    for(let i=lo;i<=hi;i++){const c=this.candles[i];if(!c)continue;if(c.low<candleMin)candleMin=c.low;if(c.high>candleMax)candleMax=c.high;}
+    if(!Number.isFinite(candleMin)||!Number.isFinite(candleMax))return{min:0,max:1};
+    const candleRange=candleMax-candleMin||0.001; // 0.001: minimum range to avoid division by zero on flat data
+
+    // Collect all overlay prices (non-trade), always included in scale
     const ovl=this.overlays,lp=this.livePlan?.plan;
     const scenarioPrices=((ovl.scenarioProjection?.scenarios||[]).flatMap((scenario)=>[
       ...((scenario.projected_path||[]).flatMap((point)=>[point.price_low,point.price_mid,point.price_high])),
@@ -240,9 +244,23 @@ export class SessionChart {
       scenario.invalidation_price,
       scenario.start_price,
     ]));
-    [...this._manualSR.map(l=>l.price),...scenarioPrices,ovl.nearestSupport,ovl.nearestResistance,ovl.recentHigh,ovl.recentLow,lp?.referencePrice,lp?.stopLoss,lp?.takeProfit]
+    let min=candleMin,max=candleMax;
+    [...this._manualSR.map(l=>l.price),...scenarioPrices,ovl.nearestSupport,ovl.nearestResistance,ovl.recentHigh,ovl.recentLow]
       .forEach(p=>{if(Number.isFinite(p)){min=Math.min(min,p);max=Math.max(max,p);}});
-    if(!Number.isFinite(min)||!Number.isFinite(max))return{min:0,max:1};
+
+    // Smart scaling for trade levels (SL/TP/entry): only include when close enough to candles.
+    // TRADE_SCALE_THRESHOLD: trade range must be <= 1.5x candle range to include trade levels in scale.
+    const TRADE_SCALE_THRESHOLD=1.5;
+    const tradePrices=[lp?.referencePrice,lp?.stopLoss,lp?.takeProfit].filter(p=>Number.isFinite(p));
+    if(tradePrices.length){
+      const tradeMin=Math.min(...tradePrices),tradeMax=Math.max(...tradePrices);
+      const tradeRange=tradeMax-tradeMin;
+      if(tradeRange<=candleRange*TRADE_SCALE_THRESHOLD){
+        tradePrices.forEach(p=>{min=Math.min(min,p);max=Math.max(max,p);});
+      }
+      // When out-of-scale, trade lines are still drawn but chart stays scaled to candles
+    }
+
     const pad=(max-min)*0.1||0.001;return{min:min-pad,max:max+pad};
   }
 
@@ -434,10 +452,25 @@ export class SessionChart {
   _drawLivePlanLines(ctx){
     const lp=this.livePlan?.plan;if(!lp)return;
     const isLong=this.livePlan?.policy?.action==="LONG",ec=isLong?C.entryLong:C.entryShort;
+    const{min:rangeMin,max:rangeMax}=this._priceRange();
     [{p:lp.referencePrice,color:ec,dash:[],lw:1.8,label:"Entry"},
      {p:lp.stopLoss,color:C.sl,dash:[6,4],lw:1.2,label:"SL"},
      {p:lp.takeProfit,color:C.tp,dash:[6,4],lw:1.2,label:"TP"}].forEach(({p,color,dash,lw,label})=>{
-      if(!Number.isFinite(p))return;const y=this._yForPrice(p);
+      if(!Number.isFinite(p))return;
+      const offTop=p>rangeMax,offBottom=p<rangeMin;
+      if(offTop||offBottom){
+        // Draw edge marker and label on the chart border for out-of-scale levels
+        const markerY=offTop?PAD_TOP+2:PAD_TOP+this._chartH-2;
+        const arrow=offTop?"↑":"↓";
+        ctx.fillStyle=color;ctx.beginPath();ctx.arc(this._chartW-16,markerY+(offTop?5:-5),4,0,Math.PI*2);ctx.fill();
+        ctx.font="9px 'JetBrains Mono',monospace";
+        const text=`${label} ${arrow} ${fmt(p,this.decimals)}`;
+        const tw=ctx.measureText(text).width+10,lx=this._chartW-tw-24;
+        ctx.fillStyle="rgba(9,16,28,0.80)";ctx.beginPath();ctx.roundRect(lx,markerY+(offTop?0:-12),tw,12,2);ctx.fill();
+        ctx.fillStyle=color;ctx.textAlign="left";ctx.fillText(text,lx+5,markerY+(offTop?9:-3));
+        return;
+      }
+      const y=this._yForPrice(p);
       ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.setLineDash(dash);
       ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(this._chartW,y);ctx.stroke();ctx.setLineDash([]);
       ctx.font="9px 'JetBrains Mono',monospace";
