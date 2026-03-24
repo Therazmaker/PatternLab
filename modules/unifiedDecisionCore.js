@@ -3,6 +3,8 @@ import { ingestLearningFromFeedback } from "./contextLearningEngine.js";
 import { buildNextCandlePlan } from "./nextCandlePlanner.js";
 import { computeContextScoring } from "./contextScoringEngine.js";
 import { evaluateAutoShift } from "./autoShiftEngine.js";
+import { computeConfidenceEngine } from "./confidenceEngine.js";
+import { getManualControls } from "./manualControlsStore.js";
 
 export const AGGRESSIVE_LEARNING_PROFILE = Object.freeze({
   profile: "aggressive_learning",
@@ -103,6 +105,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     ...(contextMemoryRow || {}),
   };
   const contextScores = computeContextScoring(mergedContext);
+  const manualControls = getManualControls();
   const learnedPenalty = learning.learnedContextCurrent?.penalty || 0;
   const learnedBoost = learning.learnedContextCurrent?.boost || 0;
   const rulePenalty = ruleSet.reduce((acc, row) => acc + Number(row.effect?.confidencePenalty || row.effect?.longPenalty || 0), 0);
@@ -120,14 +123,34 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     1,
   );
 
-  const baseConfidence = clamp(Number(probability.confidence || 0) / 100, 0, 1);
+  const scenarioReliability = clamp(
+    Number(analysis?.scenario_primary?.reliability
+      ?? analysis?.overlays?.scenarioReliability
+      ?? mergedContext?.scenarioReliability
+      ?? 0.5),
+    0,
+    1,
+  );
+  const confidencePacket = computeConfidenceEngine({
+    contextMemory: {
+      ...mergedContext,
+      ...contextScores,
+      samples: contextScores.samples,
+      wins: contextScores.wins,
+      losses: contextScores.losses,
+      last_outcomes: contextScores.last_outcomes || mergedContext?.last_outcomes || [],
+    },
+    scenarioReliability,
+    familiarity: contextScores.familiarity,
+    learningMode: modeState.mode || "mixed",
+    manualControls,
+  });
   let confidence = clamp(
-    baseConfidence
-      + learnedBoost
-      - learnedPenalty
-      - rulePenalty
-      + contextScores.confidence_adjustment
-      + (baseBias === "short" ? ruleBoost * 0.4 : 0),
+    confidencePacket.confidence_score
+      + learnedBoost * 0.5
+      - learnedPenalty * 0.5
+      - rulePenalty * 0.25
+      + (baseBias === "short" ? ruleBoost * 0.12 : 0),
     0,
     1,
   );
@@ -142,11 +165,22 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     confidence = clamp(confidence + 0.08, 0, 1);
   }
 
-  const entryScore = clamp(((Number(structure.entryQuality || 50) / 100) + confidence) / 2 - frictionRaw * 0.4, 0, 1);
+  const strictnessPenalty = confidence < 0.3 ? 0.12 : confidence > 0.6 ? -0.04 : 0;
+  const entryScore = clamp(
+    ((Number(structure.entryQuality || 50) / 100) + confidence) / 2
+    - frictionRaw * (confidence < 0.3 ? 0.55 : 0.35)
+    - strictnessPenalty,
+    0,
+    1,
+  );
   let entryQuality = mapEntryQuality(entryScore);
   let allowTrade = true;
   const noTradeReasons = [];
-  const learningProfile = AGGRESSIVE_LEARNING_PROFILE;
+  const learningProfile = {
+    ...AGGRESSIVE_LEARNING_PROFILE,
+    exploration_bias: Number(manualControls?.exploration_bias_override ?? AGGRESSIVE_LEARNING_PROFILE.exploration_bias),
+    exploitation_bias: Number(manualControls?.exploitation_bias_override ?? AGGRESSIVE_LEARNING_PROFILE.exploitation_bias),
+  };
   const modeIsPaper = (modeState?.executorMode || "paper") === "paper";
   const sampleCount = Number(contextScores.samples || contextMemoryRow?.counts || contextMemoryRow?.samples || 0);
   let contextMaturity = contextMaturityForSamples(sampleCount, learningProfile);
@@ -185,11 +219,16 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     console.info("[LearningProfile] Exploration override enabled");
   }
 
+  const disableContextBlocking = Boolean(manualControls?.disable_context_blocking);
   if (contextScores.danger_score > 0.65) {
     if (!bypassProtection) {
-      entryQuality = "wait";
-      allowTrade = false;
-      noTradeReasons.push("High danger context");
+      if (disableContextBlocking) {
+        noTradeReasons.push("manual_context_blocking_disabled_danger_ignored");
+      } else {
+        entryQuality = "wait";
+        allowTrade = false;
+        noTradeReasons.push("High danger context");
+      }
     } else {
       bypassedBlocks.push("danger");
       console.info("[LearningProfile] Bypassing danger block");
@@ -206,14 +245,14 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
       console.info("[LearningProfile] Bypassing friction block");
     }
   }
-  if (maturedBadContext) {
+  if (maturedBadContext && !disableContextBlocking) {
     entryQuality = "wait";
     allowTrade = false;
     noTradeReasons.unshift("matured_bad_context");
     console.info("[LearningProfile] context matured into bad block");
   }
 
-  if (Number(contextMemoryRow?.blocked_for_candles || 0) > 0) {
+  if (Number(contextMemoryRow?.blocked_for_candles || 0) > 0 && !disableContextBlocking) {
     entryQuality = "wait";
     allowTrade = false;
     noTradeReasons.push("repeated_loss_context");
@@ -254,6 +293,16 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     noTradeReasons.unshift("missing_invalidation");
   }
 
+  if (confidence < 0.3) {
+    entryQuality = "wait";
+    posture = "wait";
+    allowTrade = false;
+    noTradeReasons.unshift("low_confidence_strict_confirmation_required");
+  } else if (confidence > 0.6 && entryQuality === "wait" && triggerConfirmed && invalidationDefined) {
+    entryQuality = "C";
+    if (posture === "wait") posture = "execute_on_confirmation";
+  }
+
   const autoShift = evaluateAutoShift({
     contextSignature: learning.signature || contextMemoryRow?.context_signature || null,
     contextMemory: {
@@ -284,7 +333,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
   const adjustedFriction = clamp(frictionRaw * Number(autoShift.friction_penalty_multiplier || 1), 0, 1);
   contextMaturity = autoShift.context_maturity || contextMaturity;
 
-  if (autoShift.block_trading || autoShift.learning_mode === "blocked") {
+  if ((autoShift.block_trading || autoShift.learning_mode === "blocked") && !disableContextBlocking) {
     allowTrade = false;
     posture = "wait";
     noTradeReasons.unshift("matured_bad_context");
@@ -302,6 +351,11 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     ? (noTradeReasons[0] || (marketState.momentumConflict ? "Wait: conflict between momentum and structure" : "Wait: learned friction degraded signal"))
     : null;
 
+  const forcedLearningMode = manualControls?.force_learning_mode || null;
+  if (forcedLearningMode) {
+    console.info(`[Manual] learning mode overridden -> ${forcedLearningMode}`);
+  }
+
   return {
     bias,
     confidence: Number(confidence.toFixed(3)),
@@ -313,8 +367,13 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     learned_context_match: learning.similarContexts,
     next_candle_plan: { ...nextPlan, posture },
     no_trade_reason: noTradeReason,
+    confidence_components: confidencePacket.components,
+    confidence_reason: confidencePacket.reason,
+    confidence_label: confidencePacket.confidence_label,
+    trade_strictness: confidence < 0.3 ? "strict" : confidence > 0.6 ? "adaptive" : "normal",
+    size_multiplier_hint: Number((confidence < 0.3 ? 0.75 : confidence > 0.6 ? 1.1 : 1).toFixed(3)),
     learning_profile: learningProfile,
-    learning_mode: autoShift.learning_mode || (explorationOverrideApplied ? "exploration" : "mixed"),
+    learning_mode: forcedLearningMode || autoShift.learning_mode || (explorationOverrideApplied ? "exploration" : "mixed"),
     exploration_trade_allowed: explorationTradeAllowed,
     exploration_override_applied: explorationOverrideApplied,
     bypassed_blocks: bypassedBlocks,

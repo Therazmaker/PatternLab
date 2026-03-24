@@ -44,6 +44,17 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const planContext = plan?.context_signature ? (opts?.contextRow || {}) : {};
   const autoShift = verdict?.auto_shift || {};
   const riskProfile = plan?.risk_profile || executorState?.lastRiskProfile || null;
+  const manualControls = opts?.manualControls || {};
+  const manualOverridesActive = Boolean(opts?.manualOverridesActive);
+  const confidencePreview = Math.max(0, Math.min(1, Number(verdict?.confidence || 0) + Number(manualControls?.confidence_boost || 0)));
+  const sizePreview = Math.max(
+    0,
+    Math.min(
+      Number(manualControls?.max_risk_cap ?? 1),
+      Number(riskProfile?.size_multiplier || 0) * Number(manualControls?.risk_multiplier_override || 1),
+    ),
+  );
+  const modePreview = manualControls?.force_learning_mode || verdict?.learning_mode || "mixed";
   const maxExploratoryTrades = Number(profile?.max_exploratory_trades_per_context || 5);
   const exploratoryTaken = Number(planContext?.exploratory_trades_taken || 0);
   const exploratoryLeft = Math.max(0, maxExploratoryTrades - exploratoryTaken);
@@ -156,6 +167,49 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           </div>
           <p class="muted tiny">Paper is default. Live execution is blocked until safety gate passes and manual confirmation is enabled.</p>
           <p class="tiny"><span class="badge">manual confirmation: ${(executionControlState?.manualConfirmationRequired !== false) ? "required" : "optional"}</span></p>
+        </section>
+
+        <section>
+          <h5>I. Confidence Engine</h5>
+          <p class="tiny">Confidence: <strong>${pct(verdict?.confidence || 0)}</strong> (${safe(verdict?.confidence_label, "medium")})</p>
+          <p class="tiny">components → winrate <strong>${safe(verdict?.confidence_components?.winrate_factor, 0)}</strong> · familiarity <strong>${safe(verdict?.confidence_components?.familiarity_factor, 0)}</strong> · scenario <strong>${safe(verdict?.confidence_components?.scenario_factor, 0)}</strong> · recency <strong>${safe(verdict?.confidence_components?.recency_factor, 0)}</strong></p>
+          <p class="tiny">recent performance impact: <strong>${safe((verdict?.confidence_reason || []).find((row) => String(row).includes("recency")) || "n/a")}</strong></p>
+          <div>${chips((verdict?.confidence_reason || []).slice(0, 4))}</div>
+        </section>
+
+        <section>
+          <h5>J. Manual Controls</h5>
+          <p class="tiny"><span class="badge ${manualOverridesActive ? "badge-yellow" : "badge-muted"}">override ${manualOverridesActive ? "active" : "inactive"}</span></p>
+          <label class="tiny">Confidence Boost (${Number(manualControls?.confidence_boost || 0).toFixed(2)})
+            <input type="range" min="-0.2" max="0.2" step="0.01" value="${Number(manualControls?.confidence_boost || 0)}" data-manual-control="confidence_boost" />
+          </label>
+          <label class="tiny">Risk Multiplier (${Number(manualControls?.risk_multiplier_override || 1).toFixed(2)})
+            <input type="range" min="0.5" max="1.5" step="0.01" value="${Number(manualControls?.risk_multiplier_override || 1)}" data-manual-control="risk_multiplier_override" />
+          </label>
+          <label class="tiny">Exploration Bias (${Number(manualControls?.exploration_bias_override || 0.7).toFixed(2)})
+            <input type="range" min="0" max="1" step="0.01" value="${Number(manualControls?.exploration_bias_override || 0.7)}" data-manual-control="exploration_bias_override" />
+          </label>
+          <label class="tiny">Exploitation Bias (${Number(manualControls?.exploitation_bias_override || 0.3).toFixed(2)})
+            <input type="range" min="0" max="1" step="0.01" value="${Number(manualControls?.exploitation_bias_override || 0.3)}" data-manual-control="exploitation_bias_override" />
+          </label>
+          <label class="tiny">Max Risk Cap (${Number(manualControls?.max_risk_cap || 1).toFixed(2)})
+            <input type="range" min="0" max="1" step="0.01" value="${Number(manualControls?.max_risk_cap || 1)}" data-manual-control="max_risk_cap" />
+          </label>
+          <label class="tiny">Disable Context Blocking
+            <input type="checkbox" ${manualControls?.disable_context_blocking ? "checked" : ""} data-manual-control="disable_context_blocking" />
+          </label>
+          <label class="tiny">Force Learning Mode
+            <select data-manual-control="force_learning_mode">
+              <option value="" ${!manualControls?.force_learning_mode ? "selected" : ""}>none</option>
+              <option value="exploration" ${manualControls?.force_learning_mode === "exploration" ? "selected" : ""}>exploration</option>
+              <option value="mixed" ${manualControls?.force_learning_mode === "mixed" ? "selected" : ""}>mixed</option>
+              <option value="exploitation" ${manualControls?.force_learning_mode === "exploitation" ? "selected" : ""}>exploitation</option>
+            </select>
+          </label>
+          <div class="tiny muted">Live preview → confidence <strong>${pct(confidencePreview)}</strong> · size <strong>${sizePreview.toFixed(3)}</strong> · mode <strong>${safe(modePreview)}</strong></div>
+          <div class="button-row compact">
+            <button type="button" class="ghost" data-brain-action="manual-controls-reset">Reset manual controls</button>
+          </div>
         </section>
 
       </div>

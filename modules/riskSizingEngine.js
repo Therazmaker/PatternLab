@@ -1,3 +1,5 @@
+import { getManualControls } from "./manualControlsStore.js";
+
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, Number(value || 0)));
 }
@@ -67,8 +69,9 @@ export function computeRiskSizing({
   executionPacket = {},
   config = {},
 } = {}) {
+  const manual = getManualControls();
   const riskMode = modeFromInputs({
-    learningMode: brainVerdict?.learning_mode,
+    learningMode: manual?.force_learning_mode || brainVerdict?.learning_mode,
     autoShift,
     verdict: brainVerdict,
   });
@@ -150,6 +153,19 @@ export function computeRiskSizing({
     sizeMultiplier = riskMode === "mixed" ? 0.05 : riskMode === "exploitation" ? 0.1 : 0.2;
     reasons.push("non_blocked_min_size_applied");
   }
+
+  const manualRiskMultiplier = clamp(toNumber(manual?.risk_multiplier_override, 1), 0.5, 1.5);
+  if (Math.abs(manualRiskMultiplier - 1) > 0.0001) {
+    sizeMultiplier *= manualRiskMultiplier;
+    reasons.push("manual_risk_multiplier_applied");
+    console.info(`[Manual] risk multiplier applied x${manualRiskMultiplier.toFixed(2)}`);
+  }
+  const maxRiskCap = clamp(toNumber(manual?.max_risk_cap, 1), 0, 1);
+  if (sizeMultiplier > maxRiskCap) {
+    sizeMultiplier = maxRiskCap;
+    reasons.push("manual_max_risk_cap_applied");
+  }
+  sizeMultiplier = clamp(sizeMultiplier, 0, 1);
 
   const manualConfirmationRequired = executionPacket?.manualConfirmationRequired !== false;
   if (String(executorMode).toLowerCase() === "live" && manualConfirmationRequired && !executionPacket?.manualConfirmed) {
