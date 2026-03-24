@@ -56,7 +56,7 @@ export function runSessionBrainOrchestrator({
     headline: `${contextPacket.symbol || "UNKNOWN"} ${contextPacket.timeframe || "5m"}`,
     posture: brainPacket?.posture || "wait",
     confidence: brainPacket?.confidence || 0,
-    entry_quality: brainPacket?.entry_quality || "WAIT",
+    entry_quality: brainPacket?.entry_quality || "wait",
     no_trade_reason: brainPacket?.no_trade_reason || null,
     authority: executionPacket.authority,
     primaryScenario: scenarioPacket?.scenarios?.[0] || null,

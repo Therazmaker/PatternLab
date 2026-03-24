@@ -68,12 +68,12 @@ function evaluateScenario(scenario, futureCandles = []) {
 }
 
 export function resolveScenarioSet({ scenarioSet = null, candles = [], analysis = null, humanSelection = {} } = {}) {
-  if (!scenarioSet?.scenarios?.length || !candles.length) return { updatedSet: scenarioSet, resolved: false, winner: null };
+  if (!scenarioSet?.scenarios?.length || !candles.length) return { updatedSet: scenarioSet, resolved: false, winner: null, resolvedRows: [] };
   const createdAt = Number(new Date(scenarioSet.created_at || Date.now()));
   const baseIndex = candles.findIndex((row) => Number(new Date(row.timestamp || 0)) >= createdAt);
   const entryIndex = baseIndex >= 0 ? baseIndex : Math.max(0, candles.length - 1);
   const futureCandles = candles.slice(entryIndex + 1, entryIndex + 1 + 8);
-  if (!futureCandles.length) return { updatedSet: scenarioSet, resolved: false, winner: null };
+  if (!futureCandles.length) return { updatedSet: scenarioSet, resolved: false, winner: null, resolvedRows: [] };
 
   const evaluated = scenarioSet.scenarios.map((scenario) => {
     const resolution = evaluateScenario(scenario, futureCandles);
@@ -98,6 +98,7 @@ export function resolveScenarioSet({ scenarioSet = null, candles = [], analysis 
       updatedSet: { ...scenarioSet, scenarios: evaluated, resolved: false },
       resolved: false,
       winner: null,
+      resolvedRows: [],
     };
   }
 
@@ -126,6 +127,23 @@ export function resolveScenarioSet({ scenarioSet = null, candles = [], analysis 
     });
   });
 
+  const resolvedRows = evaluated.map((scenario) => ({
+    context_signature: scenario.context_signature,
+    scenario,
+    resolution: {
+      final_status: scenario.status,
+      outcome_quality: scenario.outcome_quality,
+      resolution_candles: scenario.resolution_candles,
+    },
+    operatorOverride: {
+      used: humanSelection.override && humanSelection.override !== "none",
+      outcome: scenario.status,
+      action: humanSelection.action || "none",
+      override: humanSelection.override || "none",
+      followedScenarioId: humanSelection.followedScenarioId || null,
+    },
+  }));
+
   updateScenarioContextStats();
   if (winner) {
     console.debug(`[Scenario] Scenario fulfilled: ${winner.type} in ${winner.resolution_candles} candles`);
@@ -143,5 +161,6 @@ export function resolveScenarioSet({ scenarioSet = null, candles = [], analysis 
     },
     resolved: true,
     winner,
+    resolvedRows,
   };
 }

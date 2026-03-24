@@ -1759,6 +1759,29 @@ function updateScenarioProjectionEngine({ analysis, marketView, latestPolicy }) 
       },
     });
     scenarioProjectionState.activeSet = resolution.updatedSet;
+    if (resolution.resolved && Array.isArray(resolution.resolvedRows)) {
+      resolution.resolvedRows.forEach((row) => {
+        brainMemoryStore.updateContextFromOutcome(row.context_signature, {
+          scenario: row.scenario,
+          resolution: row.resolution,
+          operatorOverride: row.operatorOverride,
+        }, {
+          sessionId: getActiveSession()?.id || null,
+          symbol: marketView.symbol,
+          timeframe: marketView.timeframe,
+          context_signature: row.context_signature,
+        });
+      });
+      brainMemoryStore.addEvent(createBrainEvent("scenario_resolved", {
+        winner: resolution.winner?.id || null,
+        count: resolution.resolvedRows.length,
+      }, {
+        sessionId: getActiveSession()?.id || null,
+        symbol: marketView.symbol,
+        timeframe: marketView.timeframe,
+        context_signature: scenarioProjectionState.activeSet?.context_signature || null,
+      }));
+    }
   }
 
   const shouldCreateNewSet = !scenarioProjectionState.activeSet

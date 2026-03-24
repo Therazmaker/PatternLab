@@ -11,7 +11,7 @@ export function computeStatsCausalAnalytics({ decisions = [], scenarios = [], tr
   const closedTrades = trades.filter((t) => t?.outcome?.status === "resolved" || t?.result);
   const wins = closedTrades.filter((t) => (t?.outcome?.result || t?.result) === "win");
   const losses = closedTrades.filter((t) => (t?.outcome?.result || t?.result) === "loss");
-  const waitDecisions = decisions.filter((d) => d?.posture === "wait" || d?.entry_quality === "WAIT");
+  const waitDecisions = decisions.filter((d) => d?.posture === "wait" || String(d?.entry_quality || "").toLowerCase() === "wait");
 
   const winDrivers = countMap(wins, (row) => row?.context_signature || row?.reason || row?.posture).slice(0, 6);
   const lossDrivers = countMap(losses, (row) => row?.context_signature || row?.reason || row?.posture).slice(0, 6);
