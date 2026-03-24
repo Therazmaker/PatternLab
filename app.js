@@ -60,6 +60,7 @@ import { buildCopilotFeedbackEffects } from "./modules/copilotFeedbackBridge.js"
 import { renderCopilotFeedbackBlock, renderCopilotFeedbackTabPanel } from "./modules/copilotFeedbackPanel.js";
 import { renderBrainDashboard } from "./modules/brainDashboard.js";
 import { runSessionBrainOrchestrator } from "./modules/sessionBrainOrchestrator.js";
+import { getManualControls, hasActiveManualOverrides, resetManualControls, setManualControls } from "./modules/manualControlsStore.js";
 import { persistHumanOverrideMemory, persistLearnedContext } from "./modules/brainLearningWriter.js";
 import { createBrainMemoryStore, createBrainEvent } from "./modules/brainMemoryStore.js";
 import { createBrainModeController } from "./modules/brainModeController.js";
@@ -392,6 +393,7 @@ let _sessionTriggerEvaluation = { activeTriggerEffects: [], aggregateEffect: {},
 let _lastCopilotEvaluation = null;
 let _lastCopilotEffects = null;
 let _lastBrainVerdict = null;
+let manualControlsState = getManualControls();
 const brainMemoryStore = createBrainMemoryStore();
 const brainModeController = createBrainModeController({ mode: "executor", autoExecutionEnabled: true });
 const brainTradeJournal = createBrainTradeJournal();
@@ -3797,8 +3799,31 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
       executorStateStore.setState({ paused: !cur.paused, lastAction: cur.paused ? "resumed" : "paused" });
     } else if (action === "executor-reset-cooldown") {
       executorStateStore.setState({ cooldownUntil: null, lastAction: "cooldown_reset" });
+    } else if (action === "manual-controls-reset") {
+      manualControlsState = resetManualControls();
+      console.info("[Manual] controls reset to defaults");
     }
     refreshSessionCandlesTab();
+    renderBrainDashboardPanel();
+  });
+  els.sessionBrainDashboard?.addEventListener("input", (event) => {
+    const input = event.target.closest("[data-manual-control]");
+    if (!input) return;
+    const key = input.dataset.manualControl;
+    let value = input.type === "checkbox" ? Boolean(input.checked) : input.value;
+    if (key !== "force_learning_mode" && input.type !== "checkbox") value = Number(value);
+    if (key === "force_learning_mode" && !value) value = null;
+    manualControlsState = setManualControls({ [key]: value });
+    renderBrainDashboardPanel();
+  });
+  els.sessionBrainDashboard?.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-manual-control]");
+    if (!input || input.type === "range") return;
+    const key = input.dataset.manualControl;
+    let value = input.type === "checkbox" ? Boolean(input.checked) : input.value;
+    if (key !== "force_learning_mode" && input.type !== "checkbox") value = Number(value);
+    if (key === "force_learning_mode" && !value) value = null;
+    manualControlsState = setManualControls({ [key]: value });
     renderBrainDashboardPanel();
   });
   els.sessionHumanInsightTags?.addEventListener("click", (event) => {
@@ -4979,6 +5004,8 @@ function renderBrainDashboardPanel() {
     liveGate,
     secondaryScenario,
     contextRow,
+    manualControls: manualControlsState,
+    manualOverridesActive: hasActiveManualOverrides(manualControlsState),
   });
 }
 
@@ -5893,6 +5920,7 @@ async function init() {
   replaceSessions(loadSessions(normalizeSession));
   metaFeedback = loadMetaFeedback();
   botCompilerState = loadBotCompilerState();
+  manualControlsState = getManualControls();
   try {
     _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_DRAWINGS_KEY) || localStorage.getItem(SESSION_SR_KEY_LEGACY) || "[]") || [];
   } catch { _sessionManualSR = []; }
