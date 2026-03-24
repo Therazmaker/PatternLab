@@ -63,6 +63,12 @@ import { runSessionBrainOrchestrator } from "./modules/sessionBrainOrchestrator.
 import { persistHumanOverrideMemory, persistLearnedContext } from "./modules/brainLearningWriter.js";
 import { createBrainMemoryStore, createBrainEvent } from "./modules/brainMemoryStore.js";
 import { createBrainModeController } from "./modules/brainModeController.js";
+import { createExecutorStateStore } from "./modules/executorStateStore.js";
+import { createBrainExecutor } from "./modules/brainExecutor.js";
+import { createTradeOutcomeLogger } from "./modules/tradeOutcomeLogger.js";
+import { createBrainTradeJournal } from "./modules/brainTradeJournal.js";
+import { createBrainLearningUpdater } from "./modules/brainLearningUpdater.js";
+import { computeLearningProgressPacket } from "./modules/learningProgressEngine.js";
 import { buildDecisionTrace } from "./modules/decisionTraceBuilder.js";
 import { addDecisionTrace, getDecisionTraces, getAggregatedTraceStats, updateDecisionTrace } from "./modules/decisionTraceStore.js";
 import { evaluateForwardOutcome } from "./modules/forwardOutcomeEvaluator.js";
@@ -388,6 +394,12 @@ let _lastCopilotEffects = null;
 let _lastBrainVerdict = null;
 const brainMemoryStore = createBrainMemoryStore();
 const brainModeController = createBrainModeController({ mode: "copilot", autoExecutionEnabled: false });
+const brainTradeJournal = createBrainTradeJournal();
+const executorStateStore = createExecutorStateStore();
+const tradeOutcomeLogger = createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal });
+const brainLearningUpdater = createBrainLearningUpdater({ brainMemoryStore });
+let learningProgressPacket = computeLearningProgressPacket({ memorySnapshot: brainMemoryStore.getSnapshot(), tradeJournalRows: brainTradeJournal.getAll() });
+
 let sessionHumanInsightDraft = null;
 let sessionAnalystState = { analystData: null, addedLevels: [], collapsed: false };
 let scenarioProjectionState = {
@@ -437,6 +449,27 @@ let liveShadowAutoIngest = true;
 let liveShadowStats = computeLiveShadowStats([]);
 let liveShadowSelectedId = "";
 let executionControlState = { ...DEFAULT_EXECUTION_CONTROL_STATE };
+const BRAIN_LIVE_GATE = { minPaperTrades: 30, minPaperWinRate: 0.55, minLearnedContexts: 12, minScenarioReliability: 0.52 };
+
+function evaluateExecutorLiveGate(progress = learningProgressPacket, controlState = executionControlState) {
+  const reasons = [];
+  if (Number(progress?.tradesLearned || 0) < BRAIN_LIVE_GATE.minPaperTrades) reasons.push(`Needs at least ${BRAIN_LIVE_GATE.minPaperTrades} paper trades.`);
+  if (Number(progress?.executorPaperWinRate || 0) < BRAIN_LIVE_GATE.minPaperWinRate) reasons.push(`Paper win rate below ${(BRAIN_LIVE_GATE.minPaperWinRate * 100).toFixed(0)}%.`);
+  if (Number(progress?.learnedContexts || 0) < BRAIN_LIVE_GATE.minLearnedContexts) reasons.push(`Needs at least ${BRAIN_LIVE_GATE.minLearnedContexts} learned contexts.`);
+  if (Number(progress?.scenarioReliability || 0) < BRAIN_LIVE_GATE.minScenarioReliability) reasons.push(`Scenario reliability below ${(BRAIN_LIVE_GATE.minScenarioReliability * 100).toFixed(0)}%.`);
+  if (controlState?.manualConfirmationRequired !== false) reasons.push("Manual confirmation must be explicitly disabled for live mode.");
+  return { allowed: reasons.length === 0, reasons };
+}
+
+const brainExecutor = createBrainExecutor({
+  stateStore: executorStateStore,
+  brainMemoryStore,
+  outcomeLogger: tradeOutcomeLogger,
+  learningUpdater: brainLearningUpdater,
+  getExecutionPacket: () => getExecutionPacket(executionControlState),
+  liveGateEvaluator: () => evaluateExecutorLiveGate(),
+});
+
 const OPERATOR_FEEDBACK_ACTIONS = getOperatorActions();
 let sessionOperatorState = createSessionOperatorState();
 let marketDataDiagnostics = null;
@@ -3704,6 +3737,36 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     } else if (action === "disable-executor") {
       brainModeController.setExecutorEnabled(false);
       brainModeController.setMode("copilot");
+    } else if (action === "executor-toggle") {
+      const cur = executorStateStore.getState();
+      executorStateStore.setState({ enabled: !cur.enabled, paused: false, lastAction: cur.enabled ? "disabled" : "enabled" });
+    } else if (action === "executor-mode-paper") {
+      executorStateStore.setState({ mode: "paper", liveBlockedReason: null });
+    } else if (action === "executor-mode-live") {
+      const gate = evaluateExecutorLiveGate(learningProgressPacket, executionControlState);
+      if (!gate.allowed) {
+        executorStateStore.setState({ mode: "paper", liveBlockedReason: gate.reasons.join(" ") });
+        brainMemoryStore.addEvent(createBrainEvent("live_mode_blocked", { reasons: gate.reasons }, {}));
+        setSessionCandleStatus(`Live mode blocked: ${gate.reasons[0]}`, "warning");
+      } else {
+        executorStateStore.setState({ mode: "live", liveBlockedReason: null });
+      }
+    } else if (action === "executor-arm") {
+      const scenario = scenarioProjectionState.activeSet?.scenarios?.[0] || null;
+      brainExecutor.armSetup({
+        brainVerdict: _lastBrainVerdict,
+        nextCandlePlan: _lastBrainVerdict?.next_candle_plan,
+        scenario,
+        contextSignature: scenario?.context_signature || null,
+      });
+      setSessionCandleStatus("Brain Executor armed for next qualified trigger.", "success");
+    } else if (action === "executor-cancel-arm") {
+      brainExecutor.cancelArm("operator_cancel");
+    } else if (action === "executor-pause") {
+      const cur = executorStateStore.getState();
+      executorStateStore.setState({ paused: !cur.paused, lastAction: cur.paused ? "resumed" : "paused" });
+    } else if (action === "executor-reset-cooldown") {
+      executorStateStore.setState({ cooldownUntil: null, lastAction: "cooldown_reset" });
     }
     refreshSessionCandlesTab();
     renderBrainDashboardPanel();
@@ -4874,7 +4937,16 @@ function renderSessionCopilotFeedbackBlock(analysis, marketView) {
 function renderBrainDashboardPanel() {
   if (!els.sessionBrainDashboard) return;
   const modeState = brainModeController.getState();
-  els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState, executionControlState);
+  const executorState = executorStateStore.getState();
+  const liveGate = evaluateExecutorLiveGate(learningProgressPacket, executionControlState);
+  const secondaryScenario = scenarioProjectionState.activeSet?.scenarios?.[1] || null;
+  els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState, executionControlState, {
+    executorState,
+    activeTrade: brainExecutor.getActiveTrade(),
+    learningProgress: learningProgressPacket,
+    liveGate,
+    secondaryScenario,
+  });
 }
 
 /**
@@ -5060,6 +5132,19 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     timeframe: marketView.timeframe,
     context_signature: orchestration.contextPacket?.context_signature,
   }));
+
+  const latestCandle = marketView?.candles?.[marketView.candles.length - 1] || null;
+  brainExecutor.processCandle({
+    candle: latestCandle,
+    brainVerdict: _lastBrainVerdict,
+    nextCandlePlan: _lastBrainVerdict?.next_candle_plan,
+    scenario: scenarioProjectionState.activeSet?.scenarios?.[0] || null,
+    contextSignature: orchestration.contextPacket?.context_signature,
+  });
+  learningProgressPacket = computeLearningProgressPacket({
+    memorySnapshot: brainMemoryStore.getSnapshot(),
+    tradeJournalRows: brainTradeJournal.getAll(),
+  });
   const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, {}, triggerLineEffects, copilotEffectsForDecision);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
   sessionOperatorState.currentContext = {
