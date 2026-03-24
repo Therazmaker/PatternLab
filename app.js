@@ -124,7 +124,7 @@ import { getLastResolvedScenarios, getScenarioMemoryRows } from "./modules/scena
 import { updateScenarioContextStats } from "./modules/scenarioProbabilityUpdater.js";
 import { buildChatGPTAssistedExport } from "./modules/chatgptAssistedExport.js";
 import { buildBrainAssistPacket } from "./modules/brainAssistExport.js";
-import { ingestCopilotReinforcement } from "./modules/copilotReinforcementIngestor.js";
+import { applyReinforcement, ingestCopilotReinforcement } from "./modules/copilotReinforcementIngestor.js";
 import { applyReinforcementPatch } from "./modules/reinforcementPatchApplier.js";
 import { analyzeSessionCandles } from "./modules/sessionAnalystEngine.js";
 import { renderAnalystPanel } from "./modules/analystPanel.js";
@@ -445,7 +445,7 @@ let scenarioProjectionState = {
 };
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
-const ASSISTED_REINFORCEMENT_HISTORY_KEY = "patternlab.assistedReinforcementHistory.v1";
+const ASSISTED_REINFORCEMENT_HISTORY_KEY = "localStorage.patternlab.reinforcementHistory";
 let sessionAnalysisPrefs = {
   showOverlay: true,
   showNarratives: true,
@@ -465,6 +465,10 @@ let storageStatus = null;
 let assistedReinforcementState = {
   lastSummary: null,
   history: [],
+  inputText: "",
+  inputValid: false,
+  inputError: "",
+  lastAppliedAt: null,
 };
 
 let marketDataCandles = [];
@@ -3448,16 +3452,17 @@ function buildSessionAssistedExportContext() {
 
 function loadAssistedReinforcementHistory() {
   try {
-    const raw = localStorage.getItem(ASSISTED_REINFORCEMENT_HISTORY_KEY);
+    const raw = localStorage.getItem(ASSISTED_REINFORCEMENT_HISTORY_KEY) || localStorage.getItem("patternlab.assistedReinforcementHistory.v1");
     const parsed = raw ? JSON.parse(raw) : [];
     const history = Array.isArray(parsed) ? parsed.slice(-80) : [];
     assistedReinforcementState = {
       ...assistedReinforcementState,
       history,
       lastSummary: history.length ? history[history.length - 1]?.reinforcement_summary || null : null,
+      lastAppliedAt: history.length ? history[history.length - 1]?.timestamp || null : null,
     };
   } catch {
-    assistedReinforcementState = { ...assistedReinforcementState, history: [], lastSummary: null };
+    assistedReinforcementState = { ...assistedReinforcementState, history: [], lastSummary: null, lastAppliedAt: null };
   }
 }
 
@@ -3465,6 +3470,52 @@ function persistAssistedReinforcementHistory() {
   try {
     localStorage.setItem(ASSISTED_REINFORCEMENT_HISTORY_KEY, JSON.stringify((assistedReinforcementState.history || []).slice(-80)));
   } catch {}
+}
+
+function downloadJsonFile(payload, fileName = "patternlab-brain-assist.json") {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 50);
+}
+
+function updateReinforcementInput(rawText = assistedReinforcementState.inputText || "") {
+  const text = String(rawText || "");
+  const trimmed = text.trim();
+  if (!trimmed) {
+    assistedReinforcementState = {
+      ...assistedReinforcementState,
+      inputText: "",
+      inputValid: false,
+      inputError: "",
+    };
+    return;
+  }
+  const ingested = ingestCopilotReinforcement(trimmed);
+  assistedReinforcementState = {
+    ...assistedReinforcementState,
+    inputText: text,
+    inputValid: ingested.ok,
+    inputError: ingested.ok ? "" : ingested.errors.join("; "),
+  };
+}
+
+function getReinforcementExample() {
+  return {
+    schema: "patternlab_copilot_reinforcement_v1",
+    verdict_patch: { confidence_delta: 0.08, bias: "short", posture: "wait_for_retest", allow_trade: false },
+    rule_updates: [{ rule_id: "failed_breakout_short", action: "activate", weight: 1.2, reason: "Recent failed breakout behavior repeated." }],
+    scenario_updates: [{ scenario_name: "failed_breakout", probability: 0.58, priority: 1, reason: "Momentum exhaustion at resistance." }],
+    risk_patch: { size_multiplier: 0.82, max_size_cap: 0.9 },
+    learning_patch: { learned_bias: "fade_failed_breakout", danger_score: 0.42, familiarity: 0.67, lesson_tags: ["failed_breakout", "momentum_shift", "risk_compact"] },
+    next_candle_patch: { posture: "wait_for_retest", trigger_short: "break below session low after retest", invalidation: "close above local failed-breakout high", reasoning_summary: "Short only after confirmation retest." },
+    assistant_summary: { headline: "Reduce aggression and favor failed-breakout short confirmation." },
+  };
 }
 
 async function handleSessionExportBrainAssist() {
@@ -3477,24 +3528,21 @@ async function handleSessionExportBrainAssist() {
   });
   const payloadText = JSON.stringify(exportPacket, null, 2);
   const copied = await copySessionExportText(payloadText);
-  console.info("[Assist] Brain packet exported");
+  console.info("[Assist] Brain Assist exported");
+  const symbol = context.marketView?.symbol || "asset";
+  const tf = context.marketView?.timeframe || "tf";
+  downloadJsonFile(exportPacket, `patternlab-brain-assist-${symbol}-${tf}.json`);
   if (copied) {
-    setSessionCandleStatus("Brain Assist packet copied to clipboard.", "success");
+    setSessionCandleStatus("Brain Assist JSON copied", "success");
     return;
   }
   window.prompt("Copy Brain Assist packet", payloadText);
-  setSessionCandleStatus("Clipboard unavailable: Brain Assist packet opened in prompt.", "warning");
+  setSessionCandleStatus("Clipboard unavailable: Brain Assist JSON opened in prompt.", "warning");
 }
 
 function handleApplyReinforcementJSON() {
-  const raw = window.prompt("Paste Copilot Reinforcement JSON (patternlab_copilot_reinforcement_v1)");
-  if (!raw) return;
-  const ingested = ingestCopilotReinforcement(raw);
-  if (!ingested.ok) {
-    setSessionCandleStatus(`Invalid reinforcement JSON: ${ingested.errors.join("; ")}`, "error");
-    return;
-  }
-  console.info("[Assist] Reinforcement JSON ingested");
+  const raw = assistedReinforcementState.inputText;
+  if (!raw?.trim()) return;
   const contextSignature = scenarioProjectionState.activeSet?.context_signature || _lastBrainVerdict?.learningEffects?.signature || null;
   const linkage = {
     sessionId: getActiveSession()?.id || null,
@@ -3502,20 +3550,42 @@ function handleApplyReinforcementJSON() {
     timeframe: getSessionMarketView()?.timeframe || null,
     context_signature: contextSignature,
   };
-  const applied = applyReinforcementPatch({
-    reinforcement: ingested.reinforcement,
-    brainVerdict: _lastBrainVerdict,
-    scenarioSet: scenarioProjectionState.activeSet,
-    brainMemoryStore,
-    contextSignature,
-    linkage,
-    log: (line) => console.info(line),
+  const result = applyReinforcement(raw, {
+    patchApplier: applyReinforcementPatch,
+    patchOptions: {
+      brainVerdict: _lastBrainVerdict,
+      scenarioSet: scenarioProjectionState.activeSet,
+      brainMemoryStore,
+      contextSignature,
+      linkage,
+      riskCaps: { maxSizeMultiplier: Number(manualControlsState?.max_risk_cap ?? 1) },
+      log: (line) => console.info(line),
+    },
   });
+  if (!result.ok) {
+    assistedReinforcementState = {
+      ...assistedReinforcementState,
+      inputValid: false,
+      inputError: result.errors.join("; "),
+    };
+    setSessionCandleStatus(`Invalid reinforcement JSON: ${result.errors.join("; ")}`, "error");
+    return;
+  }
+  console.info("[Assist] Reinforcement received");
+  const applied = result.result;
   _lastBrainVerdict = applied.brainVerdict;
   if (scenarioProjectionState.activeSet) scenarioProjectionState.activeSet = applied.scenarioSet;
   const historyRow = {
     timestamp: new Date().toISOString(),
-    source: ingested.reinforcement?.source || "external_assistant",
+    source: result.reinforcement?.source || "external_assistant",
+    summary: [
+      `confidence ${applied.stats.confidenceDelta >= 0 ? "+" : ""}${applied.stats.confidenceDelta.toFixed(2)}`,
+      applied.stats.rulesUpdated ? `rules ${applied.stats.rulesUpdated}` : null,
+      applied.stats.scenarioChanges ? `scenarios ${applied.stats.scenarioChanges}` : null,
+      (applied.stats.lessonTagsAdded || []).length ? `tags ${(applied.stats.lessonTagsAdded || []).length}` : null,
+    ].filter(Boolean).join(" · "),
+    changes: applied.appliedFields,
+    raw_json: result.reinforcement,
     reinforcement_summary: {
       headline: applied.stats.headline,
       rulesUpdated: applied.stats.rulesUpdated,
@@ -3527,9 +3597,22 @@ function handleApplyReinforcementJSON() {
   };
   assistedReinforcementState.history = [...(assistedReinforcementState.history || []).slice(-79), historyRow];
   assistedReinforcementState.lastSummary = historyRow.reinforcement_summary;
+  assistedReinforcementState.lastAppliedAt = historyRow.timestamp;
   persistAssistedReinforcementHistory();
   brainMemoryStore.addEvent(createBrainEvent("assist_reinforcement_applied", historyRow, linkage));
-  setSessionCandleStatus(`Reinforcement applied: ${historyRow.reinforcement_summary.headline}`, "success");
+  setSessionCandleStatus(`Reinforcement applied:
++ confidence ${applied.stats.confidenceDelta >= 0 ? "+" : ""}${applied.stats.confidenceDelta.toFixed(2)}
++ rules updated ${applied.stats.rulesUpdated}
++ scenario changes ${applied.stats.scenarioChanges}
++ learning tags added ${(applied.stats.lessonTagsAdded || []).length}`, "success");
+}
+
+function handleClearReinforcementInput() {
+  updateReinforcementInput("");
+}
+
+function handleLoadReinforcementExample() {
+  updateReinforcementInput(JSON.stringify(getReinforcementExample(), null, 2));
 }
 
 function handleResetLastReinforcement() {
@@ -3907,8 +3990,24 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
       console.info("[Manual] controls reset to defaults");
     } else if (action === "assist-export") {
       handleSessionExportBrainAssist();
+    } else if (action === "assist-download") {
+      const context = buildSessionAssistedExportContext();
+      const exportPacket = buildBrainAssistPacket({
+        ...context,
+        learningProgress: learningProgressPacket,
+        riskProfile: executorStateStore.getState()?.lastRiskProfile || null,
+        manualControls: manualControlsState,
+      });
+      const symbol = context.marketView?.symbol || "asset";
+      const tf = context.marketView?.timeframe || "tf";
+      downloadJsonFile(exportPacket, `patternlab-brain-assist-${symbol}-${tf}.json`);
+      setSessionCandleStatus("Brain Assist JSON downloaded", "success");
     } else if (action === "assist-apply") {
       handleApplyReinforcementJSON();
+    } else if (action === "assist-clear") {
+      handleClearReinforcementInput();
+    } else if (action === "assist-example") {
+      handleLoadReinforcementExample();
     } else if (action === "assist-reset") {
       handleResetLastReinforcement();
     }
@@ -3916,6 +4015,12 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     renderBrainDashboardPanel();
   });
   els.sessionBrainDashboard?.addEventListener("input", (event) => {
+    const reinforcementInput = event.target.closest("[data-brain-control='reinforcement-input']");
+    if (reinforcementInput) {
+      updateReinforcementInput(reinforcementInput.value);
+      renderBrainDashboardPanel();
+      return;
+    }
     const input = event.target.closest("[data-manual-control]");
     if (!input) return;
     const key = input.dataset.manualControl;
@@ -3926,6 +4031,17 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     renderBrainDashboardPanel();
   });
   els.sessionBrainDashboard?.addEventListener("change", (event) => {
+    const reinforcementInput = event.target.closest("[data-brain-control='reinforcement-input']");
+    if (reinforcementInput) {
+      const parsed = ingestCopilotReinforcement(reinforcementInput.value);
+      if (parsed.ok) {
+        updateReinforcementInput(JSON.stringify(parsed.reinforcement, null, 2));
+      } else {
+        updateReinforcementInput(reinforcementInput.value);
+      }
+      renderBrainDashboardPanel();
+      return;
+    }
     const input = event.target.closest("[data-manual-control]");
     if (!input || input.type === "range") return;
     const key = input.dataset.manualControl;
@@ -5118,6 +5234,11 @@ function renderBrainDashboardPanel() {
     assistedReinforcement: {
       lastSummary: assistedReinforcementState.lastSummary,
       historyCount: (assistedReinforcementState.history || []).length,
+      history: assistedReinforcementState.history || [],
+      inputText: assistedReinforcementState.inputText || "",
+      inputValid: assistedReinforcementState.inputValid,
+      inputError: assistedReinforcementState.inputError,
+      lastAppliedAt: assistedReinforcementState.lastAppliedAt,
     },
   });
 }

@@ -34,6 +34,16 @@ function normalizeScenarioUpdate(row = {}) {
   };
 }
 
+const REQUIRED_FIELDS = [
+  "verdict_patch",
+  "rule_updates",
+  "scenario_updates",
+  "risk_patch",
+  "learning_patch",
+  "next_candle_patch",
+  "assistant_summary",
+];
+
 export function ingestCopilotReinforcement(raw = "") {
   let parsed = raw;
   if (typeof raw === "string") {
@@ -48,6 +58,10 @@ export function ingestCopilotReinforcement(raw = "") {
   const schema = String(payload?.schema || "");
   if (schema !== "patternlab_copilot_reinforcement_v1") {
     return { ok: false, errors: ["Schema must be patternlab_copilot_reinforcement_v1."], reinforcement: null };
+  }
+  const missingFields = REQUIRED_FIELDS.filter((field) => payload?.[field] === undefined);
+  if (missingFields.length) {
+    return { ok: false, errors: [`Missing fields: ${missingFields.join(", ")}.`], reinforcement: null };
   }
 
   const reinforcement = {
@@ -69,4 +83,14 @@ export function ingestCopilotReinforcement(raw = "") {
   };
 
   return { ok: true, errors: [], reinforcement };
+}
+
+export function applyReinforcement(raw, { patchApplier, patchOptions = {} } = {}) {
+  const ingested = ingestCopilotReinforcement(raw);
+  if (!ingested.ok) return { ok: false, errors: ingested.errors, result: null, reinforcement: null };
+  if (typeof patchApplier !== "function") {
+    return { ok: false, errors: ["Patch applier is required."], result: null, reinforcement: ingested.reinforcement };
+  }
+  const result = patchApplier({ reinforcement: ingested.reinforcement, ...(patchOptions || {}) });
+  return { ok: true, errors: [], result, reinforcement: ingested.reinforcement };
 }
