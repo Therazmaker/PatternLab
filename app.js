@@ -126,6 +126,7 @@ import { buildChatGPTAssistedExport } from "./modules/chatgptAssistedExport.js";
 import { buildBrainAssistPacket } from "./modules/brainAssistExport.js";
 import { applyReinforcement, ingestCopilotReinforcement } from "./modules/copilotReinforcementIngestor.js";
 import { applyReinforcementPatch } from "./modules/reinforcementPatchApplier.js";
+import { computeRiskSizing } from "./modules/riskSizingEngine.js";
 import { analyzeSessionCandles } from "./modules/sessionAnalystEngine.js";
 import { renderAnalystPanel } from "./modules/analystPanel.js";
 import { computeExcursionFromSignal, deriveColorHint, formatExcursion, normalizeCandleData, normalizeExcursion, normalizeOHLCInput, normalizeSessionRef, normalizeV3Meta, validateOHLCConsistency } from "./modules/v3.js";
@@ -3574,6 +3575,32 @@ function handleApplyReinforcementJSON() {
   console.info("[Assist] Reinforcement received");
   const applied = result.result;
   _lastBrainVerdict = applied.brainVerdict;
+  console.info(`[Confidence] applied reinforcement delta ${applied.stats.confidenceDelta >= 0 ? "+" : ""}${applied.stats.confidenceDelta.toFixed(3)}`);
+  const executorState = executorStateStore.getState();
+  const currentPlan = executorState?.currentPlan || null;
+  if (currentPlan) {
+    const nextRiskProfile = computeRiskSizing({
+      brainVerdict: _lastBrainVerdict,
+      autoShift: _lastBrainVerdict?.auto_shift || {},
+      contextMemory: currentPlan?.context_signature ? (brainMemoryStore.getSnapshot()?.contexts?.[currentPlan.context_signature] || {}) : {},
+      learningProgress: learningProgressPacket || {},
+      scenarioReliability: currentPlan?.scenario_primary?.reliability,
+      executorMode: executorState?.mode || "paper",
+      scenario: currentPlan?.scenario_primary || {},
+      executionPacket: getExecutionPacket(executionControlState),
+      config: {
+        learningProfile: executorState?.learningProfile,
+      },
+    });
+    executorStateStore.setState({
+      lastRiskProfile: nextRiskProfile,
+      currentPlan: {
+        ...currentPlan,
+        brain_verdict_snapshot: _lastBrainVerdict,
+        risk_profile: nextRiskProfile,
+      },
+    });
+  }
   if (scenarioProjectionState.activeSet) scenarioProjectionState.activeSet = applied.scenarioSet;
   const historyRow = {
     timestamp: new Date().toISOString(),
