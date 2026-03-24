@@ -430,6 +430,26 @@ details[open] > .dt-summary::before { transform:rotate(90deg); }
 .dt-badge-green  { color:#22c55e; border-color:#22c55e; }
 .dt-badge-red    { color:#ef4444; border-color:#ef4444; }
 .dt-badge-yellow { color:#f2bf6b; border-color:#f2bf6b; }
+
+.tvm-root { position: fixed; inset: 0; z-index: 1200; }
+.tvm-backdrop { position: absolute; inset: 0; background: rgba(2, 6, 23, .72); }
+.tvm-modal {
+  position: relative;
+  margin: 4vh auto;
+  width: min(1100px, 95vw);
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, .35);
+  border-radius: 12px;
+  background: #0b1220;
+  padding: .85rem;
+}
+.tvm-header { display:flex; justify-content:space-between; align-items:center; gap:.8rem; margin-bottom:.6rem; }
+.tvm-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:.7rem; }
+.tvm-pre { white-space: pre-wrap; margin: 0; }
+.tvm-progress-row { display:grid; grid-template-columns: 120px 1fr 50px; gap:.45rem; align-items:center; margin:.35rem 0; }
+.tvm-progress-track { height: 8px; border-radius: 999px; background: rgba(71, 85, 105, .6); overflow: hidden; }
+.tvm-progress-track > span { display:block; height:100%; background: linear-gradient(90deg, #facc15, #22c55e); }
 .dt-badge-muted  { color:#64748b; border-color:#334155; }
 
 /* Block inside a section */

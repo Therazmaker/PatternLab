@@ -73,3 +73,7 @@ export function blockExecution(source = "unknown", reason = "execution blocked")
 export function blockShadowTrade(reason = "shadow execution paused") {
   return blockExecution("Shadow", reason);
 }
+
+export function blockCurrentSetup(reason = "operator_blocked_setup") {
+  return blockExecution("Execution", reason);
+}
