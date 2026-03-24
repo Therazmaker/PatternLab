@@ -13,6 +13,9 @@ function clonePoint(point = {}) {
 
 function getReferencePrice(drawing = {}) {
   if (drawing.type === "horizontal_line") return Number(drawing.points?.[0]?.price);
+  if (drawing.type === "trigger_line") return Number(drawing.points?.[0]?.price);
+  if (drawing.type === "tp_line") return Number(drawing.points?.[0]?.price);
+  if (drawing.type === "sl_line") return Number(drawing.points?.[0]?.price);
   if (drawing.type === "trendline") return Number(drawing.points?.[1]?.price ?? drawing.points?.[0]?.price);
   if (drawing.type === "channel") return Number(drawing.points?.[2]?.price ?? drawing.points?.[1]?.price ?? drawing.points?.[0]?.price);
   return Number.NaN;
@@ -20,7 +23,7 @@ function getReferencePrice(drawing = {}) {
 
 export function normalizeDrawing(raw = {}, { symbol = "UNKNOWN", timeframe = "UNKNOWN" } = {}) {
   const points = Array.isArray(raw.points) ? raw.points.map(clonePoint).filter((point) => Number.isFinite(point.time) && Number.isFinite(point.price)) : [];
-  const type = ["horizontal_line", "trigger_line", "trendline", "channel"].includes(raw.type) ? raw.type : "horizontal_line";
+  const type = ["horizontal_line", "trigger_line", "trendline", "channel", "tp_line", "sl_line"].includes(raw.type) ? raw.type : "horizontal_line";
   const channelOffset = Number(raw?.extra?.channelOffset);
 
   const drawing = {
@@ -41,13 +44,15 @@ export function normalizeDrawing(raw = {}, { symbol = "UNKNOWN", timeframe = "UN
   };
 
   drawing.price = Number.isFinite(Number(raw.price)) ? Number(raw.price) : getReferencePrice(drawing);
-  drawing.label = raw.label || (drawing.type === "horizontal_line" ? "H" : drawing.type === "trigger_line" ? "Trigger" : drawing.type === "trendline" ? "T" : "C");
+  drawing.label = raw.label || (drawing.type === "horizontal_line" ? "H" : drawing.type === "trigger_line" ? "Trigger" : drawing.type === "tp_line" ? "TP" : drawing.type === "sl_line" ? "SL" : drawing.type === "trendline" ? "T" : "C");
   return drawing;
 }
 
 function requiredPoints(type = "horizontal_line") {
   if (type === "horizontal_line") return 1;
   if (type === "trigger_line") return 1;
+  if (type === "tp_line") return 1;
+  if (type === "sl_line") return 1;
   if (type === "trendline") return 2;
   if (type === "channel") return 3;
   return 1;
@@ -81,6 +86,7 @@ export function createChartDrawingController({
   chartToScreen,
   onStateChange,
   onDrawingCreated,
+  onDrawingUpdated,
   onDrawingDeleted,
   onDrawingsCleared,
   onDrawingSelected,
@@ -96,6 +102,7 @@ export function createChartDrawingController({
     pendingPointA: null,
     lastClickScreenCoords: null,
     lastClickChartCoords: null,
+    lineDragId: null,
   };
 
   function emitState() {
@@ -115,7 +122,7 @@ export function createChartDrawingController({
   }
 
   function setTool(nextTool = "select") {
-    const tool = ["select", "horizontal_line", "trigger_line", "trendline", "channel", "erase"].includes(nextTool) ? nextTool : "select";
+    const tool = ["select", "horizontal_line", "trigger_line", "trendline", "channel", "erase", "tp_line", "sl_line"].includes(nextTool) ? nextTool : "select";
     state.activeTool = tool;
     if (tool === "select" || tool === "erase") {
       state.drawingDraft = null;
@@ -193,7 +200,7 @@ export function createChartDrawingController({
     const points = drawing.points || [];
     if (!points.length) return false;
 
-    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line") {
+    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line" || drawing.type === "tp_line" || drawing.type === "sl_line") {
       const y = chartToScreen?.({ time: points[0].time, price: points[0].price })?.y;
       return Number.isFinite(y) ? Math.abs(screenPoint.y - y) <= threshold : false;
     }
@@ -266,7 +273,7 @@ export function createChartDrawingController({
     if (state.activeTool === "select") {
       const found = findDrawingAt(screenPoint);
       selectDrawing(found);
-      return { consumed: Boolean(found) };
+      return { consumed: Boolean(found), drawing: found || null };
     }
 
     if (state.activeTool === "erase") {
@@ -332,6 +339,39 @@ export function createChartDrawingController({
     emitState();
   }
 
+  function startLineDrag(id = "") {
+    const drawing = state.drawings.find((d) => d.id === id);
+    if (!drawing) return false;
+    state.lineDragId = id;
+    drawingLog("Line drag start", drawing);
+    emitState();
+    return true;
+  }
+
+  function moveLineDrag(chartPoint = {}) {
+    if (!state.lineDragId || !Number.isFinite(chartPoint.price)) return;
+    const idx = state.drawings.findIndex((d) => d.id === state.lineDragId);
+    if (idx < 0) return;
+    const drawing = state.drawings[idx];
+    const newPoints = drawing.points.map((p) => ({ ...p, price: chartPoint.price }));
+    const updated = { ...drawing, points: newPoints, price: chartPoint.price };
+    const next = [...state.drawings];
+    next[idx] = updated;
+    state.drawings = next;
+    emitState();
+  }
+
+  function endLineDrag() {
+    if (!state.lineDragId) return;
+    const drawing = state.drawings.find((d) => d.id === state.lineDragId);
+    state.lineDragId = null;
+    if (drawing) {
+      drawingLog("Line drag end", drawing);
+      onDrawingUpdated?.(drawing, [...state.drawings]);
+    }
+    emitState();
+  }
+
   return {
     state,
     setTool,
@@ -342,5 +382,8 @@ export function createChartDrawingController({
     pointerMove,
     clearDrawings,
     eraseDrawing,
+    startLineDrag,
+    moveLineDrag,
+    endLineDrag,
   };
 }
