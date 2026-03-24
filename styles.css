@@ -461,6 +461,10 @@ details[open] > .dt-summary::before { transform:rotate(90deg); }
 .tvm-area-internal { grid-area: internal; }
 .tvm-area-controls { grid-area: controls; }
 .tvm-area-sim { grid-area: sim; }
+.tvm-chart-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; margin-bottom:.35rem; }
+.tvm-countdown { font-size:.7rem; font-weight:700; border-radius:999px; padding:.2rem .5rem; border:1px solid rgba(125, 211, 252, .4); background:rgba(14, 116, 144, .22); color:#bae6fd; }
+.tvm-countdown-warning { border-color:rgba(245, 158, 11, .55); background:rgba(120, 53, 15, .3); color:#fde68a; }
+.tvm-countdown-imminent { border-color:rgba(248, 113, 113, .7); background:rgba(127, 29, 29, .35); color:#fecaca; box-shadow:0 0 0 1px rgba(248,113,113,.2) inset; }
 .tvm-area-chart canvas { width: 100%; min-height: 340px; border:1px solid rgba(59,130,246,.18); border-radius:8px; background:#0b1422; }
 
 .tvm-risk-banner { border-radius:10px; padding:.55rem .65rem; border:1px solid transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
@@ -473,6 +477,7 @@ details[open] > .dt-summary::before { transform:rotate(90deg); }
 .tvm-kv { display:flex; justify-content:space-between; gap:.6rem; margin:.2rem 0; font-size:.74rem; }
 .tvm-kv span { color:#94a3b8; }
 .tvm-kv strong { color:#e2e8f0; font-weight:600; text-align:right; }
+.tvm-summary-verdict { margin-top:.45rem; border-top:1px solid rgba(71,85,105,.45); padding-top:.4rem; }
 .tvm-plan-grid { display:grid; grid-template-columns:1fr; gap:.12rem; }
 .tvm-logic { margin-top:.5rem; border-top:1px solid rgba(71,85,105,.45); padding-top:.45rem; }
 .tvm-logic ul { margin:.25rem 0 0 .95rem; padding:0; }

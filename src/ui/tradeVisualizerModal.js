@@ -1,4 +1,4 @@
-import { getCurrentPacket } from "../../modules/sessionBrainOrchestrator.js";
+import { getCurrentPacket, updateCurrentPacket } from "../../modules/sessionBrainOrchestrator.js";
 
 let _modalRoot = null;
 let _refreshTimer = null;
@@ -61,7 +61,7 @@ function buildRiskBanner(packet = {}) {
   return { tone: "mixed", title: "MIXED CONTEXT", sub: "Confirmation still required before execution." };
 }
 
-function buildBrainVoice(packet = {}) {
+function buildBrainVoice(packet = {}, conflict = detectBiasConflict(packet), countdown = getTimeframeCountdown(5)) {
   const nextTrade = packet?.next_trade || {};
   const learningState = packet?.learning_state || {};
   const brainState = packet?.brain_state || {};
@@ -73,9 +73,11 @@ function buildBrainVoice(packet = {}) {
   const confidence = num(nextTrade?.confidence ?? brainState?.confidence, 0);
   const reliability = num(brainState?.scenario_reliability, 0);
   const momentum = String(nextTrade?.momentum || "").toLowerCase();
+  const operatorOverride = getOperatorOverride(packet);
+  const effectiveDirection = operatorOverride || direction;
 
   const setupText = setup ? `${prettyLabel(setup)} is the active idea.` : "No clean setup is active yet.";
-  const directionText = direction ? `${prettyLabel(direction)} bias is currently preferred.` : "Direction remains neutral.";
+  const directionText = effectiveDirection ? `${prettyLabel(effectiveDirection)} bias is currently preferred.` : "Direction remains neutral.";
   const qualityText = confidence < 0.45 || reliability < 0.45
     ? "Signal quality is weak, so confirmation should lead execution."
     : "Signal quality is acceptable, but still needs disciplined triggers.";
@@ -93,7 +95,13 @@ function buildBrainVoice(packet = {}) {
   const momentumText = momentum === "fading"
     ? "Momentum is fading and favors reactive entries over chasing."
     : "Momentum is not showing major instability.";
-  return `${setupText} ${directionText} ${learningText} ${qualityText} ${riskText} ${familiarityText} ${momentumText}`;
+  const conflictText = conflict?.hasConflict
+    ? `Conflict detected (${prettyLabel(conflict.type)}): ${conflict.summary}`
+    : "Structure and bias are currently aligned.";
+  const closeText = countdown.totalSeconds < 20
+    ? "Avoid forcing a late entry near candle close. Wait for candle confirmation before acting."
+    : "";
+  return `${setupText} ${directionText} ${learningText} ${qualityText} ${riskText} ${familiarityText} ${momentumText} ${conflictText} ${closeText}`.trim();
 }
 
 function buildSimulationRead(simulationResult = {}, packet = {}) {
@@ -115,6 +123,83 @@ function metricInterpretation(name, value, mode) {
   if (name === "scenario_reliability") return value < 0.45 ? "Weak scenario reliability" : value < 0.65 ? "Developing reliability" : "Reliable structure";
   if (name === "learning_mode") return mode === "exploration" ? "Exploration, reduced trust" : mode === "exploitation" ? "Exploitation, higher trust" : "Mixed mode, selective trust";
   return "Context developing";
+}
+
+function normalizeDirection(value, fallback = "neutral") {
+  const dir = String(value || "").toLowerCase();
+  return ["long", "short", "neutral"].includes(dir) ? dir : fallback;
+}
+
+function getOperatorOverride(packet = {}) {
+  const raw = packet?.learning_state?.operator_override ?? packet?.learning_state?.manual_bias_override ?? null;
+  const normalized = normalizeDirection(raw, null);
+  return normalized === "neutral" ? null : normalized;
+}
+
+export function detectBiasConflict(packet = {}) {
+  const nextTrade = packet?.next_trade || {};
+  const brainState = packet?.brain_state || {};
+  const setup = String(nextTrade?.setup || "").toLowerCase();
+  const direction = normalizeDirection(nextTrade?.direction, "neutral");
+  const confidence = num(nextTrade?.confidence ?? brainState?.confidence, 0);
+  const danger = num(brainState?.danger_score, 0);
+  const reliability = num(brainState?.scenario_reliability, 0);
+  const familiarity = num(brainState?.familiarity, 0);
+  const momentum = String(nextTrade?.momentum || "").toLowerCase();
+  const operatorOverride = getOperatorOverride(packet);
+  const continuationSetup = setup.includes("continuation");
+  const fragileContext = danger >= 0.8 || confidence <= 0.15 || reliability <= 0.25 || momentum === "fading";
+
+  if (operatorOverride && operatorOverride !== direction) {
+    return {
+      hasConflict: true,
+      type: "operator_override",
+      severity: "high",
+      summary: `Operator override (${prettyLabel(operatorOverride)}) supersedes passive ${prettyLabel(direction)} narrative.`,
+      recommendation: "Use operator direction until fresh candle confirmation restores structure confidence.",
+    };
+  }
+
+  if ((danger >= 0.8 && confidence <= 0.15) || (continuationSetup && fragileContext)) {
+    return {
+      hasConflict: true,
+      type: "bias_vs_structure",
+      severity: "high",
+      summary: "Continuation bias conflicts with fragile structure and elevated danger.",
+      recommendation: "Downgrade conviction and wait for confirmation before favoring continuation entries.",
+    };
+  }
+
+  if (reliability <= 0.2 && familiarity <= 0.4) {
+    return {
+      hasConflict: true,
+      type: "memory_vs_structure",
+      severity: "medium",
+      summary: "Learned bias is unstable because reliability and familiarity are both weak.",
+      recommendation: "Treat learned bias as provisional and prioritize price-action confirmation.",
+    };
+  }
+
+  return {
+    hasConflict: false,
+    type: "bias_vs_structure",
+    severity: "medium",
+    summary: "No major bias conflict detected.",
+    recommendation: "Execute only on trigger confirmation with invalidation discipline.",
+  };
+}
+
+export function getTimeframeCountdown(timeframeMinutes = 5) {
+  const minutes = Math.max(1, Number(timeframeMinutes || 5));
+  const now = Date.now();
+  const timeframeMs = minutes * 60 * 1000;
+  const nextBoundary = Math.ceil(now / timeframeMs) * timeframeMs;
+  const remainingMs = Math.max(0, nextBoundary - now);
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+  const ss = String(totalSeconds % 60).padStart(2, "0");
+  const urgency = totalSeconds < 15 ? "imminent" : totalSeconds < 60 ? "warning" : "normal";
+  return { totalSeconds, display: `${mm}:${ss}`, urgency };
 }
 
 export function simulateTradePaths(nextTrade = {}, candles = []) {
@@ -280,11 +365,31 @@ function buildEntryLogic(nextTrade = {}, packet = {}) {
   const setup = String(nextTrade?.setup || "").toLowerCase();
   const direction = String(nextTrade?.direction || "").toLowerCase();
   const mode = String(packet?.learning_state?.learning_mode ?? packet?.learning_state?.mode ?? "mixed");
+  const operatorOverride = getOperatorOverride(packet);
+  const countdown = getTimeframeCountdown(5);
   if (!setup || setup.includes("chop") || setup.includes("no_trade")) {
     return [
       "No-trade condition detected.",
       "Wait for cleaner structure and stronger confirmation.",
       "Preserve capital while context remains noisy.",
+    ];
+  }
+  if (operatorOverride === "short") {
+    return [
+      "Wait for rejection / rollover before short execution.",
+      "Avoid late long continuation attempts against operator override.",
+      countdown.totalSeconds < 20
+        ? "Require candle confirmation if near close."
+        : "Confirm downside hold before committing size.",
+    ];
+  }
+  if (operatorOverride === "long") {
+    return [
+      "Wait for hold and continuation confirmation before long execution.",
+      "Avoid premature fading while override remains active.",
+      countdown.totalSeconds < 20
+        ? "Require candle confirmation if near close."
+        : "Enter only when trigger and momentum align.",
     ];
   }
   if (setup === "failed_breakout_short") {
@@ -308,6 +413,32 @@ function buildEntryLogic(nextTrade = {}, packet = {}) {
   ];
 }
 
+function buildFinalVerdict(packet = {}, conflict = detectBiasConflict(packet), countdown = getTimeframeCountdown(5)) {
+  const nextTrade = packet?.next_trade || {};
+  const brainState = packet?.brain_state || {};
+  const operatorOverride = getOperatorOverride(packet);
+  const baseDirection = normalizeDirection(nextTrade?.direction, "neutral");
+  const confidence = num(nextTrade?.confidence ?? brainState?.confidence, 0);
+  const setup = String(nextTrade?.setup || "").toLowerCase();
+  const noTradeLike = setup.includes("no_trade") || setup.includes("chop");
+
+  if (operatorOverride) {
+    return {
+      label: "OPERATOR OVERRIDE ACTIVE",
+      reason: `Operator ${prettyLabel(operatorOverride)} override is active. ${conflict.recommendation}`,
+    };
+  }
+  if (noTradeLike || confidence < 0.08) {
+    return { label: "NO TRADE", reason: "Context is too weak/noisy to justify execution." };
+  }
+  if (countdown.totalSeconds < 20 || conflict.hasConflict) {
+    return { label: "WAIT FOR CONFIRMATION", reason: conflict.hasConflict ? conflict.summary : "Candle is near close; wait for confirmation." };
+  }
+  if (baseDirection === "short") return { label: "SHORT BIAS PRIORITIZED", reason: "Short structure has cleaner alignment than long alternatives." };
+  if (baseDirection === "long") return { label: "LONG BIAS PRIORITIZED", reason: "Long structure has cleaner alignment than short alternatives." };
+  return { label: "WAIT FOR CONFIRMATION", reason: "Direction neutrality persists until structure clarifies." };
+}
+
 function renderModal(packet = {}) {
   const nextTrade = packet?.next_trade || {};
   const learningState = packet?.learning_state || {};
@@ -315,11 +446,16 @@ function renderModal(packet = {}) {
   const mode = String(learningState?.learning_mode ?? learningState?.mode ?? "mixed");
   const setup = String(nextTrade?.setup || "");
   const direction = String(nextTrade?.direction || "neutral");
+  const operatorOverride = getOperatorOverride(packet);
+  const effectiveDirection = operatorOverride || direction;
   const confidence = num(nextTrade?.confidence ?? brainState?.confidence, 0);
   const levels = getTradeLevels(nextTrade);
+  const conflict = detectBiasConflict(packet);
+  const countdown = getTimeframeCountdown(5);
   const entryLogic = buildEntryLogic(nextTrade, packet);
   const riskBanner = buildRiskBanner(packet);
-  const brainVoice = buildBrainVoice(packet);
+  const brainVoice = buildBrainVoice(packet, conflict, countdown);
+  const verdict = buildFinalVerdict(packet, conflict, countdown);
   const sim = simulateTradePaths(nextTrade, packet?.market_state?.candles || []);
   return `
     <div class="tvm-backdrop" data-tvm-close="1"></div>
@@ -330,7 +466,10 @@ function renderModal(packet = {}) {
       </header>
       <div class="tvm-grid">
         <article class="panel-soft tvm-area-chart">
-          <h5>A. Chart Container</h5>
+          <div class="tvm-chart-head">
+            <h5>A. Chart Container</h5>
+            <span id="tvm-countdown" class="tvm-countdown tvm-countdown-${countdown.urgency}">Candle closes in: ${countdown.display}</span>
+          </div>
           <canvas id="tvm-chart" width="960" height="340"></canvas>
         </article>
 
@@ -346,8 +485,10 @@ function renderModal(packet = {}) {
           <div class="tvm-summary-block">
             <h5>Quick Trade Plan</h5>
             <div class="tvm-kv"><span>Setup</span><strong id="tvm-quick-setup">${prettyLabel(setup, "Chop / No Trade")}</strong></div>
-            <div class="tvm-kv"><span>Direction</span><strong id="tvm-quick-direction">${prettyLabel(direction)}</strong></div>
+            <div class="tvm-kv"><span>Direction</span><strong id="tvm-quick-direction">${prettyLabel(effectiveDirection)}</strong></div>
             <div class="tvm-kv"><span>Confidence</span><strong id="tvm-quick-confidence">${Math.round(confidence * 100)}%</strong></div>
+            ${operatorOverride ? `<p class="tiny"><span id="tvm-override-badge" class="badge badge-yellow">Operator Override: ${prettyLabel(operatorOverride)}</span></p>` : '<p class="tiny" id="tvm-override-badge"></p>'}
+            <div class="tvm-summary-verdict" id="tvm-final-verdict"><strong>VERDICT: ${verdict.label}</strong><p class="tiny muted">${verdict.reason}</p></div>
           </div>
         </article>
 
@@ -361,7 +502,7 @@ function renderModal(packet = {}) {
           <h5>C. Trade Plan</h5>
           <div class="tvm-plan-grid" id="tvm-plan-grid">
             <div class="tvm-kv"><span>Setup</span><strong>${prettyLabel(setup, "Chop / No Trade")}</strong></div>
-            <div class="tvm-kv"><span>Direction</span><strong>${prettyLabel(direction)}</strong></div>
+            <div class="tvm-kv"><span>Direction</span><strong>${prettyLabel(effectiveDirection)}</strong></div>
             <div class="tvm-kv"><span>Mode</span><strong>${prettyLabel(mode)}</strong></div>
             <div class="tvm-kv"><span>Confidence</span><strong>${Math.round(confidence * 100)}%</strong></div>
             <div class="tvm-kv"><span>Trigger</span><strong>${fmtPrice(levels.trigger)}</strong></div>
@@ -435,6 +576,8 @@ function updateSimulationBars(root, nextTrade, candles) {
 
 function updateNarrativePanels(root, packet = {}) {
   if (!root) return;
+  const conflict = detectBiasConflict(packet);
+  const countdown = getTimeframeCountdown(5);
   const risk = buildRiskBanner(packet);
   const riskEl = root.querySelector("#tvm-risk-banner");
   if (riskEl) {
@@ -442,14 +585,57 @@ function updateNarrativePanels(root, packet = {}) {
     riskEl.innerHTML = `<strong>${risk.title}</strong><div class="tiny">${risk.sub}</div>`;
   }
   const brainVoiceEl = root.querySelector("#tvm-brain-voice");
-  if (brainVoiceEl) brainVoiceEl.textContent = buildBrainVoice(packet);
+  if (brainVoiceEl) brainVoiceEl.textContent = buildBrainVoice(packet, conflict, countdown);
+  const verdictEl = root.querySelector("#tvm-final-verdict");
+  if (verdictEl) {
+    const verdict = buildFinalVerdict(packet, conflict, countdown);
+    verdictEl.innerHTML = `<strong>VERDICT: ${verdict.label}</strong><p class="tiny muted">${verdict.reason}</p>`;
+  }
+
   const nextTrade = packet?.next_trade || {};
+  const operatorOverride = getOperatorOverride(packet);
   const setupEl = root.querySelector("#tvm-quick-setup");
   const directionEl = root.querySelector("#tvm-quick-direction");
   const confidenceEl = root.querySelector("#tvm-quick-confidence");
   if (setupEl) setupEl.textContent = prettyLabel(nextTrade?.setup, "Chop / No Trade");
-  if (directionEl) directionEl.textContent = prettyLabel(nextTrade?.direction, "Neutral");
+  if (directionEl) directionEl.textContent = prettyLabel(operatorOverride || nextTrade?.direction, "Neutral");
   if (confidenceEl) confidenceEl.textContent = `${Math.round(num(nextTrade?.confidence ?? packet?.brain_state?.confidence, 0) * 100)}%`;
+
+  const overrideBadgeEl = root.querySelector("#tvm-override-badge");
+  if (overrideBadgeEl) {
+    overrideBadgeEl.className = operatorOverride ? "badge badge-yellow" : "";
+    overrideBadgeEl.textContent = operatorOverride ? `Operator Override: ${prettyLabel(operatorOverride)}` : "";
+  }
+
+  const countdownEl = root.querySelector("#tvm-countdown");
+  if (countdownEl) {
+    countdownEl.className = `tvm-countdown tvm-countdown-${countdown.urgency}`;
+    countdownEl.textContent = `Candle closes in: ${countdown.display}`;
+  }
+
+  const planGrid = root.querySelector("#tvm-plan-grid");
+  if (planGrid) {
+    const levels = getTradeLevels(nextTrade);
+    const mode = String(packet?.learning_state?.learning_mode ?? packet?.learning_state?.mode ?? "mixed");
+    const setupValue = operatorOverride ? `${prettyLabel(operatorOverride)} Bias Override` : prettyLabel(nextTrade?.setup, "Chop / No Trade");
+    const directionValue = prettyLabel(operatorOverride || nextTrade?.direction, "Neutral");
+    const confidenceValue = `${Math.round(num(nextTrade?.confidence ?? packet?.brain_state?.confidence, 0) * 100)}%`;
+    planGrid.innerHTML = `
+      <div class="tvm-kv"><span>Setup</span><strong>${setupValue}</strong></div>
+      <div class="tvm-kv"><span>Direction</span><strong>${directionValue}</strong></div>
+      <div class="tvm-kv"><span>Mode</span><strong>${prettyLabel(mode)}</strong></div>
+      <div class="tvm-kv"><span>Confidence</span><strong>${confidenceValue}</strong></div>
+      <div class="tvm-kv"><span>Trigger</span><strong>${fmtPrice(levels.trigger)}</strong></div>
+      <div class="tvm-kv"><span>Invalidation</span><strong>${fmtPrice(levels.invalidation)}</strong></div>
+      <div class="tvm-kv"><span>Target</span><strong>${fmtPrice(levels.target)}</strong></div>
+    `;
+  }
+
+  const logicEl = root.querySelector(".tvm-logic ul");
+  if (logicEl) {
+    const lines = buildEntryLogic(nextTrade, packet);
+    logicEl.innerHTML = lines.map((line) => `<li>${line}</li>`).join("");
+  }
 }
 
 export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
@@ -461,7 +647,7 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
   document.body.appendChild(_modalRoot);
 
   const chart = _modalRoot.querySelector("#tvm-chart");
-  drawMiniChart(chart, packet?.market_state?.candles || [], packet?.next_trade || {});
+  drawMiniChart(chart, packet?.market_state?.candles || [], { ...(packet?.next_trade || {}), direction: getOperatorOverride(packet) || packet?.next_trade?.direction });
 
   const close = () => {
     if (_refreshTimer) window.clearInterval(_refreshTimer);
@@ -484,8 +670,16 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
       controls?.executor?.armTrade?.();
     } else if (action === "adjust-bias-long") {
       controls?.dispatch?.({ type: "ADJUST_BIAS", payload: { directionOverride: "long" } });
+      updateCurrentPacket({
+        learning_state: { operator_override: "long", manual_bias_override: "long" },
+        next_trade: { ...(livePacket?.next_trade || {}), direction: "long" },
+      });
     } else if (action === "adjust-bias-short") {
       controls?.dispatch?.({ type: "ADJUST_BIAS", payload: { directionOverride: "short" } });
+      updateCurrentPacket({
+        learning_state: { operator_override: "short", manual_bias_override: "short" },
+        next_trade: { ...(livePacket?.next_trade || {}), direction: "short" },
+      });
     } else if (action === "block-trade") {
       controls?.executionAuthority?.blockCurrentSetup?.();
     } else if (action === "save-note") {
@@ -498,7 +692,11 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
     window.setTimeout(() => {
       const refreshed = getCurrentPacket();
       if (!refreshed || !_modalRoot) return;
-      drawMiniChart(_modalRoot.querySelector("#tvm-chart"), refreshed?.market_state?.candles || [], refreshed?.next_trade || {});
+      drawMiniChart(
+        _modalRoot.querySelector("#tvm-chart"),
+        refreshed?.market_state?.candles || [],
+        { ...(refreshed?.next_trade || {}), direction: getOperatorOverride(refreshed) || refreshed?.next_trade?.direction },
+      );
       updateSimulationBars(_modalRoot, refreshed?.next_trade || {}, refreshed?.market_state?.candles || []);
       updateNarrativePanels(_modalRoot, refreshed);
     }, 120);
@@ -508,10 +706,14 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
     if (!_modalRoot) return;
     const livePacket = getCurrentPacket();
     if (!livePacket) return;
-    drawMiniChart(_modalRoot.querySelector("#tvm-chart"), livePacket?.market_state?.candles || [], livePacket?.next_trade || {});
+    drawMiniChart(
+      _modalRoot.querySelector("#tvm-chart"),
+      livePacket?.market_state?.candles || [],
+      { ...(livePacket?.next_trade || {}), direction: getOperatorOverride(livePacket) || livePacket?.next_trade?.direction },
+    );
     updateSimulationBars(_modalRoot, livePacket?.next_trade || {}, livePacket?.market_state?.candles || []);
     updateNarrativePanels(_modalRoot, livePacket);
-  }, 1200);
+  }, 1000);
 
   return { close };
 }
