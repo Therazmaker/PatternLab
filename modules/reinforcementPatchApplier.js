@@ -31,6 +31,7 @@ export function applyReinforcementPatch({
   riskCaps = {},
   log = () => {},
 } = {}) {
+  addAssistLog(log, "[Assist] Reinforcement patch received");
   const nextVerdict = { ...(brainVerdict || {}) };
   const baseConfidenceBeforePatch = toFiniteNumber(nextVerdict.confidence, 0);
   const nextScenarioSet = { ...(scenarioSet || {}), scenarios: Array.isArray(scenarioSet?.scenarios) ? scenarioSet.scenarios.map((row) => ({ ...row })) : [] };
@@ -46,6 +47,7 @@ export function applyReinforcementPatch({
   const allowedVerdictKeys = ["confidence", "confidence_delta", "posture", "entry_quality", "bias", "no_trade_reason", "allow_trade"];
   allowedVerdictKeys.forEach((key) => {
     if (verdictPatch[key] === undefined) return;
+    const prevValue = nextVerdict[key];
     if (key === "confidence") {
       nextVerdict.confidence = clamp(verdictPatch[key], 0, 1) ?? nextVerdict.confidence;
     } else if (key === "confidence_delta") {
@@ -70,6 +72,9 @@ export function applyReinforcementPatch({
       nextVerdict[key] = verdictPatch[key];
     }
     appliedFields.push(`verdict_patch.${key}`);
+    if (key === "bias" && prevValue !== nextVerdict.bias) {
+      addAssistLog(log, `[Assist] Bias updated from ${String(prevValue || "neutral")} -> ${String(nextVerdict.bias || "neutral")}`);
+    }
   });
 
   const riskPatch = reinforcement?.risk_patch || {};
@@ -122,6 +127,19 @@ export function applyReinforcementPatch({
     brainMemoryStore?.upsertRule?.(id, nextRule, { ...linkage, context_signature: contextSignature });
     rulesUpdated += 1;
   });
+  const activeRuleRows = Object.values(brainMemoryStore?.getSnapshot?.()?.rules || {})
+    .filter((row) => row?.active)
+    .map((row) => ({
+      id: row.id,
+      text: row.text || row.reason || row.id,
+      weight: toFiniteNumber(row.weight, 1),
+      source: row.source || "reinforcement",
+    }));
+  if (activeRuleRows.length || ruleUpdates.length) {
+    nextVerdict.active_rules = activeRuleRows;
+    appliedFields.push("rule_updates.active_rules");
+    addAssistLog(log, `[Assist] Active rules count now = ${activeRuleRows.length}`);
+  }
 
   const updatesByScenario = (reinforcement?.scenario_updates || []).slice().sort(byPriority);
   if (nextScenarioSet.scenarios.length && updatesByScenario.length) {
@@ -166,9 +184,13 @@ export function applyReinforcementPatch({
   const lessonTags = Array.isArray(learningPatch?.lesson_tags) ? learningPatch.lesson_tags.filter(Boolean) : [];
   const contextPatch = {};
   if (learningPatch?.learned_bias) {
+    const beforeLearnedBias = nextVerdict.learned_bias;
     nextVerdict.learned_bias = learningPatch.learned_bias;
     contextPatch.learned_bias = learningPatch.learned_bias;
     appliedFields.push("learning_patch.learned_bias");
+    if (beforeLearnedBias !== nextVerdict.learned_bias) {
+      addAssistLog(log, `[Assist] Learned bias updated from ${String(beforeLearnedBias || "neutral")} -> ${String(nextVerdict.learned_bias || "neutral")}`);
+    }
   }
   if (learningPatch?.preferred_posture) {
     contextPatch.preferredPosture = learningPatch.preferred_posture;
@@ -216,6 +238,34 @@ export function applyReinforcementPatch({
   }
   if (Object.keys(contextPatch).length) addLog("[Assist] Learning patch applied");
 
+  const reinforcementOverlay = {
+    verdict_patch: {
+      bias: nextVerdict.bias,
+      confidence: nextVerdict.confidence,
+      entry_quality: nextVerdict.entry_quality,
+      posture: nextVerdict.posture,
+      learned_bias: nextVerdict.learned_bias,
+      active_rules: nextVerdict.active_rules || [],
+      danger_score: nextVerdict.danger_score,
+      familiarity: nextVerdict.familiarity,
+    },
+    rule_updates: ruleUpdates,
+    scenario_updates: updatesByScenario,
+    learning_patch: {
+      ...learningPatch,
+      learned_bias: nextVerdict.learned_bias,
+      danger_score: nextVerdict.danger_score,
+      familiarity: nextVerdict.familiarity,
+      lesson_tags: nextVerdict.lesson_tags || lessonTags,
+    },
+    risk_patch: riskPatch,
+    next_candle_patch: nextPlanPatch,
+    applied_at: new Date().toISOString(),
+  };
+  if (contextSignature || brainMemoryStore?.getReinforcementOverlay) {
+    brainMemoryStore?.upsertReinforcementOverlay?.(contextSignature, reinforcementOverlay, linkage);
+  }
+
   const summaryHeadline = reinforcement?.assistant_summary?.headline || reinforcement?.assistant_summary?.summary || "Reinforcement applied";
 
   return {
@@ -230,5 +280,10 @@ export function applyReinforcementPatch({
       confidenceDelta: toFiniteNumber(nextVerdict.confidence, 0) - baseConfidenceBeforePatch,
       headline: summaryHeadline,
     },
+    reinforcementOverlay,
   };
+}
+
+function addAssistLog(log, line) {
+  if (typeof log === "function") log(line);
 }
