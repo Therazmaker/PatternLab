@@ -496,6 +496,7 @@ const brainExecutor = createBrainExecutor({
   outcomeLogger: tradeOutcomeLogger,
   learningUpdater: brainLearningUpdater,
   getExecutionPacket: () => getExecutionPacket(executionControlState),
+  getLearningProgress: () => learningProgressPacket,
   liveGateEvaluator: () => evaluateExecutorLiveGate(),
 });
 

@@ -1,4 +1,5 @@
 import { createBrainEvent } from "./brainMemoryStore.js";
+import { computeRiskSizing } from "./riskSizingEngine.js";
 
 function toNumber(value, fallback = null) {
   const n = Number(value);
@@ -52,6 +53,7 @@ export function createBrainExecutor({
   outcomeLogger,
   learningUpdater,
   getExecutionPacket = () => ({ authority: "manual_only", autoExecutionAllowed: false }),
+  getLearningProgress = () => ({}),
   liveGateEvaluator = () => ({ allowed: false, reasons: ["live gate unavailable"] }),
   cooldownMs = 90_000,
 } = {}) {
@@ -155,6 +157,7 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       context_maturity: plan.context_maturity || "unknown",
       exploration_reason: plan.exploration_reason || null,
       would_have_been_blocked_without_learning_mode: Boolean(plan.would_have_been_blocked_without_learning_mode),
+      risk_profile: plan.risk_profile || null,
       status: "open",
     };
     activeTrade = trade;
@@ -220,6 +223,7 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       contextMaturity: closed.context_maturity,
       explorationReason: closed.exploration_reason,
       wouldHaveBeenBlockedWithoutLearningMode: closed.would_have_been_blocked_without_learning_mode,
+      riskProfile: closed.risk_profile,
     });
 
     learningUpdater?.applyTradeLearning(logged || closed);
@@ -369,6 +373,31 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       return { state: stateStore.getState(), activeTrade: null };
     }
     if (!evaluateTrigger(plan, candle)) return { state: stateStore.getState(), activeTrade: null };
+
+    const executionPacket = getExecutionPacket();
+    const riskProfile = computeRiskSizing({
+      brainVerdict: plan.brain_verdict_snapshot || brainVerdict,
+      autoShift: plan.brain_verdict_snapshot?.auto_shift || brainVerdict?.auto_shift || {},
+      contextMemory: contextRow || {},
+      learningProgress: getLearningProgress() || {},
+      scenarioReliability: plan.scenario_primary?.reliability,
+      executorMode: state.mode,
+      scenario: plan.scenario_primary || scenario || {},
+      executionPacket,
+      config: {
+        learningProfile: state.learningProfile,
+      },
+    });
+    plan.risk_profile = riskProfile;
+    stateStore.setState({ currentPlan: plan, lastRiskProfile: riskProfile });
+    console.info(`[Risk] Mode = ${riskProfile.risk_mode}, size = ${riskProfile.size_multiplier.toFixed(2)}`);
+    if (riskProfile.reason.includes("reduced_by_friction_danger")) console.info("[Risk] Reduced by friction/danger");
+    if (riskProfile.reason.includes("boosted_by_familiarity_scenario")) console.info("[Risk] Boosted by familiarity/scenario reliability");
+    if (riskProfile.size_multiplier <= 0) {
+      console.info("[Risk] Blocked in blocked mode");
+      emit("trade_blocked", { reason: "risk_profile_zero_size", risk_profile: riskProfile }, { context_signature: plan?.context_signature || contextSignature });
+      return { state: stateStore.getState(), activeTrade: null };
+    }
 
     const trade = openTrade(plan, candle?.close);
     if (plan.trade_mode === "exploration") {

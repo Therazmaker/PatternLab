@@ -43,6 +43,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const profile = executorState?.learningProfile || verdict?.learning_profile || {};
   const planContext = plan?.context_signature ? (opts?.contextRow || {}) : {};
   const autoShift = verdict?.auto_shift || {};
+  const riskProfile = plan?.risk_profile || executorState?.lastRiskProfile || null;
   const maxExploratoryTrades = Number(profile?.max_exploratory_trades_per_context || 5);
   const exploratoryTaken = Number(planContext?.exploratory_trades_taken || 0);
   const exploratoryLeft = Math.max(0, maxExploratoryTrades - exploratoryTaken);
@@ -131,7 +132,19 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
         </section>
 
         <section>
-          <h5>Executor Controls</h5>
+          <h5>G. Risk Profile</h5>
+          <p class="tiny">mode: <strong>${safe(riskProfile?.risk_mode, "mixed")}</strong> · size multiplier: <strong>${safe(riskProfile?.size_multiplier, 0)}</strong></p>
+          <p class="tiny">capital fraction: <strong>${safe(riskProfile?.capital_fraction, 0)}</strong> · risk score: <strong>${safe(riskProfile?.risk_score, 0)}</strong></p>
+          <p class="tiny">reason: <strong>${safe((riskProfile?.reason || []).join(", "), "No active risk decision yet.")}</strong></p>
+          <p class="tiny">bonuses: <strong>confidence ${safe(riskProfile?.components?.confidence_bonus, 0)}</strong> · <strong>familiarity ${safe(riskProfile?.components?.familiarity_bonus, 0)}</strong> · <strong>scenario ${safe(riskProfile?.components?.scenario_bonus, 0)}</strong></p>
+          <p class="tiny">penalties: <strong>danger ${safe(riskProfile?.components?.danger_penalty, 0)}</strong> · <strong>friction ${safe(riskProfile?.components?.friction_penalty, 0)}</strong></p>
+          ${riskProfile?.risk_mode === "exploration" ? '<p class="tiny"><span class="badge badge-yellow">Exploration size reduced due to low familiarity</span></p>' : ""}
+          ${riskProfile?.risk_mode === "exploitation" ? '<p class="tiny"><span class="badge badge-green">Exploitation size boosted by reliable scenario</span></p>' : ""}
+          ${(riskProfile?.size_multiplier || 0) <= 0 ? '<p class="tiny"><span class="badge badge-yellow">Risk blocked by mature bad context</span></p>' : ""}
+        </section>
+
+        <section>
+          <h5>H. Executor Controls</h5>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="executor-toggle">Brain Executor ${executorState.enabled ? "ON" : "OFF"}</button>
             <button type="button" class="ghost" data-brain-action="executor-mode-paper">Mode: Paper</button>
