@@ -368,9 +368,28 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}, visualTrade = null)
   if (!rows.length) return;
 
   const levels = getTradeLevels(nextTrade);
-  const levelValues = [levels.trigger, levels.invalidation, levels.target, visualTrade?.entry, visualTrade?.stopLoss, visualTrade?.takeProfit].filter((v) => v !== null && v !== undefined);
-  const visibleMin = Math.min(...rows.map((c) => c.low), ...levelValues);
-  const visibleMax = Math.max(...rows.map((c) => c.high), ...levelValues);
+  const candleMin = Math.min(...rows.map((c) => c.low));
+  const candleMax = Math.max(...rows.map((c) => c.high));
+  const candleRange = Math.max(1e-6, candleMax - candleMin);
+  const isFiniteLevel = (v) => Number.isFinite(Number(v));
+  const tradeLevels = [visualTrade?.entry, visualTrade?.stopLoss, visualTrade?.takeProfit].map((v) => num(v, null));
+  const hasAllTradeLevels = tradeLevels.every((v) => v !== null && isFiniteLevel(v));
+  const [entry, stopLoss, takeProfit] = tradeLevels;
+  const isLong = (visualTrade?.direction || "long") !== "short";
+  const hasValidOrder = hasAllTradeLevels && (
+    (isLong && stopLoss < entry && entry < takeProfit) ||
+    (!isLong && takeProfit < entry && entry < stopLoss)
+  );
+  const hasInvalidTradeValues = Boolean(visualTrade) && !hasAllTradeLevels;
+  const tradeRange = hasAllTradeLevels ? Math.max(entry, stopLoss, takeProfit) - Math.min(entry, stopLoss, takeProfit) : 0;
+  const outOfScale = hasAllTradeLevels && tradeRange > candleRange * 3;
+  const canDrawTradeFill = Boolean(visualTrade && hasAllTradeLevels && hasValidOrder && !outOfScale);
+  const levelValues = [
+    levels.trigger, levels.invalidation, levels.target,
+    ...(canDrawTradeFill ? tradeLevels : []),
+  ].filter((v) => isFiniteLevel(v)).map((v) => Number(v));
+  const visibleMin = Math.min(candleMin, ...(levelValues.length ? levelValues : [candleMin]));
+  const visibleMax = Math.max(candleMax, ...(levelValues.length ? levelValues : [candleMax]));
   const range = Math.max(visibleMax - visibleMin, 1e-6);
   const padRange = range * 0.1;
   const chartMin = visibleMin - padRange;
@@ -386,6 +405,37 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}, visualTrade = null)
     const pct = (price - chartMin) / Math.max(1e-6, chartMax - chartMin);
     return height - inner.bottom - pct * usableH;
   };
+
+  const direction = String(nextTrade?.direction || "").toLowerCase();
+  const setup = String(nextTrade?.setup || "").toLowerCase();
+  const zonePrice = levels.trigger ?? levels.invalidation;
+  if (zonePrice !== null) {
+    const zoneHeight = Math.max(8, usableH * 0.07);
+    const zoneY = y(zonePrice) - zoneHeight / 2;
+    ctx.fillStyle = direction === "short" ? "rgba(248, 113, 113, 0.08)" : "rgba(52, 211, 153, 0.08)";
+    ctx.fillRect(inner.left, zoneY, usableW + 8, zoneHeight);
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "10px sans-serif";
+    ctx.fillText(
+      setup === "failed_breakout_short" ? "await rejection confirmation" : "decision zone",
+      inner.left + 6,
+      zoneY - 4,
+    );
+  }
+
+  if (canDrawTradeFill) {
+    const entryY = y(entry);
+    const stopY = y(stopLoss);
+    const targetY = y(takeProfit);
+    const profitTop = Math.min(entryY, targetY);
+    const profitBottom = Math.max(entryY, targetY);
+    const riskTop = Math.min(entryY, stopY);
+    const riskBottom = Math.max(entryY, stopY);
+    ctx.fillStyle = "rgba(34,197,94,0.12)";
+    ctx.fillRect(inner.left, isLong ? profitTop : riskTop, usableW + 8, Math.abs((isLong ? profitBottom : riskBottom) - (isLong ? profitTop : riskTop)));
+    ctx.fillStyle = "rgba(239,68,68,0.11)";
+    ctx.fillRect(inner.left, isLong ? riskTop : profitTop, usableW + 8, Math.abs((isLong ? riskBottom : profitBottom) - (isLong ? riskTop : profitTop)));
+  }
 
   rows.forEach((c, idx) => {
     const x = inner.left + idx * step + (step - candleW) / 2;
@@ -406,77 +456,83 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}, visualTrade = null)
     ctx.fillRect(x, top, candleW, bodyH);
   });
 
-  const drawLine = (price, color, label) => {
+  const labelState = [];
+  const resolveLabelY = (rawY) => {
+    const minGap = 14;
+    let yPos = rawY;
+    let guard = 0;
+    while (labelState.some((yPrev) => Math.abs(yPrev - yPos) < minGap) && guard < 8) {
+      yPos += minGap * (guard % 2 === 0 ? 1 : -1);
+      yPos = Math.max(inner.top + 8, Math.min(height - inner.bottom - 8, yPos));
+      guard += 1;
+    }
+    labelState.push(yPos);
+    return yPos;
+  };
+
+  const drawLine = (price, color, label, options = {}) => {
     const p = num(price, null);
     if (p === null) return;
-    const py = y(p);
+    const pyRaw = y(p);
+    const py = Math.max(inner.top, Math.min(height - inner.bottom, pyRaw));
     const xStart = inner.left;
     const xEnd = width - inner.right + 8;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 0.16;
+    ctx.lineWidth = options.bold ? 1.6 : 1.1;
+    ctx.globalAlpha = options.alpha ?? 0.9;
     ctx.beginPath();
     ctx.moveTo(xStart, py);
     ctx.lineTo(xEnd, py);
     ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.95;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
     ctx.moveTo(xStart, py);
     ctx.lineTo(xEnd, py);
     ctx.stroke();
     ctx.setLineDash([]);
+    const labelY = resolveLabelY(py + 3);
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(width - inner.right + 10, labelY - 9, 54, 12);
     ctx.fillStyle = color;
     ctx.font = "10px sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(label, width - inner.right + 12, py + 3);
+    const outOfView = pyRaw < inner.top || pyRaw > height - inner.bottom;
+    ctx.fillText(outOfView ? `${label} ↕` : label, width - inner.right + 12, labelY);
+    if (outOfView) {
+      const markerY = pyRaw < inner.top ? inner.top : height - inner.bottom;
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.arc(xEnd - 4, markerY, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   };
 
-  const direction = String(nextTrade?.direction || "").toLowerCase();
-  const setup = String(nextTrade?.setup || "").toLowerCase();
-  const zonePrice = levels.trigger ?? levels.invalidation;
-  if (zonePrice !== null) {
-    const zoneHeight = Math.max(8, usableH * 0.07);
-    const zoneY = y(zonePrice) - zoneHeight / 2;
-    ctx.fillStyle = direction === "short" ? "rgba(248, 113, 113, 0.12)" : "rgba(52, 211, 153, 0.12)";
-    ctx.fillRect(inner.left, zoneY, usableW + 8, zoneHeight);
-    ctx.fillStyle = "#cbd5e1";
-    ctx.font = "10px sans-serif";
-    ctx.fillText(
-      setup === "failed_breakout_short" ? "await rejection confirmation" : "decision zone",
-      inner.left + 6,
-      zoneY - 4,
-    );
-  }
-
-  drawLine(levels.trigger, "#facc15", "trigger");
-  drawLine(levels.invalidation, "#ef4444", "invalidation");
-  drawLine(levels.target, "#22c55e", "target");
+  drawLine(levels.trigger, "#facc15", "trigger", { alpha: 0.35 });
+  drawLine(levels.invalidation, "#ef4444", "invalidation", { alpha: 0.35 });
+  drawLine(levels.target, "#22c55e", "target", { alpha: 0.35 });
 
   if (visualTrade) {
-    const entryY = y(visualTrade.entry);
-    const stopY = y(visualTrade.stopLoss);
-    const targetY = y(visualTrade.takeProfit);
-    const isLong = visualTrade.direction !== "short";
-    const profitTop = Math.min(entryY, targetY);
-    const profitBottom = Math.max(entryY, targetY);
-    const riskTop = Math.min(entryY, stopY);
-    const riskBottom = Math.max(entryY, stopY);
-    ctx.fillStyle = "rgba(34,197,94,.16)";
-    ctx.fillRect(inner.left, isLong ? profitTop : riskTop, usableW + 8, Math.abs((isLong ? profitBottom : riskBottom) - (isLong ? profitTop : riskTop)));
-    ctx.fillStyle = "rgba(239,68,68,.15)";
-    ctx.fillRect(inner.left, isLong ? riskTop : profitTop, usableW + 8, Math.abs((isLong ? riskBottom : profitBottom) - (isLong ? riskTop : profitTop)));
-    drawLine(visualTrade.entry, "#f8fafc", "Entry");
-    drawLine(visualTrade.stopLoss, "#ef4444", "SL");
-    drawLine(visualTrade.takeProfit, "#22c55e", "TP");
-    [entryY, stopY, targetY].forEach((lineY, idx) => {
+    drawLine(entry, "#f8fafc", "Entry", { bold: true });
+    drawLine(stopLoss, "#ef4444", "SL", { bold: true });
+    drawLine(takeProfit, "#22c55e", "TP", { bold: true });
+    [entry, stopLoss, takeProfit].forEach((price, idx) => {
+      if (!isFiniteLevel(price)) return;
+      const lineY = Math.max(inner.top, Math.min(height - inner.bottom, y(price)));
       ctx.beginPath();
       ctx.fillStyle = idx === 0 ? "#e2e8f0" : idx === 1 ? "#f87171" : "#4ade80";
       ctx.arc(inner.left + usableW - 8, lineY, 3.5, 0, Math.PI * 2);
       ctx.fill();
     });
+    if (hasInvalidTradeValues || !hasValidOrder) {
+      ctx.fillStyle = "rgba(251, 146, 60, 0.9)";
+      ctx.font = "11px sans-serif";
+      ctx.fillText("Invalid trade level order", inner.left + 6, inner.top + 12);
+    } else if (outOfScale) {
+      ctx.fillStyle = "rgba(251, 191, 36, 0.9)";
+      ctx.font = "11px sans-serif";
+      ctx.fillText("Trade box hidden: invalid or out-of-scale levels", inner.left + 6, inner.top + 12);
+    }
   }
 
   if (zonePrice !== null) {
