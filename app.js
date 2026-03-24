@@ -59,7 +59,9 @@ import { evaluateCopilotFeedback } from "./modules/copilotFeedbackEvaluator.js";
 import { buildCopilotFeedbackEffects } from "./modules/copilotFeedbackBridge.js";
 import { renderCopilotFeedbackBlock, renderCopilotFeedbackTabPanel } from "./modules/copilotFeedbackPanel.js";
 import { renderBrainDashboard } from "./modules/brainDashboard.js";
-import { buildBrainVerdict } from "./modules/unifiedDecisionCore.js";
+import { runSessionBrainOrchestrator } from "./modules/sessionBrainOrchestrator.js";
+import { persistHumanOverrideMemory, persistLearnedContext } from "./modules/brainLearningWriter.js";
+import { createBrainMemoryStore, createBrainEvent } from "./modules/brainMemoryStore.js";
 import { createBrainModeController } from "./modules/brainModeController.js";
 import { buildDecisionTrace } from "./modules/decisionTraceBuilder.js";
 import { addDecisionTrace, getDecisionTraces, getAggregatedTraceStats, updateDecisionTrace } from "./modules/decisionTraceStore.js";
@@ -110,7 +112,6 @@ import { computeSessionStats, deriveCandleColor, normalizeSession } from "./modu
 import { SessionChart } from "./modules/sessionChart.js";
 import { buildSessionCandleExplanations, getDefaultSessionAnalysisConfig } from "./modules/sessionAnalysis.js";
 import { buildSessionCandleAnalysis } from "./modules/sessionCandleAnalysis.js";
-import { generateScenarioProjections } from "./modules/scenarioProjectionEngine.js";
 import { resolveScenarioSet } from "./modules/scenarioResolver.js";
 import { getLastResolvedScenarios, getScenarioMemoryRows } from "./modules/scenarioMemoryStore.js";
 import { updateScenarioContextStats } from "./modules/scenarioProbabilityUpdater.js";
@@ -142,9 +143,12 @@ import { formatConfidence, formatNumber, formatPct, formatTs, getOutcomeBadgeCla
 import {
   DEFAULT_EXECUTION_CONTROL_STATE,
   blockShadowTrade,
+  canModuleExecuteTrade,
   canShadowExecuteTrade,
   getExecutionAuthority,
+  getExecutionPacket,
   normalizeExecutionControlState,
+  blockExecution,
 } from "./modules/executionAuthority.js";
 import { getOperatorActions } from "./modules/operatorFeedback.js";
 import { computeOperatorModifier } from "./modules/operatorModifierEngine.js";
@@ -382,6 +386,7 @@ let _sessionTriggerEvaluation = { activeTriggerEffects: [], aggregateEffect: {},
 let _lastCopilotEvaluation = null;
 let _lastCopilotEffects = null;
 let _lastBrainVerdict = null;
+const brainMemoryStore = createBrainMemoryStore();
 const brainModeController = createBrainModeController({ mode: "copilot", autoExecutionEnabled: false });
 let sessionHumanInsightDraft = null;
 let sessionAnalystState = { analystData: null, addedLevels: [], collapsed: false };
@@ -1741,6 +1746,7 @@ function updateScenarioProjectionEngine({ analysis, marketView, latestPolicy }) 
     scenarioProjectionState.activeSet = null;
     return null;
   }
+
   const lastCandleTs = candles[candles.length - 1]?.timestamp || candles[candles.length - 1]?.index || Date.now();
   if (scenarioProjectionState.activeSet && !scenarioProjectionState.activeSet.resolved) {
     const resolution = resolveScenarioSet({
@@ -1760,17 +1766,36 @@ function updateScenarioProjectionEngine({ analysis, marketView, latestPolicy }) 
     || scenarioProjectionState.lastCreationCandleTs !== lastCandleTs;
 
   if (shouldCreateNewSet) {
-    scenarioProjectionState.activeSet = generateScenarioProjections({
+    const orchestrated = runSessionBrainOrchestrator({
+      session: getActiveSession(),
+      marketView,
       analysis,
-      brainVerdict: latestPolicy?.policy || null,
-      learnedRules: latestPolicy?.policy?.thesisTags || [],
+      modeState: brainModeController.getState(),
+      operatorState: sessionOperatorState,
       learnedContexts: getScenarioMemoryRows().slice(-200),
-      frictionScore: analysis.overlays?.structureSummary?.entryQuality ? (100 - analysis.overlays.structureSummary.entryQuality) / 100 : 0.35,
-      humanOverrideMemory: scenarioProjectionState.humanSelection.override ? { [scenarioProjectionState.humanSelection.followedScenarioId]: scenarioProjectionState.humanSelection.override } : null,
+      humanOverrideMemory: scenarioProjectionState.humanSelection.override
+        ? { [scenarioProjectionState.humanSelection.followedScenarioId]: scenarioProjectionState.humanSelection.override }
+        : null,
+      executionControlState,
     });
+    _lastBrainVerdict = orchestrated.brainPacket;
+    scenarioProjectionState.activeSet = orchestrated.scenarioPacket;
     scenarioProjectionState.lastCreationCandleTs = lastCandleTs;
     scenarioProjectionState.lastContextSignature = scenarioProjectionState.activeSet?.context_signature || "";
+    brainMemoryStore.appendScenario(scenarioProjectionState.activeSet || {}, {
+      sessionId: getActiveSession()?.id || null,
+      symbol: marketView.symbol,
+      timeframe: marketView.timeframe,
+      context_signature: scenarioProjectionState.activeSet?.context_signature || null,
+    });
+    brainMemoryStore.addEvent(createBrainEvent("scenario_generated", scenarioProjectionState.activeSet || {}, {
+      sessionId: getActiveSession()?.id || null,
+      symbol: marketView.symbol,
+      timeframe: marketView.timeframe,
+      context_signature: scenarioProjectionState.activeSet?.context_signature || null,
+    }));
   }
+
   scenarioProjectionState.dashboardSnapshot = {
     primary: scenarioProjectionState.activeSet?.scenarios?.[0] || null,
     secondary: scenarioProjectionState.activeSet?.scenarios?.[1] || null,
@@ -3316,6 +3341,12 @@ function buildSessionAssistedExportContext() {
     triggerLines: _sessionTriggerLines || [],
     humanInsights: _sessionHumanInsights || [],
     selectedCandleIndex: selectedSessionCandleIndex || null,
+    brainVerdict: _lastBrainVerdict,
+    scenarioProjection: scenarioProjectionState.activeSet,
+    executionPacket: getExecutionPacket(executionControlState),
+    executionControlState,
+    eventTimeline: brainMemoryStore.getSnapshot().events,
+    tradeTakenBy: latestPolicy ? "shadow" : "manual",
   };
 }
 
@@ -4671,15 +4702,14 @@ function setExecutionControlState(nextState = {}, options = {}) {
 }
 
 function allowShadowTradeExecution() {
-  if (canShadowExecuteTrade(executionControlState)) return true;
-  const authority = getExecutionAuthority(executionControlState);
-  if (!executionControlState.shadowExecutionEnabled) {
-    blockShadowTrade("shadow execution paused, authority = copilot");
-    console.info("[Shadow] Trade blocked because authority belongs to copilot");
+  const executionPacket = getExecutionPacket(executionControlState);
+  if (canModuleExecuteTrade("shadow", executionControlState) && canShadowExecuteTrade(executionControlState)) return true;
+  if (executionPacket.authority === "manual_only") {
+    blockExecution("Execution", "manual_only prevents all auto-entry");
     return false;
   }
-  blockShadowTrade(`authority = ${authority}`);
-  console.info(`[Shadow] Trade blocked because authority belongs to ${authority}`);
+  blockShadowTrade(`authority = ${executionPacket.authority}`);
+  console.info(`[Shadow] execution blocked because authority belongs to ${executionPacket.authority}`);
   return false;
 }
 
@@ -4967,14 +4997,45 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   // Copilot feedback bridge – evaluate and apply as additional decision layer
   const { feedback: copilotFeedback, evaluation: copilotEvaluation, effects: copilotEffectsResult } = evaluateAndStoreCopilotFeedback(analysis, marketView);
   const copilotEffectsForDecision = copilotEffectsResult || {};
-  _lastBrainVerdict = buildBrainVerdict({
-    analysis,
+  const orchestration = runSessionBrainOrchestrator({
+    session: getActiveSession(),
     marketView,
-    copilotFeedback,
-    copilotEvaluation,
+    analysis,
     modeState: brainModeController.getState(),
     operatorState: sessionOperatorState,
+    copilotFeedback,
+    copilotEvaluation,
+    learnedContexts: getScenarioMemoryRows().slice(-200),
+    humanOverrideMemory: null,
+    executionControlState,
   });
+  _lastBrainVerdict = orchestration.brainPacket;
+  if (_lastBrainVerdict?.learningEffects?.signature) {
+    persistLearnedContext({
+      signature: _lastBrainVerdict.learningEffects.signature,
+      learnedContextCurrent: _lastBrainVerdict.learningEffects.learnedContextCurrent,
+    });
+    brainMemoryStore.upsertContext(_lastBrainVerdict.learningEffects.signature, _lastBrainVerdict.learningEffects.learnedContextCurrent, {
+      sessionId: getActiveSession()?.id || null,
+      symbol: marketView.symbol,
+      timeframe: marketView.timeframe,
+    });
+  }
+  if (_lastBrainVerdict?.learningEffects?.shouldPersistOverride) {
+    persistHumanOverrideMemory(_lastBrainVerdict.learningEffects.overridePatch);
+  }
+  brainMemoryStore.appendDecision(_lastBrainVerdict, {
+    sessionId: getActiveSession()?.id || null,
+    symbol: marketView.symbol,
+    timeframe: marketView.timeframe,
+    context_signature: orchestration.contextPacket?.context_signature,
+  });
+  brainMemoryStore.addEvent(createBrainEvent("brain_verdict", _lastBrainVerdict, {
+    sessionId: getActiveSession()?.id || null,
+    symbol: marketView.symbol,
+    timeframe: marketView.timeframe,
+    context_signature: orchestration.contextPacket?.context_signature,
+  }));
   const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, {}, triggerLineEffects, copilotEffectsForDecision);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
   sessionOperatorState.currentContext = {

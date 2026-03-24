@@ -124,7 +124,7 @@ function baseScore(type, analysis = {}, brainVerdict = null) {
   const bias = analysis.bias || "neutral";
   const momentum = analysis.momentumCondition || "flat";
   const volatility = analysis.volatilityCondition || "normal";
-  const noTradeBoost = brainVerdict?.action === "NO_TRADE" ? 0.8 : 0;
+  const noTradeBoost = (brainVerdict?.posture === "wait" || brainVerdict?.entry_quality === "WAIT" || brainVerdict?.no_trade_reason) ? 0.8 : 0;
   const map = {
     bullish_breakout: 1.1 + (bias === "bullish" ? 0.55 : -0.35) + (volatility === "compressed" ? 0.15 : 0),
     failed_breakout_short: 1 + (momentum === "fading" ? 0.5 : 0) + (bias === "bullish" ? 0.25 : 0),
@@ -145,13 +145,13 @@ function normalizeProbabilities(rows = []) {
   return rounded;
 }
 
-export function generateScenarioProjections({ analysis = {}, brainVerdict = null, learnedRules = [], learnedContexts = [], frictionScore = 0, humanOverrideMemory = null } = {}) {
+export function generateScenarioProjections({ analysis = {}, brainVerdict = null, learnedRules = [], learnedContexts = [], frictionScore = 0, humanOverrideMemory = null, executionPosture = "unknown", operatorOverrideMemory = null } = {}) {
   const contextSignature = buildContextSignature(analysis);
   const probabilityAdjustments = getScenarioProbabilityAdjustments(contextSignature);
   const candidateRows = SCENARIO_TYPES.map((type) => {
     const descriptor = scenarioDescriptor(type, analysis);
     const learnedShift = probabilityAdjustments.byType?.[type]?.shift || 0;
-    const overridePenalty = humanOverrideMemory?.[type] === "rejected_recently" ? -0.1 : 0;
+    const overridePenalty = (humanOverrideMemory?.[type] === "rejected_recently" || operatorOverrideMemory?.[type] === "rejected_recently") ? -0.1 : 0;
     const score = clamp(baseScore(type, analysis, brainVerdict) + learnedShift + overridePenalty - toNumber(frictionScore, 0) * 0.08, 0.05, 5);
     return {
       type,
@@ -183,6 +183,10 @@ export function generateScenarioProjections({ analysis = {}, brainVerdict = null
       trigger: row.descriptor.trigger,
       invalidation: row.descriptor.invalidation,
       expected_quality: row.descriptor.expected_quality,
+      brain_posture: brainVerdict?.posture || "wait",
+      brain_bias: brainVerdict?.bias || analysis.bias || "neutral",
+      brain_entry_quality: brainVerdict?.entry_quality || "WAIT",
+      brain_no_trade_reason: brainVerdict?.no_trade_reason || null,
       reasoning_summary: `Bias ${analysis.bias || "neutral"}, momentum ${analysis.momentumCondition || "flat"}, volatility ${analysis.volatilityCondition || "normal"}. Learned matches: ${row.sampleSize}.`,
       projected_path: projectedPath,
       context_signature: contextSignature,
@@ -208,5 +212,7 @@ export function generateScenarioProjections({ analysis = {}, brainVerdict = null
     no_trade_probability: scenarios.find((row) => row.type === "chop_no_trade")?.probability || 0,
     matched_similar_contexts: probabilityAdjustments.matchedContexts || learnedContexts.length || 0,
     learned_rules_count: Array.isArray(learnedRules) ? learnedRules.length : 0,
+    active_rules: Array.isArray(learnedRules) ? learnedRules : [],
+    execution_posture: executionPosture,
   };
 }
