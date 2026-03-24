@@ -3706,6 +3706,7 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
       brainModeController.setMode("copilot");
     }
     refreshSessionCandlesTab();
+    renderBrainDashboardPanel();
   });
   els.sessionHumanInsightTags?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-human-tag]");
