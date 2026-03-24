@@ -109,7 +109,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">context maturity: <strong>${safe(verdict.context_maturity, "immature")}</strong> · familiarity: <strong>${safe(autoShift?.familiarity, verdict.familiarity)}</strong></p>
           <p class="tiny">auto-shift reason: <strong>${safe((autoShift?.reason || []).join(", "), learningStateMessage)}</strong></p>
           <p class="tiny"><span class="badge">${learningStateMessage}</span></p>
-          ${(verdict?.learning_mode === "blocked" || verdict?.auto_shift?.block_trading) ? `<p class="tiny"><span class="badge badge-yellow">Trading blocked (${safe(autoShift?.context_pause_candles, 0)} candle pause)</span></p>` : ""}
+          ${verdict?.learning_mode === "blocked" ? `<p class="tiny"><span class="badge badge-yellow">Trading blocked (${safe(autoShift?.context_pause_candles, 0)} candle pause)</span></p>` : ""}
         </section>
 
         <section>
@@ -140,7 +140,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">penalties: <strong>danger ${safe(riskProfile?.components?.danger_penalty, 0)}</strong> · <strong>friction ${safe(riskProfile?.components?.friction_penalty, 0)}</strong></p>
           ${riskProfile?.risk_mode === "exploration" ? '<p class="tiny"><span class="badge badge-yellow">Exploration size reduced due to low familiarity</span></p>' : ""}
           ${riskProfile?.risk_mode === "exploitation" ? '<p class="tiny"><span class="badge badge-green">Exploitation size boosted by reliable scenario</span></p>' : ""}
-          ${(riskProfile?.size_multiplier || 0) <= 0 ? '<p class="tiny"><span class="badge badge-yellow">Risk blocked by mature bad context</span></p>' : ""}
+          ${(riskProfile?.size_multiplier || 0) <= 0 ? '<p class="tiny"><span class="badge badge-yellow">Risk blocked by blocked learning mode</span></p>' : ""}
         </section>
 
         <section>
