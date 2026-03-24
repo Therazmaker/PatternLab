@@ -63,6 +63,7 @@ export class SessionChart {
     this._fullscreen=false;
     this._mouse=null;this._hovIdx=null;
     this._dragging=false;this._dragX0=0;this._dragOff0=0;this._lastPinchD=0;
+    this._lineDragging=false;
     this._dirty=true;this._raf=null;
     this._build();
   }
@@ -120,6 +121,10 @@ export class SessionChart {
           hasInvalidPoint:(drawing.points||[]).some((point)=>!Number.isFinite(Number(point?.time))||!Number.isFinite(Number(point?.price))),
           drawingsCount:Array.isArray(rows)?rows.length:0,
         });
+      },
+      onDrawingUpdated:(drawing,rows)=>{
+        this._manualSR=[...rows];
+        this.onSRChange([...this._manualSR],{type:"updated",line:drawing});
       },
       onDrawingDeleted:(drawing,rows)=>{
         this._manualSR=[...rows];
@@ -436,6 +441,7 @@ export class SessionChart {
       padTop:PAD_TOP,
       chartToScreen:(point)=>this.chartToScreenCoords(point.time,point.price),
       debug:true,
+      decimals:this.decimals,
     });
   }
 
@@ -654,21 +660,43 @@ export class SessionChart {
     if((e.key==="f"||e.key==="F")&&!e.ctrlKey&&!e.metaKey&&(this._fullscreen||document.activeElement===this.canvas)){this.toggleFullscreen();}
   }
 
+  _isDraggableHorizontal(type){return["horizontal_line","trigger_line","tp_line","sl_line"].includes(type);}
+
   _handleMouseMove(e){
     const{x,y}=this._logicalXY(e);this._mouse={x,y};this._dirty=true;
-    this._drawingController?.pointerMove({chartPoint:this.screenToChartCoords(x,y)});
-    if(this._dragging&&this._drawingController?.state?.activeTool==="select"){const dx=x-this._dragX0;this._offsetX=this._dragOff0-dx/this._spacing;this._clampOffset();}
+    if(this._lineDragging){
+      this._drawingController?.moveLineDrag(this.screenToChartCoords(x,y));
+      this.canvas.style.cursor="ns-resize";
+    } else {
+      this._drawingController?.pointerMove({chartPoint:this.screenToChartCoords(x,y)});
+      if(this._dragging&&this._drawingController?.state?.activeTool==="select"){const dx=x-this._dragX0;this._offsetX=this._dragOff0-dx/this._spacing;this._clampOffset();}
+      // Show ns-resize cursor when hovering over a draggable horizontal line in select mode
+      if(!this._dragging&&this._drawingController?.state?.activeTool==="select"){
+        const drawings=this._drawingController?.state?.drawings||[];
+        const overLine=drawings.some(d=>this._isDraggableHorizontal(d.type)&&Number.isFinite(d.price)&&Math.abs(this._yForPrice(d.price)-y)<=8);
+        this.canvas.style.cursor=overLine?"ns-resize":"crosshair";
+      }
+    }
     const i=clamp(Math.round(this._idxAtX(x)),0,this.candles.length-1);
     if(i!==this._hovIdx){this._hovIdx=i;const c=this.candles[i];if(c)this.onCandleHover(c.index);}
   }
 
   _handleMouseDown(e){
     if(e.button!==0||this._drawingController?.state?.activeTool!=="select")return;
+    if(this._lineDragging)return;
     const{x}=this._logicalXY(e);this._dragging=true;this._dragX0=x;this._dragOff0=this._offsetX;
     this.canvas.style.cursor="grabbing";
   }
 
-  _handleMouseUp(){this._dragging=false;this.canvas.style.cursor="crosshair";}
+  _handleMouseUp(){
+    if(this._lineDragging){
+      this._lineDragging=false;
+      this._drawingController?.endLineDrag();
+      this.canvas.style.cursor="crosshair";
+    } else {
+      this._dragging=false;this.canvas.style.cursor="crosshair";
+    }
+  }
 
   _handleWheel(e){
     e.preventDefault();
@@ -700,6 +728,12 @@ export class SessionChart {
     if(result?.consumed){
       this._skipNextClick=true;
       this._dirty=true;
+      // Start a vertical line-drag when a horizontal-type drawing is selected
+      const found=result.drawing;
+      if(found&&this._isDraggableHorizontal(found.type)&&button===0){
+        this._drawingController.startLineDrag(found.id);
+        this._lineDragging=true;
+      }
     }
   }
 

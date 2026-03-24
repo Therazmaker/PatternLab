@@ -4,6 +4,8 @@ function lineColor(drawing = {}, isSelected = false) {
     if (drawing.triggerStatus === "invalidated") return isSelected ? "rgba(255,255,255,1)" : "rgba(125,211,252,0.9)";
     return isSelected ? "rgba(255,255,255,1)" : "rgba(244,114,182,0.98)";
   }
+  if (drawing.type === "tp_line") return isSelected ? "rgba(255,255,255,1)" : "rgba(34,197,94,0.98)";
+  if (drawing.type === "sl_line") return isSelected ? "rgba(255,255,255,1)" : "rgba(239,68,68,0.98)";
   if (drawing.type === "horizontal_line") {
     return isSelected ? "rgba(255,255,255,1)" : "rgba(250,204,21,0.98)";
   }
@@ -184,18 +186,49 @@ export function renderDrawings(ctx, drawings = [], drawingState = {}, geometry =
     ctx.shadowColor = isSelected ? color : "transparent";
     ctx.globalAlpha = 1;
 
-    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line") {
+    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line" || drawing.type === "tp_line" || drawing.type === "sl_line") {
       const y = points[0].y;
       if (drawing.type === "trigger_line") ctx.setLineDash([10, 5]);
+      else if (drawing.type === "tp_line" || drawing.type === "sl_line") ctx.setLineDash([8, 5]);
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(chartW, y);
       ctx.stroke();
+      ctx.setLineDash([]);
       if (drawing.type === "trigger_line") {
-        ctx.setLineDash([]);
         ctx.fillStyle = color;
         ctx.font = "11px 'JetBrains Mono',monospace";
         ctx.fillText("Trigger", 8, y - 8);
+      } else if (drawing.type === "tp_line" || drawing.type === "sl_line") {
+        const labelText = drawing.type === "tp_line" ? "TP" : "SL";
+        const decimals = Number(geometry.decimals) || 4;
+        const priceText = Number.isFinite(drawing.price) ? drawing.price.toFixed(decimals) : "";
+        const fullLabel = priceText ? `${labelText}  ${priceText}` : labelText;
+        ctx.font = "11px 'JetBrains Mono',monospace";
+        const padX = 7;
+        const tw = Math.max(44, ctx.measureText(fullLabel).width + padX * 2);
+        const lx = chartW - tw - 6;
+        // Badge background
+        ctx.fillStyle = "rgba(9,16,28,0.88)";
+        ctx.beginPath();
+        ctx.roundRect(lx, y - 10, tw, 20, 3);
+        ctx.fill();
+        // Badge border
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(lx, y - 10, tw, 20, 3);
+        ctx.stroke();
+        // Badge text
+        ctx.fillStyle = color;
+        ctx.textAlign = "left";
+        ctx.fillText(fullLabel, lx + padX, y + 4);
+        // Drag handle (visible when selected or being dragged)
+        if (isSelected) {
+          ctx.fillStyle = color;
+          ctx.font = "bold 12px 'JetBrains Mono',monospace";
+          ctx.fillText("⇕", lx - 18, y + 4.5);
+        }
       }
     } else if (drawing.type === "trendline") {
       if (!a || !b) {
@@ -267,9 +300,10 @@ export function renderDrawingDraft(ctx, drawingState = {}, geometry = {}) {
   ctx.lineWidth = 1.2;
   ctx.setLineDash([5, 4]);
 
-  if (draft.type === "horizontal_line" || draft.type === "trigger_line") {
+  if (draft.type === "horizontal_line" || draft.type === "trigger_line" || draft.type === "tp_line" || draft.type === "sl_line") {
     const y = previewPoints[previewPoints.length - 1].y;
-    if (draft.type === "trigger_line") ctx.setLineDash([8, 5]);
+    if (draft.type === "trigger_line") ctx.setLineDash([10, 5]);
+    else if (draft.type === "tp_line" || draft.type === "sl_line") ctx.setLineDash([8, 5]);
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(chartW, y);
@@ -307,7 +341,7 @@ export function hitTestDrawing(drawings = [], point = { x: 0, y: 0 }, chartToScr
   for (const drawing of ordered) {
     const pts = (drawing.points || []).map((p) => chartToScreen?.(p)).filter(Boolean);
     if (!pts.length) continue;
-    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line") {
+    if (drawing.type === "horizontal_line" || drawing.type === "trigger_line" || drawing.type === "tp_line" || drawing.type === "sl_line") {
       if (Math.abs(point.y - pts[0].y) <= 8) return drawing;
       continue;
     }
