@@ -1,4 +1,28 @@
 const EXECUTOR_MODES = new Set(["paper", "live"]);
+const DEFAULT_LEARNING_PROFILE = Object.freeze({
+  profile: "aggressive_learning",
+  enabled: true,
+  paper_only: true,
+  exploration_mode: true,
+  exploration_bias: 0.7,
+  exploitation_bias: 0.3,
+  allow_trade_on_wait_in_paper: true,
+  allow_high_danger_exploration: true,
+  allow_low_confidence_exploration: true,
+  min_samples_before_strict_block: 10,
+  min_samples_before_context_maturity: 20,
+  friction_block_live_only: true,
+  danger_block_live_only: true,
+  max_exploratory_trades_per_context: 5,
+  max_consecutive_losses_before_context_pause: 3,
+  context_pause_candles: 5,
+  cooldown_candles: 1,
+  one_trade_per_candle: true,
+  one_active_trade_max: true,
+  exploration_entry_quality_floor: "C",
+  exploration_requires_trigger: true,
+  exploration_requires_invalidation: true,
+});
 
 export const DEFAULT_EXECUTOR_STATE = Object.freeze({
   enabled: true,
@@ -14,6 +38,7 @@ export const DEFAULT_EXECUTOR_STATE = Object.freeze({
   cooldownUntil: null,
   paused: false,
   liveBlockedReason: null,
+  learningProfile: DEFAULT_LEARNING_PROFILE,
 });
 
 function normalizeMode(mode = "paper") {
@@ -35,6 +60,7 @@ export function normalizeExecutorState(raw = {}) {
     cooldownUntil: raw?.cooldownUntil || null,
     paused: Boolean(raw?.paused),
     liveBlockedReason: raw?.liveBlockedReason || null,
+    learningProfile: { ...DEFAULT_LEARNING_PROFILE, ...(raw?.learningProfile || {}) },
   };
 }
 

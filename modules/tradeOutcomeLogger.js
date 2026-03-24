@@ -10,7 +10,24 @@ function toLessonTags(outcome = {}) {
 }
 
 export function createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal, addTimelineEvent } = {}) {
-  function logClosedTrade({ trade, contextSignature, brainVerdict, scenarioTaken, triggerUsed, takenBy, operatorOverride, result, mfe, mae, resolutionCandles, exitReason } = {}) {
+  function logClosedTrade({
+    trade,
+    contextSignature,
+    brainVerdict,
+    scenarioTaken,
+    triggerUsed,
+    takenBy,
+    operatorOverride,
+    result,
+    mfe,
+    mae,
+    resolutionCandles,
+    exitReason,
+    tradeMode,
+    contextMaturity,
+    explorationReason,
+    wouldHaveBeenBlockedWithoutLearningMode,
+  } = {}) {
     if (!trade?.id) return null;
     const payload = {
       trade_id: trade.id,
@@ -26,6 +43,10 @@ export function createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal, 
       resolution_candles: Number(resolutionCandles || trade.resolution_candles || 0),
       lesson_tags: toLessonTags({ result: result || trade.result, mfe: mfe || trade.mfe, mae: mae || trade.mae, exit_reason: exitReason || trade.exit_reason }),
       exit_reason: exitReason || trade.exit_reason || "closed",
+      trade_mode: tradeMode || trade.trade_mode || "standard",
+      context_maturity: contextMaturity || trade.context_maturity || "unknown",
+      exploration_reason: explorationReason || trade.exploration_reason || null,
+      would_have_been_blocked_without_learning_mode: Boolean(wouldHaveBeenBlockedWithoutLearningMode ?? trade.would_have_been_blocked_without_learning_mode),
     };
 
     brainMemoryStore?.appendTrade({
@@ -43,6 +64,10 @@ export function createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal, 
       taken_by: payload.taken_by,
       operator_override: payload.operator_override,
       lesson_tags: payload.lesson_tags,
+      trade_mode: payload.trade_mode,
+      context_maturity: payload.context_maturity,
+      exploration_reason: payload.exploration_reason,
+      would_have_been_blocked_without_learning_mode: payload.would_have_been_blocked_without_learning_mode,
     }, {
       context_signature: payload.context_signature,
       tradeId: payload.trade_id,

@@ -33,6 +33,15 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   if (Number(verdict?.danger_score || 0) > 0.7) warnings.push("high danger context");
   if (String(verdict?.no_trade_reason || "").includes("repeated_loss_context")) warnings.push("repeated loss pattern");
   if (Number(verdict?.friction || 0) > 0.68) warnings.push("friction blocking entry");
+  if (verdict?.exploration_trade_allowed && String(verdict?.posture || "").toLowerCase() === "execute_on_confirmation") {
+    warnings.push("exploratory trade allowed despite wait");
+  }
+  const profile = executorState?.learningProfile || verdict?.learning_profile || {};
+  const planContext = plan?.context_signature ? (opts?.contextRow || {}) : {};
+  const maxExploratoryTrades = Number(profile?.max_exploratory_trades_per_context || 5);
+  const exploratoryTaken = Number(planContext?.exploratory_trades_taken || 0);
+  const exploratoryLeft = Math.max(0, maxExploratoryTrades - exploratoryTaken);
+  const pauseRemaining = Number(planContext?.exploration_pause_remaining_candles || 0);
 
   return `
     <article class="panel-soft brain-dashboard">
@@ -78,6 +87,11 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
 
         <section>
           <h5>E. Learning Progress</h5>
+          <p class="tiny">Learning Profile: <strong>${safe(profile?.profile || "aggressive_learning")}</strong> · enabled: <strong>${profile?.enabled ? "yes" : "no"}</strong></p>
+          <p class="tiny">Learning Mode: <strong>${safe(verdict.learning_mode, "mixed")}</strong> · Context Maturity: <strong>${safe(verdict.context_maturity, "immature")}</strong></p>
+          <p class="tiny">Exploratory trades left (context): <strong>${safe(exploratoryLeft, 0)}</strong> / ${safe(maxExploratoryTrades, 5)}</p>
+          <p class="tiny">Context pause: <strong>${pauseRemaining > 0 ? `ACTIVE (${pauseRemaining} candles left)` : "inactive"}</strong></p>
+          ${verdict?.exploration_trade_allowed ? '<p class="tiny"><span class="badge">exploratory trade allowed despite wait</span></p>' : ""}
           <p class="tiny">trades executed: <strong>${safe(learning.tradesLearned, 0)}</strong> · contexts learned: <strong>${safe(learning.learnedContexts, 0)}</strong></p>
           <p class="tiny">dangerous contexts: <strong>${safe(learning.dangerousContexts, 0)}</strong> · reliable contexts: <strong>${safe(learning.reliableContexts, 0)}</strong></p>
           <p class="tiny">learning velocity: <strong>${safe(learning.learningVelocity, 0)}</strong></p>
