@@ -124,7 +124,7 @@ function baseScore(type, analysis = {}, brainVerdict = null) {
   const bias = analysis.bias || "neutral";
   const momentum = analysis.momentumCondition || "flat";
   const volatility = analysis.volatilityCondition || "normal";
-  const noTradeBoost = (brainVerdict?.posture === "wait" || brainVerdict?.entry_quality === "WAIT" || brainVerdict?.no_trade_reason) ? 0.8 : 0;
+  const noTradeBoost = (brainVerdict?.posture === "wait" || String(brainVerdict?.entry_quality || "").toLowerCase() === "wait" || brainVerdict?.no_trade_reason) ? 0.8 : 0;
   const map = {
     bullish_breakout: 1.1 + (bias === "bullish" ? 0.55 : -0.35) + (volatility === "compressed" ? 0.15 : 0),
     failed_breakout_short: 1 + (momentum === "fading" ? 0.5 : 0) + (bias === "bullish" ? 0.25 : 0),
@@ -185,7 +185,7 @@ export function generateScenarioProjections({ analysis = {}, brainVerdict = null
       expected_quality: row.descriptor.expected_quality,
       brain_posture: brainVerdict?.posture || "wait",
       brain_bias: brainVerdict?.bias || analysis.bias || "neutral",
-      brain_entry_quality: brainVerdict?.entry_quality || "WAIT",
+      brain_entry_quality: brainVerdict?.entry_quality || "wait",
       brain_no_trade_reason: brainVerdict?.no_trade_reason || null,
       reasoning_summary: `Bias ${analysis.bias || "neutral"}, momentum ${analysis.momentumCondition || "flat"}, volatility ${analysis.volatilityCondition || "normal"}. Learned matches: ${row.sampleSize}.`,
       projected_path: projectedPath,

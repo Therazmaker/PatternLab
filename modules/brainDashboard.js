@@ -12,6 +12,19 @@ function chips(rows = []) {
   return rows.map((row) => `<span class="brain-chip">${row}</span>`).join(" ");
 }
 
+function buildWarnings(verdict = null) {
+  if (!verdict) return [];
+  const warnings = [];
+  if (Number(verdict.danger_score || 0) > 0.65) warnings.push("High danger context");
+  if ((verdict.last_outcomes || []).slice(-3).every((x) => x === "loss") && (verdict.last_outcomes || []).length >= 3) {
+    warnings.push("Repeated losses in similar setup");
+  }
+  if (Number(verdict.learningEffects?.learnedContextCurrent?.trust_operator || 0) > 0.58) {
+    warnings.push("Operator override historically better here");
+  }
+  return warnings;
+}
+
 export function renderBrainDashboard(verdict = null, modeState = {}, executionControlState = {}) {
   if (!verdict) return '<article class="panel-soft brain-dashboard"><h4>Brain Dashboard</h4><p class="muted tiny">Waiting for market context...</p></article>';
   const shadowExecutionEnabled = Boolean(executionControlState?.shadowExecutionEnabled);
@@ -26,6 +39,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
       <span class="tiny muted">posture ${safe(ctx.preferredPosture, "wait")} · Δconf ${safe(ctx.confidenceAdjustment, 0)}</span>
     </div>
   `).join("");
+
+  const warnings = buildWarnings(verdict);
 
   return `
     <article class="panel-soft brain-dashboard">
@@ -47,6 +62,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <h5>Brain Bias</h5>
           <p class="tiny">current bias: <strong>${safe(verdict.bias)}</strong> · confidence: <strong>${pct(verdict.confidence)}</strong></p>
           <p class="tiny">entry quality: <strong>${safe(verdict.entry_quality)}</strong> · friction: <strong>${safe(verdict.friction)}</strong></p>
+          <p class="tiny">context score: <strong>${safe(verdict.context_score)}</strong> · danger: <strong>${safe(verdict.danger_score)}</strong></p>
+          <p class="tiny">familiarity: <strong>${safe(verdict.familiarity)}</strong> · learned bias: <strong>${safe(verdict.learned_bias)}</strong></p>
           <p class="tiny">operational mode: <strong>${safe(modeState.mode || verdict.mode)}</strong></p>
         </section>
 
@@ -79,7 +96,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">
             <span class="badge">Execution Authority: ${authorityLabel}</span>
             <span class="badge ${shadowExecutionEnabled ? "badge-green" : "badge-muted"}">Shadow Execution: ${shadowExecutionEnabled ? "Active" : "Paused"}</span>
-            <span class="badge">${manualConfirmationRequired ? "Manual Confirmation: Required" : "Manual Confirmation: Optional"}</span>
+            <span class="badge">Manual Confirmation: ${manualConfirmationRequired ? "Required" : "Optional"}</span>
           </p>
           <div class="button-row compact" id="brain-dashboard-controls">
             <button type="button" class="ghost" data-brain-action="approve">approve suggestion</button>
@@ -97,9 +114,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
       </div>
 
       <div class="brain-summary muted tiny">
-        <span class="brain-chip">${verdict.no_trade_reason ? "Long degraded by learned context" : "Prepare short only if rejection confirms"}</span>
-        <span class="brain-chip">Historical losses in similar compression zone</span>
-        <span class="brain-chip">Wait: conflict between momentum and structure</span>
+        ${chips(warnings.length ? warnings : ["Context learning active", "Decision friction enforced", "Override memory accounted for"])}
       </div>
     </article>
   `;

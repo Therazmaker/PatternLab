@@ -1,3 +1,6 @@
+import { getDefaultContextLearningRow } from "./contextScoringEngine.js";
+import { updateContextFromScenarioOutcome } from "./scenarioOutcomeUpdater.js";
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -12,6 +15,15 @@ function cloneBase(base = {}) {
     trades: Array.isArray(base?.trades) ? [...base.trades] : [],
     statsCache: base?.statsCache && typeof base.statsCache === "object" ? { ...base.statsCache } : {},
     events: Array.isArray(base?.events) ? [...base.events] : [],
+  };
+}
+
+function withContextDefaults(context = {}) {
+  const defaults = getDefaultContextLearningRow();
+  return {
+    ...defaults,
+    ...context,
+    last_outcomes: Array.isArray(context?.last_outcomes) ? context.last_outcomes.slice(-8) : defaults.last_outcomes,
   };
 }
 
@@ -34,8 +46,8 @@ export function createBrainMemoryStore(seed = {}) {
   function upsertContext(signature, context = {}, linkage = {}) {
     if (!signature) return null;
     memory.contexts[signature] = {
-      ...(memory.contexts[signature] || {}),
-      ...context,
+      ...withContextDefaults(memory.contexts[signature] || {}),
+      ...withContextDefaults(context),
       context_signature: signature,
       sessionId: linkage.sessionId || memory.contexts?.[signature]?.sessionId || null,
       symbol: linkage.symbol || memory.contexts?.[signature]?.symbol || null,
@@ -43,6 +55,18 @@ export function createBrainMemoryStore(seed = {}) {
       updatedAt: nowIso(),
     };
     return memory.contexts[signature];
+  }
+
+  function updateContextFromOutcome(signature, payload = {}, linkage = {}) {
+    if (!signature) return null;
+    const current = withContextDefaults(memory.contexts[signature] || {});
+    const next = updateContextFromScenarioOutcome({
+      context: current,
+      scenario: payload.scenario || {},
+      resolution: payload.resolution || {},
+      operatorOverride: payload.operatorOverride || null,
+    });
+    return upsertContext(signature, next, linkage);
   }
 
   function upsertRule(id, rule = {}, linkage = {}) {
@@ -155,6 +179,7 @@ export function createBrainMemoryStore(seed = {}) {
 
   return {
     upsertContext,
+    updateContextFromOutcome,
     upsertRule,
     appendDecision,
     appendScenario,
