@@ -17,155 +17,75 @@ function buildPromptReadyText(payload) {
   return [
     "Actúa como copiloto de trading discrecional en modo asistido.",
     "No asumas ejecución automática ni envíes órdenes.",
-    "Usa el JSON adjunto para analizar contexto, estructura, momentum, triggers e intervención humana.",
-    "Entrega respuesta compacta con: (1) lectura del régimen, (2) escenarios principal/alterno, (3) invalidaciones,",
-    "(4) plan operativo sugerido con gatillos claros, (5) riesgos y sesgos cognitivos detectados, (6) qué confirmaciones faltan.",
-    `Caso: ${caseLabel}. Prioriza claridad y decisión asistida por humano.`,
+    "Usa el JSON adjunto para analizar contexto, veredicto del brain, escenarios, autoridad de ejecución y overrides.",
+    "Entrega respuesta compacta con escenario base/alterno, gatillos, invalidaciones y por qué esperar/operar.",
+    `Caso: ${caseLabel}. Prioriza machine proposes / human decides.`,
   ].join(" ");
 }
 
 export function buildChatGPTAssistedExport(currentSessionContext = {}) {
   const metadata = compactObject({
-    schema: "patternlab_assisted_v1",
+    schema: "patternlab_assisted_v2",
     exportedAt: new Date().toISOString(),
     mode: currentSessionContext.mode || "manual_session",
     sessionId: currentSessionContext.session?.id || null,
-    sessionStatus: currentSessionContext.session?.status || null,
     symbol: currentSessionContext.marketView?.symbol || currentSessionContext.session?.asset || null,
     timeframe: currentSessionContext.marketView?.timeframe || currentSessionContext.session?.tf || null,
     source: currentSessionContext.marketView?.source || null,
-    selectedCandleIndex: currentSessionContext.selectedCandleIndex || null,
   });
 
   const analysis = currentSessionContext.analysis || {};
   const overlays = analysis.overlays || {};
-  const pseudoMl = analysis.pseudoMl || {};
-  const probability = pseudoMl.probability || {};
-  const regime = pseudoMl.regime || {};
+  const brainVerdict = currentSessionContext.brainVerdict || null;
+  const scenarioSet = currentSessionContext.scenarioProjection || currentSessionContext.scenarioSet || null;
+  const execution = currentSessionContext.executionPacket || {};
   const operatorState = currentSessionContext.operatorState || {};
-  const currentSignal = operatorState.currentSignal || {};
-  const currentCtx = operatorState.currentContext || {};
-  const livePlan = currentSessionContext.livePlanRecord || null;
+  const latestPolicy = currentSessionContext.livePlanRecord || null;
 
   const payload = {
     metadata,
-    market_current: compactObject({
+    context_signature: scenarioSet?.context_signature || brainVerdict?.learningEffects?.signature || null,
+    market_context_packet: compactObject({
       currentPrice: asNumber(overlays.currentPrice),
-      recentHigh: asNumber(overlays.recentHigh),
-      recentLow: asNumber(overlays.recentLow),
-      candleCount: asNumber(analysis.candleCount),
-      lastCandleSummary: analysis.lastCandleSummary || null,
+      nearestSupport: asNumber(overlays.nearestSupport),
+      nearestResistance: asNumber(overlays.nearestResistance),
+      supportDistance: asNumber(overlays.currentPrice) && asNumber(overlays.nearestSupport) ? Number((asNumber(overlays.currentPrice) - asNumber(overlays.nearestSupport)).toFixed(6)) : null,
+      resistanceDistance: asNumber(overlays.currentPrice) && asNumber(overlays.nearestResistance) ? Number((asNumber(overlays.nearestResistance) - asNumber(overlays.currentPrice)).toFixed(6)) : null,
+      momentum: analysis.momentumCondition || null,
+      volatility: analysis.volatilityCondition || null,
       pushState: analysis.pushState || null,
       continuationContext: analysis.continuationContext || null,
     }),
-    regime_context: compactObject({
-      regime: regime.regime || currentCtx.regime || null,
-      strength: asNumber(regime.strength),
-      explanation: regime.explanation || null,
-      volatilityCondition: analysis.volatilityCondition || currentCtx.volatilityCondition || null,
-      sequenceFlags: compactList(analysis.sequenceFlags || [], 5),
+    brain_verdict: brainVerdict,
+    scenario_set: scenarioSet,
+    execution_authority: compactObject({
+      authority: execution.authority || currentSessionContext.executionControlState?.executionAuthority || null,
+      shadowExecutionEnabled: execution.shadowExecutionEnabled,
+      manualConfirmationRequired: execution.manualConfirmationRequired,
     }),
-    scores: compactObject({
-      bullishScore: asNumber(probability.bullishScore),
-      bearishScore: asNumber(probability.bearishScore),
-      neutralScore: asNumber(probability.neutralScore),
-      confidence: asNumber(probability.confidence),
-      bias: probability.bias || null,
-      machineDirection: currentSignal.direction || null,
-    }),
-    momentum_volatility_compression: compactObject({
-      momentum: analysis.momentumCondition || null,
-      volatility: analysis.volatilityCondition || null,
-      compressionState: (analysis.sequenceFlags || []).includes("inside bar compression") ? "inside_bar_compression" : "none",
-      latestConfirmsMove: Boolean(analysis.latestConfirmsMove),
-    }),
-    levels_and_triggers: {
-      supports: compactList((overlays.supportZones || []).map((row) => compactObject({
-        price: asNumber(row.price),
-        strength: asNumber(row.strength),
-        source: row.source || null,
-      })), 5),
-      resistances: compactList((overlays.resistanceZones || []).map((row) => compactObject({
-        price: asNumber(row.price),
-        strength: asNumber(row.strength),
-        source: row.source || null,
-      })), 5),
-      triggerLines: compactList((currentSessionContext.triggerLines || []).map((row) => compactObject({
-        id: row.id || null,
-        level: asNumber(row.level ?? row.price),
-        role: row.triggerConfig?.role || null,
-        condition: row.triggerConfig?.condition || null,
-        biasOnTrigger: row.triggerConfig?.biasOnTrigger || null,
-        status: row.runtimeState?.status || null,
-        note: row.triggerConfig?.note || row.label || null,
-      })), 8),
-    },
-    manual_drawings: compactList((currentSessionContext.manualDrawings || []).map((row) => compactObject({
-      id: row.id || null,
-      type: row.type || null,
-      label: row.label || null,
-      price: asNumber(row.price),
-      points: Array.isArray(row.points) ? row.points.slice(0, 2).map((point) => compactObject({ time: asNumber(point?.time), price: asNumber(point?.price) })) : null,
-      metadata: compactObject({ symbol: row.metadata?.symbol, timeframe: row.metadata?.timeframe }),
-    })), 12),
-    human_insights: compactList((currentSessionContext.humanInsights || []).map((row) => compactObject({
-      id: row.id || null,
-      linkedDrawingId: row.linkedDrawingId || null,
-      insightType: row.insightType || null,
-      conditionType: row.condition?.type || null,
-      directionBias: row.condition?.directionBias || null,
-      requireConfirmation: Boolean(row.condition?.requireConfirmation),
-      effect: compactObject({
-        boostBias: asNumber(row.effect?.boostBias),
-        reduceOpposite: asNumber(row.effect?.reduceOpposite),
-        confidenceWeight: asNumber(row.effect?.confidenceWeight),
-      }),
-      note: row.note || row.metadata?.label || null,
-    })), 10),
-    analyst_narrative: compactObject({
-      marketObservations: compactList(analysis.observations || [], 8),
-      analystNarrative: currentSessionContext.analystData?.narrative || null,
-      setupType: currentSessionContext.analystData?.setupType || null,
-      tradePosture: currentSessionContext.analystData?.tradePosture || null,
-      contextLabel: currentSessionContext.analystData?.contextLabel || null,
-    }),
-    operator_actions_and_note: compactObject({
-      selectedActions: compactList(operatorState.operatorSelection || [], 6),
-      operatorNote: operatorState.operatorNote || null,
+    operator_override_info: compactObject({
+      selectedActions: compactList(operatorState.operatorSelection || [], 10),
       lastOperatorActionId: operatorState.lastOperatorActionId || null,
-      recalculatedDecision: operatorState.recalculatedDecision || null,
-      recalculatedDecisionExplanation: operatorState.recalculatedDecisionExplanation || null,
+      overrideDecision: operatorState.recalculatedDecision?.finalDecision || null,
     }),
-    learning_impact: compactObject({
-      learningModifier: asNumber(operatorState.recalculatedDecision?.decisionBreakdown?.learningComponent),
-      humanInsightSummary: currentCtx.humanInsightEvaluation?.summaryText || null,
-      triggerSummary: currentCtx.triggerLineEvaluation?.summaryText || null,
-      operatorInfluence: compactList(currentSessionContext.livePlanRecord?.decisionTrace?.operatorCorrected?.operatorInfluence || [], 5),
-    }),
-    decision_breakdown: compactObject({
-      before: currentSignal.baseDecision || null,
-      after: operatorState.recalculatedDecision || currentSignal.baseDecision || null,
-      breakdown: operatorState.recalculatedDecision?.decisionBreakdown || currentSignal.baseDecision?.decisionBreakdown || null,
-    }),
-    trade_proposal: compactObject({
-      action: livePlan?.policy?.action || null,
-      confidence: asNumber(livePlan?.policy?.confidence),
-      thesis: livePlan?.policy?.reason || null,
-      tags: compactList(livePlan?.policy?.thesisTags || [], 6),
-      entry: asNumber(livePlan?.plan?.referencePrice),
-      stopLoss: asNumber(livePlan?.plan?.stopLoss),
-      takeProfit: asNumber(livePlan?.plan?.takeProfit),
-      status: livePlan?.outcome?.status || null,
-    }),
+    why_wait: brainVerdict?.no_trade_reason || null,
+    why_trade: brainVerdict?.next_candle_plan?.reasoning_summary || latestPolicy?.policy?.reason || null,
+    late_entry: analysis.pushState === "pushing" || analysis.continuationContext === "late",
+    rejection_detected: (analysis.sequenceFlags || []).some((row) => String(row).toLowerCase().includes("rejection")),
+    confirmation_present: Boolean(analysis.latestConfirmsMove),
+    friction: asNumber(brainVerdict?.friction),
+    active_rules: compactList((brainVerdict?.active_rules || []).map((row) => row.id || row.text), 12),
+    matched_learned_contexts: compactList((brainVerdict?.learned_context_match || []).map((row) => compactObject({ signature: row.signature, sampleCount: row.sampleCount, confidenceAdjustment: row.confidenceAdjustment })), 8),
+    trade_taken_by: currentSessionContext.tradeTakenBy || (latestPolicy?.source === "shadow" ? "shadow" : "manual"),
+    event_timeline: compactList(currentSessionContext.eventTimeline || [], 80),
+    outcome: latestPolicy?.outcome?.status === "resolved" ? latestPolicy.outcome : null,
   };
 
-  payload.chatgpt_final_question = "Con este contexto, ¿cuál sería tu plan asistido (escenario base + alterno), qué gatillos confirmarías, y qué invalidación te haría no operar por ahora?";
-
-  const prompt_ready_text = buildPromptReadyText(payload);
+  payload.chatgpt_final_question = "Con este contexto unificado, ¿qué plan asistido propones (base + alterno), qué confirmación falta y cuándo esperarías en vez de operar?";
 
   return {
-    schema_version: "patternlab_assisted_v1",
-    prompt_ready_text,
+    schema_version: "patternlab_assisted_v2",
+    prompt_ready_text: buildPromptReadyText(payload),
     payload,
   };
 }

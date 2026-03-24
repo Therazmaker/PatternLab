@@ -30,12 +30,46 @@ export function getExecutionAuthority(state = DEFAULT_EXECUTION_CONTROL_STATE) {
   return authority;
 }
 
-export function canShadowExecuteTrade(state = DEFAULT_EXECUTION_CONTROL_STATE) {
+export function getExecutionPacket(state = DEFAULT_EXECUTION_CONTROL_STATE) {
   const authority = getExecutionAuthority(state);
-  return Boolean(state?.shadowExecutionEnabled) && authority === "shadow";
+  const normalized = normalizeExecutionControlState(state);
+  console.info(`[Execution] authority = ${authority}`);
+  return {
+    authority,
+    shadowExecutionEnabled: normalized.shadowExecutionEnabled,
+    manualConfirmationRequired: normalized.manualConfirmationRequired,
+    autoExecutionAllowed: authority !== "manual_only" && (authority !== "shadow" || normalized.shadowExecutionEnabled),
+  };
+}
+
+export function canModuleExecuteTrade(source = "copilot", state = DEFAULT_EXECUTION_CONTROL_STATE) {
+  const authority = getExecutionAuthority(state);
+  const normalized = normalizeExecutionControlState(state);
+
+  if (authority === "manual_only") {
+    console.info("[Execution] manual_only prevents all auto-entry");
+    return false;
+  }
+
+  if (source === "shadow") {
+    const allowed = authority === "shadow" && normalized.shadowExecutionEnabled;
+    if (!allowed) console.info(`[Shadow] execution blocked because authority belongs to ${authority}`);
+    return allowed;
+  }
+
+  if (source === "copilot") return authority === "copilot" || authority === "shadow";
+  return false;
+}
+
+export function canShadowExecuteTrade(state = DEFAULT_EXECUTION_CONTROL_STATE) {
+  return canModuleExecuteTrade("shadow", state);
+}
+
+export function blockExecution(source = "unknown", reason = "execution blocked") {
+  console.info(`[${String(source || "Execution").replace(/^./, (s) => s.toUpperCase())}] execution blocked: ${reason}`);
+  return { allowed: false, reason, source };
 }
 
 export function blockShadowTrade(reason = "shadow execution paused") {
-  console.info(`[Shadow] Execution blocked: ${reason}`);
-  return { allowed: false, reason };
+  return blockExecution("Shadow", reason);
 }

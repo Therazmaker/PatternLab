@@ -1,7 +1,5 @@
-import { getLearningModel } from "./learningEngine.js";
-import { saveLearningModel } from "./storage.js";
 import { activateLearnedRules } from "./ruleActivationEngine.js";
-import { ingestLearningFromFeedback, buildHumanOverrideMemory } from "./contextLearningEngine.js";
+import { ingestLearningFromFeedback } from "./contextLearningEngine.js";
 import { buildNextCandlePlan } from "./nextCandlePlanner.js";
 
 function clamp(value, min, max) {
@@ -39,6 +37,8 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     nearestResistance: analysis?.overlays?.nearestResistance,
     nearestSupport: analysis?.overlays?.nearestSupport,
     isCompression: analysis?.volatilityCondition === "compressed",
+    symbol: marketView?.symbol || null,
+    timeframe: marketView?.timeframe || null,
   };
 
   const invalidationsInContext = Number((operatorState?.operatorSelection || []).filter((a) => a === "veto").length || 0);
@@ -85,34 +85,12 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     entryQuality = "WAIT";
   }
 
-  const nextPlan = buildNextCandlePlan({
-    bias,
-    confidence,
-    friction: frictionRaw,
-    marketState,
-    activeRules: ruleSet,
-    mode,
-  });
+  const nextPlan = buildNextCandlePlan({ bias, confidence, friction: frictionRaw, marketState, activeRules: ruleSet, mode });
   console.info(`[Brain/Udc] Next candle posture: ${String(nextPlan.posture || "wait").replace(/\s+/g, "_")}`);
 
   const noTradeReason = nextPlan.posture === "wait" || entryQuality === "WAIT"
     ? (marketState.momentumConflict ? "Wait: conflict between momentum and structure" : "Wait: learned friction degraded signal")
     : null;
-
-  const model = getLearningModel();
-  model.learnedContexts = {
-    ...(model.learnedContexts || {}),
-    [learning.signature]: learning.learnedContextCurrent,
-  };
-  if (modeState.lastAction === "invalidate_idea") {
-    model.humanOverrideMemory = buildHumanOverrideMemory(model.humanOverrideMemory, {
-      fromBias: baseBias,
-      toBias: "neutral",
-      reason: "invalidate_idea",
-      contextSignature: learning.signature,
-    });
-  }
-  saveLearningModel(model);
 
   return {
     bias,
@@ -127,5 +105,16 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     executor_ready: mode === "executor" && Boolean(modeState.autoExecutionEnabled) && nextPlan.posture !== "wait",
     market_state: marketState,
     mode,
+    learningEffects: {
+      signature: learning.signature,
+      learnedContextCurrent: learning.learnedContextCurrent,
+      shouldPersistOverride: modeState.lastAction === "invalidate_idea",
+      overridePatch: {
+        fromBias: baseBias,
+        toBias: "neutral",
+        reason: "invalidate_idea",
+        contextSignature: learning.signature,
+      },
+    },
   };
 }

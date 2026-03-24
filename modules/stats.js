@@ -1,4 +1,5 @@
 import { calcWinrate } from "./utils.js";
+import { computeStatsCausalAnalytics } from "./statsCausalAnalytics.js";
 
 function countBy(items, keyFn) {
   const map = new Map();
@@ -20,6 +21,8 @@ export function computeStats(signals) {
   const pending = signals.filter((s) => s.outcome.status === "pending").length;
   const reviewed = signals.filter((s) => s.outcome.status !== "pending").length;
 
+  const causal = computeStatsCausalAnalytics({ trades: signals, decisions: signals });
+
   return {
     total: signals.length,
     reviewed,
@@ -37,5 +40,6 @@ export function computeStats(signals) {
     byAction: topEntries(countBy(signals, (s) => s.strategyAction || s.futuresPolicy?.action || "N/A")),
     byResult: topEntries(countBy(signals, (s) => s.outcome?.status || "pending")),
     directionDist: topEntries(countBy(signals, (s) => s.direction), 2),
+    causal,
   };
 }
