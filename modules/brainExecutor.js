@@ -86,6 +86,8 @@ export function createBrainExecutor({
   function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, contextRow = {}, state = {} } = {}) {
     const profile = state?.learningProfile || {};
     if (state.mode !== "paper" || !profile.enabled || !profile.exploration_mode) return false;
+    if (brainVerdict?.exploration_override_applied === false) return false;
+    if (brainVerdict?.exploration_trade_allowed === false) return false;
     const samples = Number(contextRow?.samples || contextRow?.counts || 0);
     if (samples >= Number(profile.min_samples_before_strict_block || 10)) return false;
     if (!profile.allow_trade_on_wait_in_paper) return false;
@@ -296,12 +298,14 @@ export function createBrainExecutor({
         contextSignature,
       });
       if (allowExploration) {
+        const exploratoryDirection = inferDirection({ ...(armedState.currentPlan || {}), ...(scenario || {}), brain_bias: brainVerdict?.bias });
         armedState.currentPlan.trade_mode = "exploration";
         armedState.currentPlan.context_maturity = brainVerdict?.context_maturity || "immature";
-        armedState.currentPlan.exploration_reason = "exploratory trade allowed despite wait";
+        armedState.currentPlan.setup_name = `exploratory_${exploratoryDirection === "short" ? "short" : "long"}`;
+        armedState.currentPlan.exploration_reason = "explore_to_learn";
         armedState.currentPlan.would_have_been_blocked_without_learning_mode = true;
         stateStore.setState({ currentPlan: armedState.currentPlan });
-        console.info("[LearningProfile] exploration trade allowed in immature context");
+        console.info("[LearningProfile] Exploration override applied");
       }
       state = armedState;
       emit("executor_auto_arm", { reason: "valid_setup_detected", setup: armedState?.currentPlan?.setup_name }, { context_signature: contextSignature || armedState?.currentPlan?.context_signature });
@@ -328,6 +332,10 @@ export function createBrainExecutor({
     if (!evaluateTrigger(plan, candle)) return { state: stateStore.getState(), activeTrade: null };
 
     const trade = openTrade(plan, candle?.close);
+    if (plan.trade_mode === "exploration") {
+      console.info("[Executor] Exploratory trade executed");
+      console.info("[Executor] Exploratory trade opened");
+    }
     stateStore.setState({ lastExecutedCandleKey: currentCandleKey });
     emit("executor_trade_context", {
       trigger_confirmed: true,

@@ -46,6 +46,17 @@ function mapEntryQuality(score = 0.5) {
   return "wait";
 }
 
+function qualityRank(quality = "wait") {
+  return ({ A: 3, B: 2, C: 1, WAIT: 0 })[String(quality || "wait").toUpperCase()] ?? 0;
+}
+
+function rankToQuality(rank = 0) {
+  if (rank >= 3) return "A";
+  if (rank >= 2) return "B";
+  if (rank >= 1) return "C";
+  return "wait";
+}
+
 function contextMaturityForSamples(samples = 0, profile = AGGRESSIVE_LEARNING_PROFILE) {
   if (samples < Number(profile.min_samples_before_strict_block || 10)) return "immature";
   if (samples < Number(profile.min_samples_before_context_maturity || 20)) return "growing";
@@ -145,27 +156,60 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
   const sampleCount = Number(contextScores.samples || contextMemoryRow?.counts || contextMemoryRow?.samples || 0);
   const contextMaturity = contextMaturityForSamples(sampleCount, learningProfile);
   const learningMode = learningModeForContext({ contextMaturity, winrate: contextScores.winrate });
-  const immatureContext = contextMaturity === "immature";
+  const contextPaused = Number(contextMemoryRow?.exploration_pause_remaining_candles || 0) > 0 || Number(contextMemoryRow?.blocked_for_candles || 0) > 0;
   const maturedBadContext = sampleCount >= 10 && Number(contextScores.winrate || 0) <= 0.35;
   const matureGoodContext = sampleCount >= 20 && Number(contextScores.winrate || 0) >= 0.55;
+  const nextPlan = buildNextCandlePlan({ bias, confidence, friction: frictionRaw, marketState, activeRules: ruleSet, mode });
+  const triggerConfirmed = Boolean(nextPlan?.trigger_long || nextPlan?.trigger_short);
+  const invalidationDefined = Boolean(nextPlan?.invalidation);
+  const isExplorationAllowed = Boolean(
+    modeIsPaper
+    && learningProfile.enabled
+    && learningProfile.profile === "aggressive_learning"
+    && learningProfile.exploration_mode
+    && sampleCount < Number(learningProfile.min_samples_before_strict_block || 10)
+    && triggerConfirmed
+    && invalidationDefined
+    && !contextPaused,
+  );
+  let bypassProtection = false;
   let explorationTradeAllowed = false;
+  let explorationOverrideApplied = false;
+  const bypassedBlocks = [];
   let tradeReasonMode = "policy_block";
 
+  if (isExplorationAllowed) {
+    bypassProtection = true;
+    explorationTradeAllowed = true;
+    explorationOverrideApplied = true;
+    entryQuality = rankToQuality(Math.max(
+      qualityRank(entryQuality),
+      qualityRank(String(learningProfile.exploration_entry_quality_floor || "C").toUpperCase()),
+    ));
+    allowTrade = true;
+    tradeReasonMode = "explore_to_learn";
+    console.info("[LearningProfile] Exploration override enabled");
+  }
+
   if (contextScores.danger_score > 0.65) {
-    const blockHighDanger = !(modeIsPaper && learningProfile.enabled && learningProfile.allow_high_danger_exploration && immatureContext && learningProfile.danger_block_live_only);
-    if (blockHighDanger) {
+    if (!bypassProtection) {
       entryQuality = "wait";
       allowTrade = false;
       noTradeReasons.push("High danger context");
+    } else {
+      bypassedBlocks.push("danger");
+      console.info("[LearningProfile] Bypassing danger block");
     }
   }
 
   if (frictionRaw > 0.7) {
-    const blockHighFriction = !(modeIsPaper && learningProfile.enabled && immatureContext && learningProfile.friction_block_live_only);
-    if (blockHighFriction) {
+    if (!bypassProtection) {
       entryQuality = "wait";
       allowTrade = false;
       noTradeReasons.push("Friction too high (late/rejection/conflict risk)");
+    } else {
+      bypassedBlocks.push("friction");
+      console.info("[LearningProfile] Bypassing friction block");
     }
   }
   if (maturedBadContext) {
@@ -181,12 +225,11 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     noTradeReasons.push("repeated_loss_context");
   }
 
-  if (frictionRaw >= 0.68 && entryQuality !== "wait") {
+  if (!bypassProtection && frictionRaw >= 0.68 && entryQuality !== "wait") {
     console.info(`[Brain/Udc] Entry quality downgraded ${entryQuality} -> wait by friction ${frictionRaw.toFixed(2)}`);
     entryQuality = "wait";
   }
 
-  const nextPlan = buildNextCandlePlan({ bias, confidence, friction: frictionRaw, marketState, activeRules: ruleSet, mode });
   let posture = allowTrade ? nextPlan.posture : "wait";
   if (posture === "wait") allowTrade = false;
 
@@ -197,23 +240,24 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     console.info("[LearningProfile] context promoted to exploitation");
   }
 
-  if (
-    modeIsPaper
-    && learningProfile.enabled
-    && learningProfile.exploration_mode
-    && immatureContext
-    && learningProfile.allow_trade_on_wait_in_paper
-    && entryQuality !== "wait"
-  ) {
-    const floor = String(learningProfile.exploration_entry_quality_floor || "C").toUpperCase();
-    const qualityRank = { A: 3, B: 2, C: 1, WAIT: 0 };
-    const score = qualityRank[String(entryQuality || "wait").toUpperCase()] ?? 0;
-    if (score >= (qualityRank[floor] ?? 1) && posture === "wait") {
-      explorationTradeAllowed = true;
-      allowTrade = true;
-      posture = "execute_on_confirmation";
-      tradeReasonMode = "exploration";
-    }
+  if (isExplorationAllowed && entryQuality !== "wait") {
+    explorationTradeAllowed = true;
+    allowTrade = true;
+    posture = "exploration";
+    tradeReasonMode = "explore_to_learn";
+  }
+
+  if (!triggerConfirmed) {
+    entryQuality = "wait";
+    posture = "wait";
+    allowTrade = false;
+    noTradeReasons.unshift("missing_trigger");
+  }
+  if (!invalidationDefined) {
+    entryQuality = "wait";
+    posture = "wait";
+    allowTrade = false;
+    noTradeReasons.unshift("missing_invalidation");
   }
   if (allowTrade && tradeReasonMode === "policy_block") tradeReasonMode = "standard";
 
@@ -235,8 +279,10 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     next_candle_plan: { ...nextPlan, posture },
     no_trade_reason: noTradeReason,
     learning_profile: learningProfile,
-    learning_mode: learningMode,
+    learning_mode: explorationOverrideApplied ? "exploration" : learningMode,
     exploration_trade_allowed: explorationTradeAllowed,
+    exploration_override_applied: explorationOverrideApplied,
+    bypassed_blocks: bypassedBlocks,
     context_maturity: contextMaturity,
     trade_reason_mode: tradeReasonMode,
     decision_path: {
