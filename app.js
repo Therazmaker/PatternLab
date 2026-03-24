@@ -400,6 +400,30 @@ const executorStateStore = createExecutorStateStore({
   mode: "paper",
   autoArm: true,
   cooldownCandles: 1,
+  learningProfile: {
+    profile: "aggressive_learning",
+    enabled: true,
+    paper_only: true,
+    exploration_mode: true,
+    exploration_bias: 0.7,
+    exploitation_bias: 0.3,
+    allow_trade_on_wait_in_paper: true,
+    allow_high_danger_exploration: true,
+    allow_low_confidence_exploration: true,
+    min_samples_before_strict_block: 10,
+    min_samples_before_context_maturity: 20,
+    friction_block_live_only: true,
+    danger_block_live_only: true,
+    max_exploratory_trades_per_context: 5,
+    max_consecutive_losses_before_context_pause: 3,
+    context_pause_candles: 5,
+    cooldown_candles: 1,
+    one_trade_per_candle: true,
+    one_active_trade_max: true,
+    exploration_entry_quality_floor: "C",
+    exploration_requires_trigger: true,
+    exploration_requires_invalidation: true,
+  },
 });
 const tradeOutcomeLogger = createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal });
 const brainLearningUpdater = createBrainLearningUpdater({ brainMemoryStore });
@@ -1831,7 +1855,7 @@ function updateScenarioProjectionEngine({ analysis, marketView, latestPolicy }) 
       session: getActiveSession(),
       marketView,
       analysis,
-      modeState: brainModeController.getState(),
+      modeState: { ...brainModeController.getState(), executorMode: executorStateStore.getState().mode },
       operatorState: sessionOperatorState,
       learnedContexts: getScenarioMemoryRows().slice(-200),
       humanOverrideMemory: scenarioProjectionState.humanSelection.override
@@ -4945,12 +4969,15 @@ function renderBrainDashboardPanel() {
   const executorState = executorStateStore.getState();
   const liveGate = evaluateExecutorLiveGate(learningProgressPacket, executionControlState);
   const secondaryScenario = scenarioProjectionState.activeSet?.scenarios?.[1] || null;
+  const contextSignature = _lastBrainVerdict?.learningEffects?.signature || scenarioProjectionState.activeSet?.context_signature || null;
+  const contextRow = contextSignature ? (brainMemoryStore.getSnapshot().contexts?.[contextSignature] || null) : null;
   els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState, executionControlState, {
     executorState,
     activeTrade: brainExecutor.getActiveTrade(),
     learningProgress: learningProgressPacket,
     liveGate,
     secondaryScenario,
+    contextRow,
   });
 }
 
@@ -5102,7 +5129,7 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     session: getActiveSession(),
     marketView,
     analysis,
-    modeState: brainModeController.getState(),
+    modeState: { ...brainModeController.getState(), executorMode: executorStateStore.getState().mode },
     operatorState: sessionOperatorState,
     copilotFeedback,
     copilotEvaluation,

@@ -31,6 +31,7 @@ export function computeLearningProgressPacket({ memorySnapshot = {}, tradeJourna
   });
   const dangerousContexts = contexts.filter((row) => Number(row?.danger_score || 0) >= 0.72 || Number(row?.blocked_for_candles || 0) > 0).length;
   const reliableContexts = contexts.filter((row) => Number(row?.wins || 0) >= 3 && (Number(row?.wins || 0) / Math.max(1, Number(row?.counts || row?.samples || 0))) >= 0.62).length;
+  const exploratoryTrades = tradeJournalRows.filter((row) => row?.trade_mode === "exploration").length;
   const learningVelocity = Number(((closedTrades.length / Math.max(1, contexts.length)) * (1 + avg(scenarioReliabilityScores))).toFixed(3));
 
   return {
@@ -44,6 +45,8 @@ export function computeLearningProgressPacket({ memorySnapshot = {}, tradeJourna
     tradesLearned: closedTrades.length,
     dangerousContexts,
     reliableContexts,
+    exploratoryTrades,
+    exploratoryTradeShare: Number((tradeJournalRows.length ? exploratoryTrades / tradeJournalRows.length : 0).toFixed(3)),
     learningVelocity,
     lastLessons: lessons,
   };

@@ -42,6 +42,10 @@ function hasPlanConfidence(brainVerdict = {}, scenario = {}) {
   return true;
 }
 
+function qualityRank(quality = "wait") {
+  return ({ A: 3, B: 2, C: 1, WAIT: 0 })[String(quality || "wait").toUpperCase()] ?? 0;
+}
+
 export function createBrainExecutor({
   stateStore,
   brainMemoryStore,
@@ -77,6 +81,22 @@ export function createBrainExecutor({
   function getContextLearning(signature) {
     if (!signature) return null;
     return brainMemoryStore?.getSnapshot?.().contexts?.[signature] || null;
+  }
+
+  function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, contextRow = {}, state = {} } = {}) {
+    const profile = state?.learningProfile || {};
+    if (state.mode !== "paper" || !profile.enabled || !profile.exploration_mode) return false;
+    const samples = Number(contextRow?.samples || contextRow?.counts || 0);
+    if (samples >= Number(profile.min_samples_before_strict_block || 10)) return false;
+    if (!profile.allow_trade_on_wait_in_paper) return false;
+    if (Number(contextRow?.exploration_pause_remaining_candles || 0) > 0) return false;
+    if (
+      Number(contextRow?.exploratory_trades_taken || 0) >= Number(profile.max_exploratory_trades_per_context || 5)
+    ) return false;
+    if (profile.exploration_requires_trigger && !scenario?.trigger && !brainVerdict?.next_candle_plan?.trigger_long && !brainVerdict?.next_candle_plan?.trigger_short) return false;
+    if (profile.exploration_requires_invalidation && !scenario?.invalidation && !brainVerdict?.next_candle_plan?.invalidation) return false;
+    const floor = qualityRank(profile.exploration_entry_quality_floor || "C");
+    return qualityRank(brainVerdict?.entry_quality || "wait") >= floor;
   }
 
   function armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }) {
@@ -127,6 +147,10 @@ export function createBrainExecutor({
       scenario_taken: plan.scenario_primary,
       trigger_used: plan.trigger,
       brain_verdict: plan.brain_verdict_snapshot,
+      trade_mode: plan.trade_mode || "standard",
+      context_maturity: plan.context_maturity || "unknown",
+      exploration_reason: plan.exploration_reason || null,
+      would_have_been_blocked_without_learning_mode: Boolean(plan.would_have_been_blocked_without_learning_mode),
       status: "open",
     };
     activeTrade = trade;
@@ -188,6 +212,10 @@ export function createBrainExecutor({
       mae: closed.mae,
       resolutionCandles: closed.resolution_candles,
       exitReason: closed.exit_reason,
+      tradeMode: closed.trade_mode,
+      contextMaturity: closed.context_maturity,
+      explorationReason: closed.exploration_reason,
+      wouldHaveBeenBlockedWithoutLearningMode: closed.would_have_been_blocked_without_learning_mode,
     });
 
     learningUpdater?.applyTradeLearning(logged || closed);
@@ -229,6 +257,15 @@ export function createBrainExecutor({
     }
 
     const contextRow = getContextLearning(contextSignature || scenario?.context_signature || state.currentPlan?.context_signature);
+    if (contextRow?.exploration_pause_remaining_candles > 0) {
+      const remaining = Math.max(0, Number(contextRow.exploration_pause_remaining_candles || 0) - (switchedCandle ? 1 : 0));
+      if (remaining !== Number(contextRow.exploration_pause_remaining_candles || 0)) {
+        brainMemoryStore?.upsertContext(contextRow.context_signature, {
+          ...contextRow,
+          exploration_pause_remaining_candles: remaining,
+        }, { context_signature: contextRow.context_signature });
+      }
+    }
     if (contextRow?.blocked_for_candles > 0) {
       const remaining = Math.max(0, Number(contextRow.blocked_for_candles || 0) - (switchedCandle ? 1 : 0));
       if (remaining !== Number(contextRow.blocked_for_candles || 0)) {
@@ -245,9 +282,27 @@ export function createBrainExecutor({
       return { state: stateStore.getState(), activeTrade: null };
     }
 
-    const shouldAutoArm = !state.armed && state.autoArm && hasPlanConfidence(brainVerdict, scenario);
+    const allowExploration = shouldAllowExplorationTrade({ brainVerdict, scenario, contextRow, state });
+    const shouldAutoArm = !state.armed && state.autoArm && (hasPlanConfidence(brainVerdict, scenario) || allowExploration);
     if (shouldAutoArm) {
-      const armedState = armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature });
+      const armedState = armSetup({
+        brainVerdict: {
+          ...(brainVerdict || {}),
+          no_trade_reason: allowExploration ? null : brainVerdict?.no_trade_reason,
+          posture: allowExploration ? "execute_on_confirmation" : brainVerdict?.posture,
+        },
+        nextCandlePlan,
+        scenario,
+        contextSignature,
+      });
+      if (allowExploration) {
+        armedState.currentPlan.trade_mode = "exploration";
+        armedState.currentPlan.context_maturity = brainVerdict?.context_maturity || "immature";
+        armedState.currentPlan.exploration_reason = "exploratory trade allowed despite wait";
+        armedState.currentPlan.would_have_been_blocked_without_learning_mode = true;
+        stateStore.setState({ currentPlan: armedState.currentPlan });
+        console.info("[LearningProfile] exploration trade allowed in immature context");
+      }
       state = armedState;
       emit("executor_auto_arm", { reason: "valid_setup_detected", setup: armedState?.currentPlan?.setup_name }, { context_signature: contextSignature || armedState?.currentPlan?.context_signature });
     }
@@ -261,6 +316,11 @@ export function createBrainExecutor({
     }
 
     const plan = state.currentPlan || armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }).currentPlan;
+    if (plan.trade_mode === "exploration" && Number(contextRow?.exploration_pause_remaining_candles || 0) > 0) {
+      console.info("[LearningProfile] exploratory context paused after repeated losses");
+      emit("trade_blocked", { reason: "exploration_context_paused", remaining: Number(contextRow?.exploration_pause_remaining_candles || 0) }, { context_signature: plan?.context_signature || contextSignature });
+      return { state: stateStore.getState(), activeTrade: null };
+    }
     if (state.lastExecutedCandleKey === currentCandleKey && state.lastAction === "trade_opened") {
       emit("trade_blocked", { reason: "duplicate_candle_trade_prevented", candle_key: currentCandleKey }, { context_signature: plan?.context_signature || contextSignature });
       return { state: stateStore.getState(), activeTrade: null };
