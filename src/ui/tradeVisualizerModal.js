@@ -22,6 +22,101 @@ function toRecentCandles(candles = []) {
   }));
 }
 
+function prettyLabel(value, fallback = "N/A") {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value).replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function fmtPrice(value) {
+  const n = num(value, null);
+  return n === null ? "N/A" : n.toFixed(2);
+}
+
+function readTarget(nextTrade = {}) {
+  if (Array.isArray(nextTrade?.targets) && nextTrade.targets.length) {
+    return num(nextTrade.targets[0]?.price_mid ?? nextTrade.targets[0]?.price ?? nextTrade.targets[0], null);
+  }
+  return num(nextTrade?.target, null);
+}
+
+function getTradeLevels(nextTrade = {}) {
+  return {
+    trigger: num(nextTrade?.trigger_price ?? nextTrade?.trigger, null),
+    invalidation: num(nextTrade?.invalidation_price ?? nextTrade?.invalidation, null),
+    target: readTarget(nextTrade),
+  };
+}
+
+function buildRiskBanner(packet = {}) {
+  const nextTrade = packet?.next_trade || {};
+  const learningState = packet?.learning_state || {};
+  const brainState = packet?.brain_state || {};
+  const danger = num(brainState?.danger_score, 0);
+  const confidence = num(nextTrade?.confidence ?? brainState?.confidence, 0);
+  const reliability = num(brainState?.scenario_reliability, 0);
+  const mode = String(learningState?.learning_mode ?? learningState?.mode ?? "mixed").toLowerCase();
+  if (danger >= 0.8) return { tone: "danger", title: "HIGH RISK CONTEXT", sub: "Danger score is elevated. Reduce aggression." };
+  if (mode === "exploration") return { tone: "warn", title: "EXPLORATION MODE", sub: "Signal quality is still being learned." };
+  if (confidence >= 0.65 && reliability >= 0.6) return { tone: "ok", title: "VALID STRUCTURE", sub: "Context is relatively stable and structured." };
+  return { tone: "mixed", title: "MIXED CONTEXT", sub: "Confirmation still required before execution." };
+}
+
+function buildBrainVoice(packet = {}) {
+  const nextTrade = packet?.next_trade || {};
+  const learningState = packet?.learning_state || {};
+  const brainState = packet?.brain_state || {};
+  const setup = String(nextTrade?.setup || "").toLowerCase();
+  const direction = String(nextTrade?.direction || "").toLowerCase();
+  const mode = String(learningState?.learning_mode ?? learningState?.mode ?? "mixed").toLowerCase();
+  const familiarity = num(brainState?.familiarity, 0);
+  const danger = num(brainState?.danger_score, 0);
+  const confidence = num(nextTrade?.confidence ?? brainState?.confidence, 0);
+  const reliability = num(brainState?.scenario_reliability, 0);
+  const momentum = String(nextTrade?.momentum || "").toLowerCase();
+
+  const setupText = setup ? `${prettyLabel(setup)} is the active idea.` : "No clean setup is active yet.";
+  const directionText = direction ? `${prettyLabel(direction)} bias is currently preferred.` : "Direction remains neutral.";
+  const qualityText = confidence < 0.45 || reliability < 0.45
+    ? "Signal quality is weak, so confirmation should lead execution."
+    : "Signal quality is acceptable, but still needs disciplined triggers.";
+  const riskText = danger >= 0.75
+    ? "Danger is elevated. Avoid forcing continuation."
+    : "Risk is manageable if invalidation is respected.";
+  const learningText = mode === "exploration"
+    ? "The system is exploring, so trust should be reduced."
+    : mode === "exploitation"
+      ? "The system is exploiting familiar context."
+      : "The system is in mixed learning mode.";
+  const familiarityText = familiarity < 0.4
+    ? "Familiarity is low, indicating unstable pattern memory."
+    : "Familiarity is supportive for this structure.";
+  const momentumText = momentum === "fading"
+    ? "Momentum is fading and favors reactive entries over chasing."
+    : "Momentum is not showing major instability.";
+  return `${setupText} ${directionText} ${learningText} ${qualityText} ${riskText} ${familiarityText} ${momentumText}`;
+}
+
+function buildSimulationRead(simulationResult = {}, packet = {}) {
+  const continuation = num(simulationResult?.continuation_probability, 0);
+  const rejection = num(simulationResult?.rejection_probability, 0);
+  const chop = num(simulationResult?.chop_probability, 0);
+  const danger = num(packet?.brain_state?.danger_score, 0);
+  const spread = Math.max(continuation, rejection, chop) - Math.min(continuation, rejection, chop);
+  if (spread < 0.12) return "No strong edge. Probabilities are too compressed, so waiting is preferred.";
+  if (chop >= continuation - 0.08) return "Chop risk is close to continuation potential. Demand clear confirmation.";
+  if (rejection > continuation) return "Rejection path is favored. Prefer reactive execution at trigger zones.";
+  if (continuation > rejection && danger >= 0.7) return "Continuation has a slight edge, but danger remains elevated.";
+  return "Continuation is modestly favored with controllable risk if structure holds.";
+}
+
+function metricInterpretation(name, value, mode) {
+  if (name === "familiarity") return value < 0.4 ? "Low familiarity" : value < 0.7 ? "Building familiarity" : "High familiarity";
+  if (name === "danger_score") return value >= 0.75 ? "Danger elevated" : value >= 0.45 ? "Moderate danger" : "Low immediate danger";
+  if (name === "scenario_reliability") return value < 0.45 ? "Weak scenario reliability" : value < 0.65 ? "Developing reliability" : "Reliable structure";
+  if (name === "learning_mode") return mode === "exploration" ? "Exploration, reduced trust" : mode === "exploitation" ? "Exploitation, higher trust" : "Mixed mode, selective trust";
+  return "Context developing";
+}
+
 export function simulateTradePaths(nextTrade = {}, candles = []) {
   const sample = toRecentCandles(candles);
   if (!sample.length) return { continuation_probability: 0.33, rejection_probability: 0.33, chop_probability: 0.34 };
@@ -61,23 +156,35 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}) {
   ctx.fillRect(0, 0, width, height);
   if (!rows.length) return;
 
-  const highs = rows.map((c) => c.high);
-  const lows = rows.map((c) => c.low);
-  const max = Math.max(...highs);
-  const min = Math.min(...lows);
-  const pad = 8;
-  const usableH = height - pad * 2;
-  const candleW = Math.max(2, Math.floor((width - pad * 2) / rows.length) - 1);
+  const levels = getTradeLevels(nextTrade);
+  const levelValues = [levels.trigger, levels.invalidation, levels.target].filter((v) => v !== null);
+  const visibleMin = Math.min(...rows.map((c) => c.low), ...levelValues);
+  const visibleMax = Math.max(...rows.map((c) => c.high), ...levelValues);
+  const range = Math.max(visibleMax - visibleMin, 1e-6);
+  const padRange = range * 0.1;
+  const chartMin = visibleMin - padRange;
+  const chartMax = visibleMax + padRange;
+
+  const inner = { top: 20, right: 64, bottom: 20, left: 18 };
+  const usableH = Math.max(1, height - inner.top - inner.bottom);
+  const usableW = Math.max(1, width - inner.left - inner.right);
+  const step = usableW / rows.length;
+  const candleW = Math.max(3, Math.floor(step * 0.7));
 
   const y = (price) => {
-    const pct = (price - min) / Math.max(1e-6, max - min);
-    return height - pad - pct * usableH;
+    const pct = (price - chartMin) / Math.max(1e-6, chartMax - chartMin);
+    return height - inner.bottom - pct * usableH;
   };
 
   rows.forEach((c, idx) => {
-    const x = pad + idx * ((width - pad * 2) / rows.length);
+    const x = inner.left + idx * step + (step - candleW) / 2;
     const up = c.close >= c.open;
-    ctx.strokeStyle = up ? "#22c55e" : "#ef4444";
+    const latest = idx === rows.length - 1;
+    if (latest) {
+      ctx.fillStyle = "rgba(59, 130, 246, 0.16)";
+      ctx.fillRect(x - 4, inner.top, candleW + 8, usableH);
+    }
+    ctx.strokeStyle = up ? "#34d399" : "#f87171";
     ctx.fillStyle = up ? "#22c55e" : "#ef4444";
     ctx.beginPath();
     ctx.moveTo(x + candleW / 2, y(c.high));
@@ -92,25 +199,70 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}) {
     const p = num(price, null);
     if (p === null) return;
     const py = y(p);
+    const xStart = inner.left;
+    const xEnd = width - inner.right + 8;
     ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.16;
+    ctx.beginPath();
+    ctx.moveTo(xStart, py);
+    ctx.lineTo(xEnd, py);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
-    ctx.moveTo(pad, py);
-    ctx.lineTo(width - pad, py);
+    ctx.moveTo(xStart, py);
+    ctx.lineTo(xEnd, py);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = color;
-    ctx.font = "11px sans-serif";
-    ctx.fillText(label, pad + 4, py - 4);
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(label, width - inner.right + 12, py + 3);
   };
 
-  const target = Array.isArray(nextTrade?.targets) && nextTrade.targets.length
-    ? num(nextTrade.targets[0]?.price_mid ?? nextTrade.targets[0]?.price ?? nextTrade.targets[0], null)
-    : num(nextTrade?.target, null);
+  const direction = String(nextTrade?.direction || "").toLowerCase();
+  const setup = String(nextTrade?.setup || "").toLowerCase();
+  const zonePrice = levels.trigger ?? levels.invalidation;
+  if (zonePrice !== null) {
+    const zoneHeight = Math.max(8, usableH * 0.07);
+    const zoneY = y(zonePrice) - zoneHeight / 2;
+    ctx.fillStyle = direction === "short" ? "rgba(248, 113, 113, 0.12)" : "rgba(52, 211, 153, 0.12)";
+    ctx.fillRect(inner.left, zoneY, usableW + 8, zoneHeight);
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "10px sans-serif";
+    ctx.fillText(
+      setup === "failed_breakout_short" ? "await rejection confirmation" : "decision zone",
+      inner.left + 6,
+      zoneY - 4,
+    );
+  }
 
-  drawLine(nextTrade?.trigger_price ?? nextTrade?.trigger, "#facc15", "trigger");
-  drawLine(nextTrade?.invalidation_price ?? nextTrade?.invalidation, "#ef4444", "invalidation");
-  drawLine(target, "#22c55e", "target");
+  drawLine(levels.trigger, "#facc15", "trigger");
+  drawLine(levels.invalidation, "#ef4444", "invalidation");
+  drawLine(levels.target, "#22c55e", "target");
+
+  if (zonePrice !== null) {
+    const startX = inner.left + usableW - 30;
+    const startY = y(zonePrice);
+    const arrowY = direction === "short" ? startY + 22 : startY - 22;
+    ctx.strokeStyle = direction === "short" ? "#f87171" : "#34d399";
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(startX + 22, arrowY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(startX + 22, arrowY);
+    ctx.lineTo(startX + 15, arrowY + (direction === "short" ? -2 : 2));
+    ctx.lineTo(startX + 20, arrowY + (direction === "short" ? -8 : 8));
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.lineWidth = 1;
+  ctx.textAlign = "start";
 }
 
 function progressRow(label, value = 0) {
@@ -124,12 +276,50 @@ function progressRow(label, value = 0) {
   `;
 }
 
+function buildEntryLogic(nextTrade = {}, packet = {}) {
+  const setup = String(nextTrade?.setup || "").toLowerCase();
+  const direction = String(nextTrade?.direction || "").toLowerCase();
+  const mode = String(packet?.learning_state?.learning_mode ?? packet?.learning_state?.mode ?? "mixed");
+  if (!setup || setup.includes("chop") || setup.includes("no_trade")) {
+    return [
+      "No-trade condition detected.",
+      "Wait for cleaner structure and stronger confirmation.",
+      "Preserve capital while context remains noisy.",
+    ];
+  }
+  if (setup === "failed_breakout_short") {
+    return [
+      "Wait for rejection at trigger or resistance area.",
+      "Confirm with close back below trigger before entry.",
+      "Execute only while invalidation remains untouched.",
+    ];
+  }
+  if (setup === "continuation_long") {
+    return [
+      "Wait for breakout hold above trigger.",
+      "Enter on continuation confirmation candle.",
+      "Abort if structure loses momentum into invalidation.",
+    ];
+  }
+  return [
+    `Favor ${direction || "reactive"} entries with trigger confirmation.`,
+    "Respect invalidation strictly and avoid anticipation.",
+    `Position size should follow ${prettyLabel(mode)} discipline.`,
+  ];
+}
+
 function renderModal(packet = {}) {
   const nextTrade = packet?.next_trade || {};
   const learningState = packet?.learning_state || {};
   const brainState = packet?.brain_state || {};
-  const momentum = String(nextTrade?.momentum || "").toLowerCase();
+  const mode = String(learningState?.learning_mode ?? learningState?.mode ?? "mixed");
   const setup = String(nextTrade?.setup || "");
+  const direction = String(nextTrade?.direction || "neutral");
+  const confidence = num(nextTrade?.confidence ?? brainState?.confidence, 0);
+  const levels = getTradeLevels(nextTrade);
+  const entryLogic = buildEntryLogic(nextTrade, packet);
+  const riskBanner = buildRiskBanner(packet);
+  const brainVoice = buildBrainVoice(packet);
   const sim = simulateTradePaths(nextTrade, packet?.market_state?.candles || []);
   return `
     <div class="tvm-backdrop" data-tvm-close="1"></div>
@@ -139,36 +329,64 @@ function renderModal(packet = {}) {
         <button class="ghost" type="button" data-tvm-close="1">Close</button>
       </header>
       <div class="tvm-grid">
-        <article class="panel-soft">
+        <article class="panel-soft tvm-area-chart">
           <h5>A. Chart Container</h5>
-          <canvas id="tvm-chart" width="720" height="260"></canvas>
+          <canvas id="tvm-chart" width="960" height="340"></canvas>
         </article>
 
-        <article class="panel-soft">
+        <article class="panel-soft tvm-area-summary">
+          <div id="tvm-risk-banner" class="tvm-risk-banner tvm-risk-${riskBanner.tone}">
+            <strong>${riskBanner.title}</strong>
+            <div class="tiny">${riskBanner.sub}</div>
+          </div>
+          <div class="tvm-summary-block">
+            <h5>🧠 Brain Voice</h5>
+            <p class="tiny" id="tvm-brain-voice">${brainVoice}</p>
+          </div>
+          <div class="tvm-summary-block">
+            <h5>Quick Trade Plan</h5>
+            <div class="tvm-kv"><span>Setup</span><strong id="tvm-quick-setup">${prettyLabel(setup, "Chop / No Trade")}</strong></div>
+            <div class="tvm-kv"><span>Direction</span><strong id="tvm-quick-direction">${prettyLabel(direction)}</strong></div>
+            <div class="tvm-kv"><span>Confidence</span><strong id="tvm-quick-confidence">${Math.round(confidence * 100)}%</strong></div>
+          </div>
+        </article>
+
+        <article class="panel-soft tvm-area-intent">
           <h5>B. Brain Intent Overlay</h5>
-          ${setup === "failed_breakout_short" ? '<p class="tiny"><span class="badge badge-yellow">Rejection zone active</span> ↓ Awaiting rejection confirmation</p>' : '<p class="tiny muted">No special setup overlay.</p>'}
-          ${momentum === "fading" ? '<p class="tiny"><span class="badge badge-yellow">Momentum warning: fading</span></p>' : '<p class="tiny muted">Momentum stable.</p>'}
+          <p class="tiny">${setup === "failed_breakout_short" ? '<span class="badge badge-yellow">Rejection zone active</span> Await rejection confirmation near trigger.' : "Decision zone follows active setup and direction bias."}</p>
+          <p class="tiny muted">Overlays are aligned to trigger, invalidation, and target visibility.</p>
         </article>
 
-        <article class="panel-soft">
+        <article class="panel-soft tvm-area-plan">
           <h5>C. Trade Plan</h5>
-          <pre class="tiny tvm-pre">${JSON.stringify({
-            setup,
-            mode: learningState?.mode || "mixed",
-            confidence: Number(brainState?.confidence || 0),
-            entry_logic: ["wait for rejection", "confirm below trigger", "execute short"],
-          }, null, 2)}</pre>
+          <div class="tvm-plan-grid" id="tvm-plan-grid">
+            <div class="tvm-kv"><span>Setup</span><strong>${prettyLabel(setup, "Chop / No Trade")}</strong></div>
+            <div class="tvm-kv"><span>Direction</span><strong>${prettyLabel(direction)}</strong></div>
+            <div class="tvm-kv"><span>Mode</span><strong>${prettyLabel(mode)}</strong></div>
+            <div class="tvm-kv"><span>Confidence</span><strong>${Math.round(confidence * 100)}%</strong></div>
+            <div class="tvm-kv"><span>Trigger</span><strong>${fmtPrice(levels.trigger)}</strong></div>
+            <div class="tvm-kv"><span>Invalidation</span><strong>${fmtPrice(levels.invalidation)}</strong></div>
+            <div class="tvm-kv"><span>Target</span><strong>${fmtPrice(levels.target)}</strong></div>
+          </div>
+          <div class="tvm-logic">
+            <div class="tiny"><strong>Entry Logic</strong></div>
+            <ul class="tiny">${entryLogic.map((line) => `<li>${line}</li>`).join("")}</ul>
+          </div>
         </article>
 
-        <article class="panel-soft">
+        <article class="panel-soft tvm-area-internal">
           <h5>D. Internal State</h5>
-          ${progressRow("learning_mode", String(learningState?.mode || "mixed") === "exploitation" ? 1 : String(learningState?.mode || "mixed") === "mixed" ? 0.6 : 0.35)}
+          ${progressRow("learning_mode", mode === "exploitation" ? 1 : mode === "mixed" ? 0.6 : 0.35)}
+          <p class="tiny muted tvm-state-note">${metricInterpretation("learning_mode", 0, mode.toLowerCase())}</p>
           ${progressRow("familiarity", brainState?.familiarity || 0)}
+          <p class="tiny muted tvm-state-note">${metricInterpretation("familiarity", num(brainState?.familiarity, 0), mode.toLowerCase())}</p>
           ${progressRow("danger_score", brainState?.danger_score || 0)}
+          <p class="tiny muted tvm-state-note">${metricInterpretation("danger_score", num(brainState?.danger_score, 0), mode.toLowerCase())}</p>
           ${progressRow("scenario_reliability", brainState?.scenario_reliability || 0)}
+          <p class="tiny muted tvm-state-note">${metricInterpretation("scenario_reliability", num(brainState?.scenario_reliability, 0), mode.toLowerCase())}</p>
         </article>
 
-        <article class="panel-soft">
+        <article class="panel-soft tvm-area-controls">
           <h5>E. Human Controls</h5>
           <div class="button-row compact">
             <button class="ghost" type="button" data-tvm-action="confirm-setup">Confirm Setup</button>
@@ -181,13 +399,17 @@ function renderModal(packet = {}) {
           <div class="button-row compact"><button class="ghost" type="button" data-tvm-action="save-note">Save Note</button></div>
         </article>
 
-        <article class="panel-soft">
+        <article class="panel-soft tvm-area-sim">
           <h5>F. Simulation Panel</h5>
           <button class="ghost" type="button" data-tvm-action="simulate">Simulate Outcome</button>
           <div class="tvm-sim-rows" id="tvm-sim-rows">
             ${progressRow("continuation_probability", sim.continuation_probability)}
             ${progressRow("rejection_probability", sim.rejection_probability)}
             ${progressRow("chop_probability", sim.chop_probability)}
+          </div>
+          <div class="tvm-sim-read">
+            <div class="tiny"><strong>Simulation Read</strong></div>
+            <p class="tiny muted" id="tvm-sim-read">${buildSimulationRead(sim, packet)}</p>
           </div>
         </article>
       </div>
@@ -204,6 +426,30 @@ function updateSimulationBars(root, nextTrade, candles) {
     progressRow("rejection_probability", sim.rejection_probability),
     progressRow("chop_probability", sim.chop_probability),
   ].join("");
+  const simRead = root.querySelector("#tvm-sim-read");
+  if (simRead) {
+    const livePacket = getCurrentPacket() || {};
+    simRead.textContent = buildSimulationRead(sim, { ...livePacket, next_trade: nextTrade });
+  }
+}
+
+function updateNarrativePanels(root, packet = {}) {
+  if (!root) return;
+  const risk = buildRiskBanner(packet);
+  const riskEl = root.querySelector("#tvm-risk-banner");
+  if (riskEl) {
+    riskEl.className = `tvm-risk-banner tvm-risk-${risk.tone}`;
+    riskEl.innerHTML = `<strong>${risk.title}</strong><div class="tiny">${risk.sub}</div>`;
+  }
+  const brainVoiceEl = root.querySelector("#tvm-brain-voice");
+  if (brainVoiceEl) brainVoiceEl.textContent = buildBrainVoice(packet);
+  const nextTrade = packet?.next_trade || {};
+  const setupEl = root.querySelector("#tvm-quick-setup");
+  const directionEl = root.querySelector("#tvm-quick-direction");
+  const confidenceEl = root.querySelector("#tvm-quick-confidence");
+  if (setupEl) setupEl.textContent = prettyLabel(nextTrade?.setup, "Chop / No Trade");
+  if (directionEl) directionEl.textContent = prettyLabel(nextTrade?.direction, "Neutral");
+  if (confidenceEl) confidenceEl.textContent = `${Math.round(num(nextTrade?.confidence ?? packet?.brain_state?.confidence, 0) * 100)}%`;
 }
 
 export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
@@ -249,6 +495,13 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
     } else if (action === "simulate") {
       updateSimulationBars(_modalRoot, livePacket?.next_trade || {}, livePacket?.market_state?.candles || []);
     }
+    window.setTimeout(() => {
+      const refreshed = getCurrentPacket();
+      if (!refreshed || !_modalRoot) return;
+      drawMiniChart(_modalRoot.querySelector("#tvm-chart"), refreshed?.market_state?.candles || [], refreshed?.next_trade || {});
+      updateSimulationBars(_modalRoot, refreshed?.next_trade || {}, refreshed?.market_state?.candles || []);
+      updateNarrativePanels(_modalRoot, refreshed);
+    }, 120);
   });
 
   _refreshTimer = window.setInterval(() => {
@@ -257,6 +510,7 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
     if (!livePacket) return;
     drawMiniChart(_modalRoot.querySelector("#tvm-chart"), livePacket?.market_state?.candles || [], livePacket?.next_trade || {});
     updateSimulationBars(_modalRoot, livePacket?.next_trade || {}, livePacket?.market_state?.candles || []);
+    updateNarrativePanels(_modalRoot, livePacket);
   }, 1200);
 
   return { close };
