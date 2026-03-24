@@ -61,6 +61,13 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const pauseRemaining = Number(planContext?.exploration_pause_remaining_candles || 0);
   const exploreRatio = Number(autoShift?.exploration_weight ?? 0.5);
   const exploitRatio = Number(autoShift?.exploitation_weight ?? 0.5);
+  const assistState = opts?.assistedReinforcement || {};
+  const assistSummary = assistState?.lastSummary || {};
+  const assistHeadline = assistSummary?.headline || "No reinforcement applied yet";
+  const assistRuleCount = Number(assistSummary?.rulesUpdated || 0);
+  const assistScenarioChanges = Number(assistSummary?.scenarioChanges || 0);
+  const assistConfidenceDelta = Number(assistSummary?.confidenceDelta || 0);
+  const assistTags = Array.isArray(assistSummary?.lessonTagsAdded) ? assistSummary.lessonTagsAdded : [];
   const learningStateMessage = String(verdict?.learning_mode || "mixed") === "exploration"
     ? "Exploration: low sample context"
     : String(verdict?.learning_mode || "mixed") === "exploitation"
@@ -210,6 +217,22 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="manual-controls-reset">Reset manual controls</button>
           </div>
+        </section>
+
+        <section>
+          <h5>K. Assisted Reinforcement</h5>
+          <p class="tiny">headline: <strong>${safe(assistHeadline)}</strong></p>
+          <p class="tiny">rules updated: <strong>${assistRuleCount}</strong> · scenario changes: <strong>${assistScenarioChanges}</strong></p>
+          <p class="tiny">confidence delta: <strong>${assistConfidenceDelta >= 0 ? "+" : ""}${assistConfidenceDelta.toFixed(2)}</strong></p>
+          <p class="tiny">tags added:</p>
+          <div>${chips(assistTags)}</div>
+          <p class="tiny">history entries: <strong>${safe(assistState?.historyCount, 0)}</strong></p>
+          <div class="button-row compact">
+            <button type="button" class="ghost" data-brain-action="assist-export">Export Brain Assist</button>
+            <button type="button" class="ghost" data-brain-action="assist-apply">Apply Reinforcement JSON</button>
+            <button type="button" class="ghost" data-brain-action="assist-reset">Reset Last Reinforcement</button>
+          </div>
+          <p class="muted tiny">Reinforcement refines tactical bias and learning state only. Execution authority remains unchanged.</p>
         </section>
 
       </div>
