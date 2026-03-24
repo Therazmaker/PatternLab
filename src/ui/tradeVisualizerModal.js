@@ -381,13 +381,25 @@ function drawMiniChart(canvas, candles = [], nextTrade = {}, visualTrade = null)
     (!isLong && takeProfit < entry && entry < stopLoss)
   );
   const hasInvalidTradeValues = Boolean(visualTrade) && !hasAllTradeLevels;
-  const tradeRange = hasAllTradeLevels ? Math.max(entry, stopLoss, takeProfit) - Math.min(entry, stopLoss, takeProfit) : 0;
-  const outOfScale = hasAllTradeLevels && tradeRange > candleRange * 3;
-  const canDrawTradeFill = Boolean(visualTrade && hasAllTradeLevels && hasValidOrder && !outOfScale);
-  const levelValues = [
+
+  // Collect ALL trade-related levels (packet levels + visual trade levels) for range check
+  const allTradeLevelValues = [
     levels.trigger, levels.invalidation, levels.target,
-    ...(canDrawTradeFill ? tradeLevels : []),
+    ...(hasAllTradeLevels ? tradeLevels : []),
   ].filter((v) => isFiniteLevel(v)).map((v) => Number(v));
+  const allTradeMin = allTradeLevelValues.length ? Math.min(...allTradeLevelValues) : null;
+  const allTradeMax = allTradeLevelValues.length ? Math.max(...allTradeLevelValues) : null;
+  const tradeRange = allTradeMin !== null && allTradeMax !== null ? allTradeMax - allTradeMin : 0;
+
+  // Smart scaling: only include trade levels when they don't distort candle readability.
+  // TRADE_SCALE_THRESHOLD: trade range must be <= 1.5x candle range to include trade levels in scale.
+  const TRADE_SCALE_THRESHOLD = 1.5;
+  const outOfScale = tradeRange > candleRange * TRADE_SCALE_THRESHOLD;
+  const canDrawTradeFill = Boolean(visualTrade && hasAllTradeLevels && hasValidOrder && !outOfScale);
+
+  // When out-of-scale, scale chart ONLY to candles so they remain readable.
+  // Out-of-range trade lines are still drawn by drawLine() which handles off-screen markers.
+  const levelValues = outOfScale ? [] : allTradeLevelValues;
   const visibleMin = Math.min(candleMin, ...(levelValues.length ? levelValues : [candleMin]));
   const visibleMax = Math.max(candleMax, ...(levelValues.length ? levelValues : [candleMax]));
   const range = Math.max(visibleMax - visibleMin, 1e-6);
