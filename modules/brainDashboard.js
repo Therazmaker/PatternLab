@@ -71,6 +71,14 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const assistInput = String(assistState?.inputText || "");
   const assistInputValid = Boolean(assistState?.inputValid);
   const assistInputError = assistState?.inputError || "";
+  const syntheticInput = String(assistState?.syntheticInput || "");
+  const syntheticInputValid = Boolean(assistState?.syntheticInputValid);
+  const syntheticInputError = assistState?.syntheticInputError || "";
+  const syntheticStoredCount = Number(assistState?.syntheticStoredCount || 0);
+  const syntheticRatio = assistState?.syntheticRatio || {};
+  const syntheticPct = Number(syntheticRatio?.ratioSynthetic || 0) * 100;
+  const realPct = Number(syntheticRatio?.ratioReal || 0) * 100;
+  const syntheticLastImportAt = assistState?.syntheticLastImportAt || "none";
   const assistHistory = Array.isArray(assistState?.history || []) ? assistState.history.slice(-5).reverse() : [];
   const learningStateMessage = String(verdict?.learning_mode || "mixed") === "exploration"
     ? "Exploration: low sample context"
@@ -234,7 +242,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">history entries: <strong>${safe(assistState?.historyCount, 0)}</strong></p>
           <label class="tiny" for="reinforcementInput">Copilot Reinforcement JSON</label>
           <textarea id="reinforcementInput" data-brain-control="reinforcement-input" placeholder="Paste Copilot Reinforcement JSON here..." rows="8" style="width:100%;resize:vertical;font-family:monospace;">${assistInput}</textarea>
-          <p class="tiny ${assistInputValid ? "badge-green" : "badge-muted"}">${assistInput ? (assistInputValid ? "valid JSON" : safe(assistInputError, "invalid JSON")) : "No reinforcement applied"}</p>
+          <p class="tiny ${assistInputValid ? "badge-green" : "badge-muted"}">${assistInput ? (assistInputValid ? "Valid JSON" : `Invalid JSON: ${safe(assistInputError, "invalid JSON")}`) : "No reinforcement applied"}</p>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="assist-export">Export Brain Assist</button>
             <button type="button" class="ghost" data-brain-action="assist-download">Download Brain Assist</button>
@@ -242,6 +250,19 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
             <button type="button" class="ghost" data-brain-action="assist-clear">Clear</button>
             <button type="button" class="ghost" data-brain-action="assist-example">Load Example</button>
           </div>
+          <div style="margin:.55rem 0;border-top:1px solid rgba(71,85,105,.6);"></div>
+          <h6 style="margin:.1rem 0 .35rem;">Synthetic Trades</h6>
+          <label class="tiny" for="syntheticTradesInput">Synthetic Trades JSON</label>
+          <textarea id="syntheticTradesInput" data-brain-control="synthetic-input" placeholder="Paste Synthetic Trades JSON here..." rows="6" style="width:100%;resize:vertical;font-family:monospace;">${syntheticInput}</textarea>
+          <p class="tiny ${syntheticInputValid ? "badge-green" : "badge-muted"}">${syntheticInput ? (syntheticInputValid ? "Valid JSON" : `Invalid JSON: ${safe(syntheticInputError, "invalid JSON")}`) : "No synthetic JSON loaded"}</p>
+          <div class="button-row compact">
+            <button type="button" class="ghost" data-brain-action="assist-synthetic-inject" ${syntheticInputValid ? "" : "disabled"}>Inject Synthetic Trades</button>
+            <button type="button" class="ghost" data-brain-action="assist-synthetic-clear">Clear Synthetic JSON</button>
+            <button type="button" class="ghost" data-brain-action="assist-synthetic-example">Load Synthetic Example</button>
+          </div>
+          <p class="tiny">Synthetic Trades Stored: <strong>${syntheticStoredCount}</strong></p>
+          <p class="tiny">Synthetic vs Real Learning Ratio: <strong>${syntheticPct.toFixed(1)}% synthetic / ${realPct.toFixed(1)}% real</strong></p>
+          <p class="tiny">Last Synthetic Import: <strong>${safe(syntheticLastImportAt, "none")}</strong></p>
           <p class="tiny">Last Reinforcement: <strong>${safe(assistState?.lastAppliedAt || "none")}</strong></p>
           <p class="tiny">History (last 5):</p>
           <div>${assistHistory.length ? assistHistory.map((row) => `<div class="tiny muted">• ${safe(row?.summary || row?.reinforcement_summary?.headline, "Reinforcement applied")} <span class="muted">(${safe(row?.timestamp, "")})</span></div>`).join("") : '<span class="badge-muted">none</span>'}</div>

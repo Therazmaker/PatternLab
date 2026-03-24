@@ -450,6 +450,7 @@ let scenarioProjectionState = {
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
 const ASSISTED_REINFORCEMENT_HISTORY_KEY = "localStorage.patternlab.reinforcementHistory";
+const ASSISTED_UI_STATE_KEY = "sessionStorage.patternlab.assistedUiState.v1";
 let sessionAnalysisPrefs = {
   showOverlay: true,
   showNarratives: true,
@@ -469,10 +470,16 @@ let storageStatus = null;
 let assistedReinforcementState = {
   lastSummary: null,
   history: [],
-  inputText: "",
-  inputValid: false,
-  inputError: "",
   lastAppliedAt: null,
+};
+let assistedUiState = {
+  reinforcementInput: "",
+  reinforcementValid: false,
+  reinforcementError: "",
+  syntheticInput: "",
+  syntheticValid: false,
+  syntheticError: "",
+  syntheticLastImportAt: null,
 };
 
 let marketDataCandles = [];
@@ -3047,23 +3054,64 @@ function syncLiveShadowToUnifiedPipeline(records = [], options = {}) {
   return changed;
 }
 
-function handleInjectSyntheticTrades() {
-  const raw = els.jsonInput?.value?.trim() || "";
+function getSyntheticExample() {
+  return {
+    schema: "patternlab_synthetic_trades_v1",
+    origin: "assistant_demo",
+    rows: [
+      {
+        symbol: "EURUSD",
+        timeframe: "5m",
+        direction: "PUT",
+        entryTimestamp: new Date().toISOString(),
+        outcome: "win",
+        confidence: 0.64,
+        lessonTags: ["failed_breakout", "mean_reversion"],
+      },
+    ],
+  };
+}
+
+function handleInjectSyntheticTrades(rawInput = null) {
+  const raw = String(rawInput ?? assistedUiState.syntheticInput ?? els.jsonInput?.value ?? "").trim();
   if (!raw) {
     setQuickAddFeedback("Pega un JSON con schema patternlab_synthetic_trades_v1.", true);
     return;
   }
   const result = ingestSyntheticTrades(raw, { origin: "ui-import" });
   if (!result.ok) {
+    assistedUiState = {
+      ...assistedUiState,
+      syntheticValid: false,
+      syntheticError: result.message || "No se pudo validar synthetic trades.",
+    };
+    persistAssistedUiState();
     setQuickAddFeedback(result.message || "No se pudo validar synthetic trades.", true);
     return;
   }
+  assistedUiState = {
+    ...assistedUiState,
+    syntheticInput: raw,
+    syntheticValid: true,
+    syntheticError: "",
+    syntheticLastImportAt: new Date().toISOString(),
+  };
+  persistAssistedUiState();
 
   const applied = applySyntheticTradesToLearning(result.rows || []);
   const snapshot = getSyntheticLearningSnapshot();
   const tagCount = Object.keys(snapshot.lessonTags || {}).length;
+  console.info("[Synthetic] Trades injected");
   setQuickAddFeedback(`Synthetic trades importadas: ${result.imported}. Learning weighted +${applied.weightedApplied}. Lesson tags: ${tagCount}.`, false);
   rerender();
+}
+
+function handleClearSyntheticInput() {
+  updateSyntheticInput("");
+}
+
+function handleLoadSyntheticExample() {
+  updateSyntheticInput(JSON.stringify(getSyntheticExample(), null, 2));
 }
 
 function handleImport() {
@@ -3500,9 +3548,32 @@ function loadAssistedReinforcementHistory() {
   }
 }
 
+function loadAssistedUiState() {
+  try {
+    const raw = sessionStorage.getItem(ASSISTED_UI_STATE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    assistedUiState = {
+      ...assistedUiState,
+      reinforcementInput: String(parsed?.reinforcementInput || ""),
+      syntheticInput: String(parsed?.syntheticInput || ""),
+    };
+  } catch {}
+  updateReinforcementInput(assistedUiState.reinforcementInput);
+  updateSyntheticInput(assistedUiState.syntheticInput);
+}
+
 function persistAssistedReinforcementHistory() {
   try {
     localStorage.setItem(ASSISTED_REINFORCEMENT_HISTORY_KEY, JSON.stringify((assistedReinforcementState.history || []).slice(-80)));
+  } catch {}
+}
+
+function persistAssistedUiState() {
+  try {
+    sessionStorage.setItem(ASSISTED_UI_STATE_KEY, JSON.stringify({
+      reinforcementInput: assistedUiState.reinforcementInput || "",
+      syntheticInput: assistedUiState.syntheticInput || "",
+    }));
   } catch {}
 }
 
@@ -3518,25 +3589,60 @@ function downloadJsonFile(payload, fileName = "patternlab-brain-assist.json") {
   setTimeout(() => URL.revokeObjectURL(url), 50);
 }
 
-function updateReinforcementInput(rawText = assistedReinforcementState.inputText || "") {
+function updateReinforcementInput(rawText = assistedUiState.reinforcementInput || "") {
   const text = String(rawText || "");
   const trimmed = text.trim();
   if (!trimmed) {
-    assistedReinforcementState = {
-      ...assistedReinforcementState,
-      inputText: "",
-      inputValid: false,
-      inputError: "",
+    assistedUiState = {
+      ...assistedUiState,
+      reinforcementInput: "",
+      reinforcementValid: false,
+      reinforcementError: "",
     };
+    persistAssistedUiState();
     return;
   }
   const ingested = ingestCopilotReinforcement(trimmed);
-  assistedReinforcementState = {
-    ...assistedReinforcementState,
-    inputText: text,
-    inputValid: ingested.ok,
-    inputError: ingested.ok ? "" : ingested.errors.join("; "),
+  assistedUiState = {
+    ...assistedUiState,
+    reinforcementInput: text,
+    reinforcementValid: ingested.ok,
+    reinforcementError: ingested.ok ? "" : ingested.errors.join("; "),
   };
+  persistAssistedUiState();
+}
+
+function updateSyntheticInput(rawText = assistedUiState.syntheticInput || "") {
+  const text = String(rawText || "");
+  const trimmed = text.trim();
+  if (!trimmed) {
+    assistedUiState = {
+      ...assistedUiState,
+      syntheticInput: "",
+      syntheticValid: false,
+      syntheticError: "",
+    };
+    persistAssistedUiState();
+    return;
+  }
+  try {
+    JSON.parse(trimmed);
+    assistedUiState = {
+      ...assistedUiState,
+      syntheticInput: text,
+      syntheticValid: true,
+      syntheticError: "",
+    };
+    console.info("[Synthetic] JSON validated");
+  } catch (error) {
+    assistedUiState = {
+      ...assistedUiState,
+      syntheticInput: text,
+      syntheticValid: false,
+      syntheticError: error instanceof Error ? error.message : "Invalid JSON",
+    };
+  }
+  persistAssistedUiState();
 }
 
 function getReinforcementExample() {
@@ -3575,7 +3681,7 @@ async function handleSessionExportBrainAssist() {
 }
 
 function handleApplyReinforcementJSON() {
-  const raw = assistedReinforcementState.inputText;
+  const raw = assistedUiState.reinforcementInput;
   if (!raw?.trim()) return;
   const contextSignature = scenarioProjectionState.activeSet?.context_signature || _lastBrainVerdict?.learningEffects?.signature || null;
   const linkage = {
@@ -3597,11 +3703,12 @@ function handleApplyReinforcementJSON() {
     },
   });
   if (!result.ok) {
-    assistedReinforcementState = {
-      ...assistedReinforcementState,
-      inputValid: false,
-      inputError: result.errors.join("; "),
+    assistedUiState = {
+      ...assistedUiState,
+      reinforcementValid: false,
+      reinforcementError: result.errors.join("; "),
     };
+    persistAssistedUiState();
     setSessionCandleStatus(`Invalid reinforcement JSON: ${result.errors.join("; ")}`, "error");
     return;
   }
@@ -4069,6 +4176,12 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
       handleClearReinforcementInput();
     } else if (action === "assist-example") {
       handleLoadReinforcementExample();
+    } else if (action === "assist-synthetic-inject") {
+      handleInjectSyntheticTrades(assistedUiState.syntheticInput);
+    } else if (action === "assist-synthetic-clear") {
+      handleClearSyntheticInput();
+    } else if (action === "assist-synthetic-example") {
+      handleLoadSyntheticExample();
     } else if (action === "assist-reset") {
       handleResetLastReinforcement();
     }
@@ -4079,7 +4192,13 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     const reinforcementInput = event.target.closest("[data-brain-control='reinforcement-input']");
     if (reinforcementInput) {
       updateReinforcementInput(reinforcementInput.value);
-      renderBrainDashboardPanel();
+      syncAssistedInputIndicators();
+      return;
+    }
+    const syntheticInput = event.target.closest("[data-brain-control='synthetic-input']");
+    if (syntheticInput) {
+      updateSyntheticInput(syntheticInput.value);
+      syncAssistedInputIndicators();
       return;
     }
     const input = event.target.closest("[data-manual-control]");
@@ -4103,6 +4222,12 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
       renderBrainDashboardPanel();
       return;
     }
+    const syntheticInput = event.target.closest("[data-brain-control='synthetic-input']");
+    if (syntheticInput) {
+      updateSyntheticInput(syntheticInput.value);
+      renderBrainDashboardPanel();
+      return;
+    }
     const input = event.target.closest("[data-manual-control]");
     if (!input || input.type === "range") return;
     const key = input.dataset.manualControl;
@@ -4111,6 +4236,11 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     if (key === "force_learning_mode" && !value) value = null;
     manualControlsState = setManualControls({ [key]: value });
     renderBrainDashboardPanel();
+  });
+  els.sessionBrainDashboard?.addEventListener("paste", (event) => {
+    const textInput = event.target.closest("[data-brain-control='reinforcement-input'], [data-brain-control='synthetic-input']");
+    if (!textInput) return;
+    console.info("[AssistUI] Paste accepted");
   });
   els.sessionHumanInsightTags?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-human-tag]");
@@ -5275,14 +5405,48 @@ function renderSessionCopilotFeedbackBlock(analysis, marketView) {
   els.sessionCopilotFeedbackBlock.innerHTML = renderCopilotFeedbackBlock(feedback, evaluation, effects);
 }
 
+function syncAssistedInputIndicators() {
+  const reinforcementStatus = document.querySelector("#reinforcementInput + p");
+  const reinforcementApplyBtn = document.querySelector("[data-brain-action='assist-apply']");
+  if (reinforcementStatus) {
+    reinforcementStatus.className = `tiny ${assistedUiState.reinforcementValid ? "badge-green" : "badge-muted"}`;
+    reinforcementStatus.textContent = assistedUiState.reinforcementInput
+      ? (assistedUiState.reinforcementValid ? "Valid JSON" : `Invalid JSON: ${assistedUiState.reinforcementError || "invalid JSON"}`)
+      : "No reinforcement applied";
+  }
+  if (reinforcementApplyBtn) reinforcementApplyBtn.disabled = !assistedUiState.reinforcementValid;
+
+  const syntheticStatus = document.querySelector("#syntheticTradesInput + p");
+  const syntheticInjectBtn = document.querySelector("[data-brain-action='assist-synthetic-inject']");
+  if (syntheticStatus) {
+    syntheticStatus.className = `tiny ${assistedUiState.syntheticValid ? "badge-green" : "badge-muted"}`;
+    syntheticStatus.textContent = assistedUiState.syntheticInput
+      ? (assistedUiState.syntheticValid ? "Valid JSON" : `Invalid JSON: ${assistedUiState.syntheticError || "invalid JSON"}`)
+      : "No synthetic JSON loaded";
+  }
+  if (syntheticInjectBtn) syntheticInjectBtn.disabled = !assistedUiState.syntheticValid;
+}
+
 function renderBrainDashboardPanel() {
   if (!els.sessionBrainDashboard) return;
+  const active = document.activeElement;
+  const focusState = active && (active.id === "reinforcementInput" || active.id === "syntheticTradesInput")
+    ? {
+      id: active.id,
+      start: active.selectionStart,
+      end: active.selectionEnd,
+      direction: active.selectionDirection,
+      scrollTop: active.scrollTop,
+    }
+    : null;
   const modeState = brainModeController.getState();
   const executorState = executorStateStore.getState();
   const liveGate = evaluateExecutorLiveGate(learningProgressPacket, executionControlState);
   const secondaryScenario = scenarioProjectionState.activeSet?.scenarios?.[1] || null;
   const contextSignature = _lastBrainVerdict?.learningEffects?.signature || scenarioProjectionState.activeSet?.context_signature || null;
   const contextRow = contextSignature ? (brainMemoryStore.getSnapshot().contexts?.[contextSignature] || null) : null;
+  const syntheticRows = getSyntheticTrades();
+  const syntheticRatio = computeSyntheticLearningRatio(state.reviewed, syntheticRows);
   els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState, executionControlState, {
     executorState,
     activeTrade: brainExecutor.getActiveTrade(),
@@ -5296,12 +5460,30 @@ function renderBrainDashboardPanel() {
       lastSummary: assistedReinforcementState.lastSummary,
       historyCount: (assistedReinforcementState.history || []).length,
       history: assistedReinforcementState.history || [],
-      inputText: assistedReinforcementState.inputText || "",
-      inputValid: assistedReinforcementState.inputValid,
-      inputError: assistedReinforcementState.inputError,
+      inputText: assistedUiState.reinforcementInput || "",
+      inputValid: assistedUiState.reinforcementValid,
+      inputError: assistedUiState.reinforcementError,
       lastAppliedAt: assistedReinforcementState.lastAppliedAt,
+      syntheticInput: assistedUiState.syntheticInput || "",
+      syntheticInputValid: assistedUiState.syntheticValid,
+      syntheticInputError: assistedUiState.syntheticError,
+      syntheticStoredCount: syntheticRows.length,
+      syntheticRatio,
+      syntheticLastImportAt: assistedUiState.syntheticLastImportAt,
     },
   });
+  if (focusState) {
+    const nextInput = document.getElementById(focusState.id);
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.setSelectionRange(focusState.start, focusState.end, focusState.direction || "none");
+      nextInput.scrollTop = focusState.scrollTop || 0;
+      console.info("[AssistUI] Reinforcement textarea preserved across rerender");
+    }
+  }
+  const syntheticInputEl = document.getElementById("syntheticTradesInput");
+  if (syntheticInputEl) console.info("[AssistUI] Synthetic textarea mounted");
+  syncAssistedInputIndicators();
 }
 
 /**
@@ -6227,6 +6409,7 @@ async function init() {
   botCompilerState = loadBotCompilerState();
   manualControlsState = getManualControls();
   loadAssistedReinforcementHistory();
+  loadAssistedUiState();
   try {
     _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_DRAWINGS_KEY) || localStorage.getItem(SESSION_SR_KEY_LEGACY) || "[]") || [];
   } catch { _sessionManualSR = []; }
