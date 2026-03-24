@@ -436,20 +436,76 @@ details[open] > .dt-summary::before { transform:rotate(90deg); }
 .tvm-modal {
   position: relative;
   margin: 4vh auto;
-  width: min(1100px, 95vw);
+  width: min(1320px, 96vw);
   max-height: 92vh;
   overflow: auto;
   border: 1px solid rgba(148, 163, 184, .35);
   border-radius: 12px;
-  background: #0b1220;
-  padding: .85rem;
+  background: radial-gradient(circle at top left, rgba(30, 64, 175, .14), transparent 42%), #0b1220;
+  padding: .95rem;
 }
 .tvm-header { display:flex; justify-content:space-between; align-items:center; gap:.8rem; margin-bottom:.6rem; }
-.tvm-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:.7rem; }
+.tvm-grid {
+  display:grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  grid-template-areas:
+    "chart chart summary"
+    "intent plan internal"
+    "controls sim internal";
+  gap:.7rem;
+}
+.tvm-area-chart { grid-area: chart; min-height: 390px; }
+.tvm-area-summary { grid-area: summary; display:flex; flex-direction:column; gap:.6rem; }
+.tvm-area-intent { grid-area: intent; }
+.tvm-area-plan { grid-area: plan; }
+.tvm-area-internal { grid-area: internal; }
+.tvm-area-controls { grid-area: controls; }
+.tvm-area-sim { grid-area: sim; }
+.tvm-area-chart canvas { width: 100%; min-height: 340px; border:1px solid rgba(59,130,246,.18); border-radius:8px; background:#0b1422; }
+
+.tvm-risk-banner { border-radius:10px; padding:.55rem .65rem; border:1px solid transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
+.tvm-risk-danger { background:rgba(127,29,29,.28); border-color:rgba(239,68,68,.5); color:#fecaca; }
+.tvm-risk-warn { background:rgba(120,53,15,.25); border-color:rgba(245,158,11,.5); color:#fde68a; }
+.tvm-risk-ok { background:rgba(20,83,45,.28); border-color:rgba(34,197,94,.5); color:#bbf7d0; }
+.tvm-risk-mixed { background:rgba(30,41,59,.5); border-color:rgba(148,163,184,.4); color:#cbd5e1; }
+.tvm-summary-block { border:1px solid rgba(71,85,105,.45); border-radius:8px; background:rgba(15,23,42,.45); padding:.5rem .55rem; }
+.tvm-summary-block h5 { margin:.05rem 0 .35rem; }
+.tvm-kv { display:flex; justify-content:space-between; gap:.6rem; margin:.2rem 0; font-size:.74rem; }
+.tvm-kv span { color:#94a3b8; }
+.tvm-kv strong { color:#e2e8f0; font-weight:600; text-align:right; }
+.tvm-plan-grid { display:grid; grid-template-columns:1fr; gap:.12rem; }
+.tvm-logic { margin-top:.5rem; border-top:1px solid rgba(71,85,105,.45); padding-top:.45rem; }
+.tvm-logic ul { margin:.25rem 0 0 .95rem; padding:0; }
+.tvm-state-note { margin:.1rem 0 .35rem; }
+.tvm-sim-read { margin-top:.45rem; border-top:1px solid rgba(71,85,105,.45); padding-top:.4rem; }
 .tvm-pre { white-space: pre-wrap; margin: 0; }
 .tvm-progress-row { display:grid; grid-template-columns: 120px 1fr 50px; gap:.45rem; align-items:center; margin:.35rem 0; }
 .tvm-progress-track { height: 8px; border-radius: 999px; background: rgba(71, 85, 105, .6); overflow: hidden; }
 .tvm-progress-track > span { display:block; height:100%; background: linear-gradient(90deg, #facc15, #22c55e); }
+@media (max-width: 1180px) {
+  .tvm-grid {
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+    grid-template-areas:
+      "chart chart"
+      "summary summary"
+      "intent plan"
+      "internal internal"
+      "controls sim";
+  }
+}
+@media (max-width: 760px) {
+  .tvm-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "chart"
+      "summary"
+      "intent"
+      "plan"
+      "internal"
+      "controls"
+      "sim";
+  }
+}
 .dt-badge-muted  { color:#64748b; border-color:#334155; }
 
 /* Block inside a section */
