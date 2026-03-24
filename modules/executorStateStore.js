@@ -38,6 +38,7 @@ export const DEFAULT_EXECUTOR_STATE = Object.freeze({
   cooldownUntil: null,
   paused: false,
   liveBlockedReason: null,
+  lastRiskProfile: null,
   learningProfile: DEFAULT_LEARNING_PROFILE,
 });
 
@@ -60,6 +61,7 @@ export function normalizeExecutorState(raw = {}) {
     cooldownUntil: raw?.cooldownUntil || null,
     paused: Boolean(raw?.paused),
     liveBlockedReason: raw?.liveBlockedReason || null,
+    lastRiskProfile: raw?.lastRiskProfile || null,
     learningProfile: { ...DEFAULT_LEARNING_PROFILE, ...(raw?.learningProfile || {}) },
   };
 }

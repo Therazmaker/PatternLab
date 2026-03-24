@@ -27,6 +27,7 @@ export function createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal, 
     contextMaturity,
     explorationReason,
     wouldHaveBeenBlockedWithoutLearningMode,
+    riskProfile,
   } = {}) {
     if (!trade?.id) return null;
     const payload = {
@@ -47,6 +48,12 @@ export function createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal, 
       context_maturity: contextMaturity || trade.context_maturity || "unknown",
       exploration_reason: explorationReason || trade.exploration_reason || null,
       would_have_been_blocked_without_learning_mode: Boolean(wouldHaveBeenBlockedWithoutLearningMode ?? trade.would_have_been_blocked_without_learning_mode),
+      risk_mode: riskProfile?.risk_mode || trade?.risk_profile?.risk_mode || "mixed",
+      size_multiplier: Number(riskProfile?.size_multiplier ?? trade?.risk_profile?.size_multiplier ?? 0),
+      capital_fraction: Number(riskProfile?.capital_fraction ?? trade?.risk_profile?.capital_fraction ?? 0),
+      risk_score: Number(riskProfile?.risk_score ?? trade?.risk_profile?.risk_score ?? 0),
+      risk_reason: Array.isArray(riskProfile?.reason) ? riskProfile.reason : (Array.isArray(trade?.risk_profile?.reason) ? trade.risk_profile.reason : []),
+      sizing_components: riskProfile?.components || trade?.risk_profile?.components || null,
     };
 
     brainMemoryStore?.appendTrade({
@@ -68,6 +75,12 @@ export function createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal, 
       context_maturity: payload.context_maturity,
       exploration_reason: payload.exploration_reason,
       would_have_been_blocked_without_learning_mode: payload.would_have_been_blocked_without_learning_mode,
+      risk_mode: payload.risk_mode,
+      size_multiplier: payload.size_multiplier,
+      capital_fraction: payload.capital_fraction,
+      risk_score: payload.risk_score,
+      risk_reason: payload.risk_reason,
+      sizing_components: payload.sizing_components,
     }, {
       context_signature: payload.context_signature,
       tradeId: payload.trade_id,
