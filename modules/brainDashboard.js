@@ -80,6 +80,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const realPct = Number(syntheticRatio?.ratioReal || 0) * 100;
   const syntheticLastImportAt = assistState?.syntheticLastImportAt || "none";
   const assistHistory = Array.isArray(assistState?.history || []) ? assistState.history.slice(-5).reverse() : [];
+  const assistOverlayActive = Boolean(assistState?.overlayActive);
+  const assistOverlayFields = assistState?.overlayLastFields || {};
   const learningStateMessage = String(verdict?.learning_mode || "mixed") === "exploration"
     ? "Exploration: low sample context"
     : String(verdict?.learning_mode || "mixed") === "exploitation"
@@ -264,6 +266,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">Synthetic vs Real Learning Ratio: <strong>${syntheticPct.toFixed(1)}% synthetic / ${realPct.toFixed(1)}% real</strong></p>
           <p class="tiny">Last Synthetic Import: <strong>${safe(syntheticLastImportAt, "none")}</strong></p>
           <p class="tiny">Last Reinforcement: <strong>${safe(assistState?.lastAppliedAt || "none")}</strong></p>
+          <p class="tiny">Reinforcement Overlay Active: <strong>${assistOverlayActive ? "yes" : "no"}</strong></p>
+          <p class="tiny">Last applied fields → bias: <strong>${safe(assistOverlayFields?.bias, "—")}</strong> · learned_bias: <strong>${safe(assistOverlayFields?.learned_bias, "—")}</strong> · active_rules: <strong>${safe(assistOverlayFields?.active_rules, 0)}</strong> · scenario_primary: <strong>${safe(assistOverlayFields?.scenario_primary, "—")}</strong></p>
           <p class="tiny">History (last 5):</p>
           <div>${assistHistory.length ? assistHistory.map((row) => `<div class="tiny muted">• ${safe(row?.summary || row?.reinforcement_summary?.headline, "Reinforcement applied")} <span class="muted">(${safe(row?.timestamp, "")})</span></div>`).join("") : '<span class="badge-muted">none</span>'}</div>
           <p class="muted tiny">Reinforcement refines tactical bias and learning state only. Execution authority remains unchanged.</p>

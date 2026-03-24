@@ -15,6 +15,14 @@ function cloneBase(base = {}) {
     trades: Array.isArray(base?.trades) ? [...base.trades] : [],
     statsCache: base?.statsCache && typeof base.statsCache === "object" ? { ...base.statsCache } : {},
     events: Array.isArray(base?.events) ? [...base.events] : [],
+    reinforcementOverlay: {
+      byContext: base?.reinforcementOverlay?.byContext && typeof base.reinforcementOverlay.byContext === "object"
+        ? { ...base.reinforcementOverlay.byContext }
+        : {},
+      latest: base?.reinforcementOverlay?.latest && typeof base.reinforcementOverlay.latest === "object"
+        ? { ...base.reinforcementOverlay.latest }
+        : null,
+    },
   };
 }
 
@@ -160,6 +168,30 @@ export function createBrainMemoryStore(seed = {}) {
     return event;
   }
 
+  function upsertReinforcementOverlay(contextSignature, overlay = {}, linkage = {}) {
+    const key = contextSignature || overlay?.context_signature || "global";
+    const row = {
+      ...(memory.reinforcementOverlay?.byContext?.[key] || {}),
+      ...overlay,
+      context_signature: key,
+      sessionId: linkage.sessionId || overlay.sessionId || null,
+      symbol: linkage.symbol || overlay.symbol || null,
+      timeframe: linkage.timeframe || overlay.timeframe || null,
+      applied_at: overlay.applied_at || nowIso(),
+      updatedAt: nowIso(),
+    };
+    memory.reinforcementOverlay.byContext[key] = row;
+    memory.reinforcementOverlay.latest = row;
+    return row;
+  }
+
+  function getReinforcementOverlay(contextSignature = null) {
+    if (contextSignature && memory.reinforcementOverlay?.byContext?.[contextSignature]) {
+      return memory.reinforcementOverlay.byContext[contextSignature];
+    }
+    return memory.reinforcementOverlay?.latest || null;
+  }
+
   function getSnapshot() {
     return cloneBase(memory);
   }
@@ -187,6 +219,8 @@ export function createBrainMemoryStore(seed = {}) {
     upsertOverride,
     cacheStats,
     addEvent,
+    upsertReinforcementOverlay,
+    getReinforcementOverlay,
     getSnapshot,
     hydrateFromLegacy,
   };

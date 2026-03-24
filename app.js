@@ -59,7 +59,7 @@ import { evaluateCopilotFeedback } from "./modules/copilotFeedbackEvaluator.js";
 import { buildCopilotFeedbackEffects } from "./modules/copilotFeedbackBridge.js";
 import { renderCopilotFeedbackBlock, renderCopilotFeedbackTabPanel } from "./modules/copilotFeedbackPanel.js";
 import { renderBrainDashboard } from "./modules/brainDashboard.js";
-import { runSessionBrainOrchestrator } from "./modules/sessionBrainOrchestrator.js";
+import { buildSessionContextSignature, runSessionBrainOrchestrator } from "./modules/sessionBrainOrchestrator.js";
 import { getManualControls, hasActiveManualOverrides, resetManualControls, setManualControls } from "./modules/manualControlsStore.js";
 import { persistHumanOverrideMemory, persistLearnedContext } from "./modules/brainLearningWriter.js";
 import { createBrainMemoryStore, createBrainEvent } from "./modules/brainMemoryStore.js";
@@ -1878,6 +1878,13 @@ function updateScenarioProjectionEngine({ analysis, marketView, latestPolicy }) 
     || scenarioProjectionState.lastCreationCandleTs !== lastCandleTs;
 
   if (shouldCreateNewSet) {
+    const reinforcementOverlay = brainMemoryStore.getReinforcementOverlay?.(
+      buildSessionContextSignature({
+        analysis,
+        symbol: marketView?.symbol || getActiveSession()?.asset,
+        timeframe: marketView?.timeframe || getActiveSession()?.tf,
+      }),
+    );
     const orchestrated = runSessionBrainOrchestrator({
       session: getActiveSession(),
       marketView,
@@ -1889,6 +1896,7 @@ function updateScenarioProjectionEngine({ analysis, marketView, latestPolicy }) 
         ? { [scenarioProjectionState.humanSelection.followedScenarioId]: scenarioProjectionState.humanSelection.override }
         : null,
       executionControlState,
+      reinforcementOverlay,
     });
     _lastBrainVerdict = orchestrated.brainPacket;
     scenarioProjectionState.activeSet = orchestrated.scenarioPacket;
@@ -3683,12 +3691,18 @@ async function handleSessionExportBrainAssist() {
 function handleApplyReinforcementJSON() {
   const raw = assistedUiState.reinforcementInput;
   if (!raw?.trim()) return;
-  const contextSignature = scenarioProjectionState.activeSet?.context_signature || _lastBrainVerdict?.learningEffects?.signature || null;
+  const marketView = getSessionMarketView();
+  const contextSignature = buildSessionContextSignature({
+    analysis: sessionOperatorState?.currentContext?.analysisSnapshot || null,
+    symbol: marketView?.symbol || null,
+    timeframe: marketView?.timeframe || null,
+  });
+  const reinforcementContextSignature = scenarioProjectionState.activeSet?.context_signature || _lastBrainVerdict?.learningEffects?.signature || contextSignature || null;
   const linkage = {
     sessionId: getActiveSession()?.id || null,
     symbol: getSessionMarketView()?.symbol || null,
     timeframe: getSessionMarketView()?.timeframe || null,
-    context_signature: contextSignature,
+    context_signature: reinforcementContextSignature,
   };
   const result = applyReinforcement(raw, {
     patchApplier: applyReinforcementPatch,
@@ -3696,7 +3710,7 @@ function handleApplyReinforcementJSON() {
       brainVerdict: _lastBrainVerdict,
       scenarioSet: scenarioProjectionState.activeSet,
       brainMemoryStore,
-      contextSignature,
+      contextSignature: reinforcementContextSignature,
       linkage,
       riskCaps: { maxSizeMultiplier: Number(manualControlsState?.max_risk_cap ?? 1) },
       log: (line) => console.info(line),
@@ -3736,6 +3750,10 @@ function handleApplyReinforcementJSON() {
       lastRiskProfile: nextRiskProfile,
       currentPlan: {
         ...currentPlan,
+        setup_name: applied?.brainVerdict?.next_candle_plan?.posture || currentPlan.setup_name,
+        trigger: applied?.brainVerdict?.next_candle_plan?.trigger_long || applied?.brainVerdict?.next_candle_plan?.trigger_short || currentPlan.trigger,
+        invalidation: applied?.brainVerdict?.next_candle_plan?.invalidation || currentPlan.invalidation,
+        scenario_primary: applied?.scenarioSet?.scenarios?.[0] || currentPlan.scenario_primary,
         brain_verdict_snapshot: _lastBrainVerdict,
         risk_profile: nextRiskProfile,
       },
@@ -5444,7 +5462,9 @@ function renderBrainDashboardPanel() {
   const liveGate = evaluateExecutorLiveGate(learningProgressPacket, executionControlState);
   const secondaryScenario = scenarioProjectionState.activeSet?.scenarios?.[1] || null;
   const contextSignature = _lastBrainVerdict?.learningEffects?.signature || scenarioProjectionState.activeSet?.context_signature || null;
-  const contextRow = contextSignature ? (brainMemoryStore.getSnapshot().contexts?.[contextSignature] || null) : null;
+  const memorySnapshot = brainMemoryStore.getSnapshot();
+  const contextRow = contextSignature ? (memorySnapshot.contexts?.[contextSignature] || null) : null;
+  const reinforcementOverlay = brainMemoryStore.getReinforcementOverlay?.(contextSignature);
   const syntheticRows = getSyntheticTrades();
   const syntheticRatio = computeSyntheticLearningRatio(state.reviewed, syntheticRows);
   els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState, executionControlState, {
@@ -5470,6 +5490,13 @@ function renderBrainDashboardPanel() {
       syntheticStoredCount: syntheticRows.length,
       syntheticRatio,
       syntheticLastImportAt: assistedUiState.syntheticLastImportAt,
+      overlayActive: Boolean(reinforcementOverlay),
+      overlayLastFields: {
+        bias: reinforcementOverlay?.verdict_patch?.bias ?? null,
+        learned_bias: reinforcementOverlay?.learning_patch?.learned_bias ?? reinforcementOverlay?.verdict_patch?.learned_bias ?? null,
+        active_rules: Array.isArray(reinforcementOverlay?.verdict_patch?.active_rules) ? reinforcementOverlay.verdict_patch.active_rules.length : 0,
+        scenario_primary: reinforcementOverlay?.scenario_updates?.[0]?.scenario_name || reinforcementOverlay?.scenario_updates?.[0]?.scenario_id || null,
+      },
     },
   });
   if (focusState) {
@@ -5630,6 +5657,13 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   // Copilot feedback bridge – evaluate and apply as additional decision layer
   const { feedback: copilotFeedback, evaluation: copilotEvaluation, effects: copilotEffectsResult } = evaluateAndStoreCopilotFeedback(analysis, marketView);
   const copilotEffectsForDecision = copilotEffectsResult || {};
+  const reinforcementOverlay = brainMemoryStore.getReinforcementOverlay?.(
+    buildSessionContextSignature({
+      analysis,
+      symbol: marketView?.symbol || getActiveSession()?.asset,
+      timeframe: marketView?.timeframe || getActiveSession()?.tf,
+    }),
+  );
   const orchestration = runSessionBrainOrchestrator({
     session: getActiveSession(),
     marketView,
@@ -5642,6 +5676,7 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     contextMemory: brainMemoryStore.getSnapshot().contexts,
     humanOverrideMemory: null,
     executionControlState,
+    reinforcementOverlay,
   });
   _lastBrainVerdict = orchestration.brainPacket;
   if (_lastBrainVerdict?.learningEffects?.signature) {
@@ -5696,6 +5731,7 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
   const baseDecision = combineFinalDecision(machineSignal, structureFilterResult, humanInsightModifier, {}, triggerLineEffects, copilotEffectsForDecision);
   sessionOperatorState.currentSignal = { ...machineSignal, baseDecision, humanInsightModifier };
   sessionOperatorState.currentContext = {
+    analysisSnapshot: analysis,
     symbol: marketView.symbol,
     timeframe: marketView.timeframe,
     source: marketView.source,
