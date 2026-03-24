@@ -54,5 +54,7 @@ export {
   saveSeededPatterns,
   saveSessions,
   saveSignals,
+  saveSyntheticTrades,
+  loadSyntheticTrades,
   validateMemoryPayload,
 } from "./storage/storage-adapter.js";

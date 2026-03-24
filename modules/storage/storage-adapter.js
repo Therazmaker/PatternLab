@@ -32,6 +32,7 @@ const STORAGE_KEYS = [
   "operatorPatternSummary",
   "learningModel",
   "copilotFeedback",
+  "syntheticTrades",
 ];
 
 const defaultMetaFeedback = {
@@ -46,7 +47,7 @@ let cache = {
   signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
   marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" }, autoIngestToSignals: true }, strategyRuns: [], strategyLifecycle: { versions: [], validations: [], liveInstances: [], degradationAlerts: [] },
-  tradeMemories: [], decisionMemories: [], operatorActions: [], operatorPatternSummary: null, learningModel: null, copilotFeedback: { current: null, history: [] },
+  tradeMemories: [], decisionMemories: [], operatorActions: [], operatorPatternSummary: null, learningModel: null, copilotFeedback: { current: null, history: [] }, syntheticTrades: [],
 };
 
 function enqueueWrite(task) {
@@ -89,6 +90,7 @@ function normalizeCache(snapshot = {}) {
     operatorPatternSummary: snapshot.operatorPatternSummary && typeof snapshot.operatorPatternSummary === "object" ? snapshot.operatorPatternSummary : null,
     learningModel: snapshot.learningModel && typeof snapshot.learningModel === "object" ? snapshot.learningModel : null,
     copilotFeedback: snapshot.copilotFeedback && typeof snapshot.copilotFeedback === "object" ? { current: snapshot.copilotFeedback.current || null, history: Array.isArray(snapshot.copilotFeedback.history) ? snapshot.copilotFeedback.history : [] } : { current: null, history: [] },
+    syntheticTrades: Array.isArray(snapshot.syntheticTrades) ? snapshot.syntheticTrades : [],
   };
 }
 
@@ -123,6 +125,7 @@ function writeLegacyByDomain(domain) {
     case "operatorPatternSummary": writeLegacyValue(LEGACY_KEYS.operatorPatternSummary, cache.operatorPatternSummary); break;
     case "learningModel": writeLegacyValue(LEGACY_KEYS.learningModel, cache.learningModel); break;
     case "copilotFeedback": writeLegacyValue(LEGACY_KEYS.copilotFeedback, cache.copilotFeedback); break;
+    case "syntheticTrades": writeLegacyValue(LEGACY_KEYS.syntheticTrades, cache.syntheticTrades); break;
     default: break;
   }
 }
@@ -195,6 +198,7 @@ export function getStorageStatus() {
       decisionMemories: (cache.decisionMemories || []).length,
       operatorActions: (cache.operatorActions || []).length,
       learningModel: cache.learningModel ? 1 : 0,
+      syntheticTrades: (cache.syntheticTrades || []).length,
       reviews: cache.signals.filter((row) => row.status && row.status !== "pending").length,
     },
     lastBackupAt: cache.backupMeta?.createdAt || null,
@@ -363,6 +367,12 @@ export function saveLearningModel(model) {
 }
 
 export function loadCopilotFeedback() { return cache.copilotFeedback || { current: null, history: [] }; }
+
+export function loadSyntheticTrades() { return cache.syntheticTrades || []; }
+export function saveSyntheticTrades(rows) {
+  cache.syntheticTrades = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("syntheticTrades"));
+}
 export function saveCopilotFeedback(value) {
   const base = { current: null, history: [] };
   cache.copilotFeedback = value && typeof value === "object" ? { ...base, ...value } : { ...base };
@@ -427,6 +437,7 @@ export function exportMemory() {
       operatorPatternSummary: cache.operatorPatternSummary || null,
       learningModel: cache.learningModel || null,
       copilotFeedback: cache.copilotFeedback || { current: null, history: [] },
+      syntheticTrades: cache.syntheticTrades || [],
     },
   };
 }
@@ -460,6 +471,7 @@ export function validateMemoryPayload(payload) {
       decisionMemories: Array.isArray(payload.data.decisionMemories) ? payload.data.decisionMemories.length : 0,
       operatorActions: Array.isArray(payload.data.operatorActions) ? payload.data.operatorActions.length : 0,
       learningModel: payload.data.learningModel ? 1 : 0,
+      syntheticTrades: Array.isArray(payload.data.syntheticTrades) ? payload.data.syntheticTrades.length : 0,
     },
   };
 }
@@ -498,11 +510,12 @@ export async function importMemory(payload, mode = "replace") {
     operatorPatternSummary: payload.data.operatorPatternSummary || null,
     learningModel: payload.data.learningModel || null,
     copilotFeedback: payload.data.copilotFeedback || cache.copilotFeedback,
+    syntheticTrades: payload.data.syntheticTrades || [],
     backup: cache.backup,
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary", "learningModel", "copilotFeedback"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary", "learningModel", "copilotFeedback", "syntheticTrades"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 
