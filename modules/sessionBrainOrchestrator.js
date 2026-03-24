@@ -20,6 +20,7 @@ export function runSessionBrainOrchestrator({
   learnedContexts = [],
   humanOverrideMemory = null,
   executionControlState = null,
+  contextMemory = {},
 } = {}) {
   const contextPacket = {
     sessionId: session?.id || null,
@@ -32,6 +33,7 @@ export function runSessionBrainOrchestrator({
     context_signature: toContextSignature({ analysis, symbol: marketView?.symbol || session?.asset, timeframe: marketView?.timeframe || session?.tf }),
   };
 
+  const contextMemoryRow = contextMemory?.[contextPacket.context_signature] || null;
   const brainPacket = buildBrainVerdict({
     analysis,
     marketView,
@@ -39,6 +41,7 @@ export function runSessionBrainOrchestrator({
     copilotEvaluation,
     modeState,
     operatorState,
+    contextMemoryRow,
   });
 
   const scenarioPacket = generateScenarioProjections({
@@ -46,6 +49,7 @@ export function runSessionBrainOrchestrator({
     brainVerdict: brainPacket,
     learnedRules: brainPacket?.active_rules || [],
     learnedContexts,
+    contextMemory,
     frictionScore: brainPacket?.friction || 0,
     humanOverrideMemory,
     executionPosture: brainPacket?.posture || "wait",

@@ -29,13 +29,17 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const activeTrade = opts?.activeTrade || null;
   const liveGate = opts?.liveGate || { allowed: false, reasons: [] };
   const plan = executorState?.currentPlan || {};
+  const warnings = [];
+  if (Number(verdict?.danger_score || 0) > 0.7) warnings.push("high danger context");
+  if (String(verdict?.no_trade_reason || "").includes("repeated_loss_context")) warnings.push("repeated loss pattern");
+  if (Number(verdict?.friction || 0) > 0.68) warnings.push("friction blocking entry");
 
   return `
     <article class="panel-soft brain-dashboard">
       <div class="brain-head">
         <h4>Session Candle · Brain Live Panel</h4>
-        <span class="badge">mode ${safe(modeState.mode || verdict.mode, "copilot")}</span>
-        <span class="badge ${executorState.enabled ? "badge-green" : "badge-muted"}">executor ${executorState.enabled ? "on" : "off"}</span>
+        <span class="badge">Brain Mode: AGGRESSIVE PAPER</span>
+        <span class="badge ${executorState.enabled ? "badge-green" : "badge-muted"}">Executor Status: ${executorState.enabled ? "ACTIVE" : "OFF"}</span>
       </div>
 
       <div class="brain-grid">
@@ -43,6 +47,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <h5>A. Brain Status</h5>
           <p class="tiny">authority: <strong>${authorityLabel}</strong> · enabled: <strong>${executorState.enabled ? "yes" : "no"}</strong></p>
           <p class="tiny">paper/live: <strong>${safe(executorState.mode, "paper")}</strong> · state: <strong>${statusFromExecutor(executorState)}</strong></p>
+          <p class="tiny">Auto-arm: <strong>${executorState.autoArm ? "ON" : "OFF"}</strong> · Cooldown: <strong>${safe(executorState.cooldownCandles, 1)} candle</strong> (${safe(executorState.cooldownCandlesRemaining, 0)} remaining)</p>
           <p class="tiny">armed: <strong>${executorState.armed ? "yes" : "no"}</strong> · active trade: <strong>${safe(executorState.activeTradeId, "none")}</strong></p>
           ${liveGate.allowed ? '<p class="tiny"><span class="badge badge-green">live gate passed</span></p>' : `<p class="tiny"><span class="badge-muted">live blocked: ${safe((liveGate.reasons || [])[0], "paper only")}</span></p>`}
         </section>
@@ -73,11 +78,16 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
 
         <section>
           <h5>E. Learning Progress</h5>
-          <p class="tiny">trades learned: <strong>${safe(learning.tradesLearned, 0)}</strong> · contexts learned: <strong>${safe(learning.learnedContexts, 0)}</strong></p>
+          <p class="tiny">trades executed: <strong>${safe(learning.tradesLearned, 0)}</strong> · contexts learned: <strong>${safe(learning.learnedContexts, 0)}</strong></p>
+          <p class="tiny">dangerous contexts: <strong>${safe(learning.dangerousContexts, 0)}</strong> · reliable contexts: <strong>${safe(learning.reliableContexts, 0)}</strong></p>
+          <p class="tiny">learning velocity: <strong>${safe(learning.learningVelocity, 0)}</strong></p>
           <p class="tiny">active rules: <strong>${safe(learning.activeRules, 0)}</strong> · scenario reliability: <strong>${pct(learning.scenarioReliability)}</strong></p>
           <p class="tiny">wait accuracy: <strong>${pct(learning.waitAccuracy)}</strong> · paper win rate: <strong>${pct(learning.executorPaperWinRate)}</strong></p>
           <p class="tiny">learning maturity: <strong>${pct(learning.learningMaturity)}</strong></p>
+          <p class="tiny">Recent lessons:</p>
           <div>${chips((learning.lastLessons || []).slice(0, 5))}</div>
+          <p class="tiny">Warnings:</p>
+          <div>${chips(warnings)}</div>
         </section>
 
         <section>
