@@ -139,6 +139,11 @@ export function computeRiskSizing({
     };
   }
 
+  if (confidence < 0.3) {
+    reasons.push("computed_despite_low_confidence");
+    console.info("[Risk] computed despite low confidence");
+  }
+
   if (riskMode === "exploration" || brainVerdict?.exploration_override_applied) {
     const explorationMin = 0.2;
     const explorationMax = 0.4;
@@ -158,7 +163,7 @@ export function computeRiskSizing({
     sizeMultiplier = Math.min(sizeMultiplier, 0.5);
   }
   if (sizeMultiplier <= 0) {
-    sizeMultiplier = riskMode === "mixed" ? 0.05 : riskMode === "exploitation" ? 0.1 : 0.2;
+    sizeMultiplier = riskMode === "mixed" ? 0.2 : riskMode === "exploitation" ? 0.2 : 0.2;
     reasons.push("non_blocked_min_size_applied");
   }
 
@@ -174,6 +179,11 @@ export function computeRiskSizing({
     reasons.push("manual_max_risk_cap_applied");
   }
   sizeMultiplier = clamp(sizeMultiplier, 0, 1);
+  if (riskMode !== "blocked" && sizeMultiplier < 0.2) {
+    sizeMultiplier = 0.2;
+    reasons.push("minimum_size_enforced_non_blocked");
+    console.info("[Risk] minimum size enforced");
+  }
 
   const manualConfirmationRequired = executionPacket?.manualConfirmationRequired !== false;
   if (String(executorMode).toLowerCase() === "live" && manualConfirmationRequired && !executionPacket?.manualConfirmed) {

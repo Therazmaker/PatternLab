@@ -201,6 +201,15 @@ export function applyReinforcementPatch({
   }
   if (contextSignature) {
     brainMemoryStore?.upsertContext?.(contextSignature, {
+      reinforcement_learning_patch: learningPatch,
+      reinforcement_rule_updates: ruleUpdates,
+      reinforcement_confidence_delta: toFiniteNumber(nextVerdict.reinforcement_confidence_delta, 0),
+      reinforcement_confidence: toFiniteNumber(nextVerdict.confidence, 0),
+      persisted_confidence: toFiniteNumber(nextVerdict.confidence, 0),
+    }, { ...linkage, context_signature: contextSignature });
+  }
+  if (contextSignature) {
+    brainMemoryStore?.upsertContext?.(contextSignature, {
       reinforcement_confidence_delta: toFiniteNumber(nextVerdict.reinforcement_confidence_delta, 0),
       reinforcement_confidence: toFiniteNumber(nextVerdict.confidence, 0),
     }, { ...linkage, context_signature: contextSignature });

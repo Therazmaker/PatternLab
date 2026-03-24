@@ -338,13 +338,31 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
 
     if (!state.armed) return { state, activeTrade: null };
 
+    const plan = state.currentPlan || armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }).currentPlan;
+    const executionPacket = getExecutionPacket();
+    const riskProfile = computeRiskSizing({
+      brainVerdict: plan.brain_verdict_snapshot || brainVerdict,
+      autoShift: plan.brain_verdict_snapshot?.auto_shift || brainVerdict?.auto_shift || {},
+      contextMemory: contextRow || {},
+      learningProgress: getLearningProgress() || {},
+      scenarioReliability: plan.scenario_primary?.reliability,
+      executorMode: state.mode,
+      scenario: plan.scenario_primary || scenario || {},
+      executionPacket,
+      config: {
+        learningProfile: state.learningProfile,
+      },
+    });
+    plan.risk_profile = riskProfile;
+    stateStore.setState({ currentPlan: plan, lastRiskProfile: riskProfile });
+    console.info(`[Risk] Mode = ${riskProfile.risk_mode}, size = ${riskProfile.size_multiplier.toFixed(2)}`);
+
     const operable = canOperate();
     if (!operable.ok) {
-      emit("trade_blocked", { reason: operable.reason, details: operable.details || [] }, { context_signature: contextSignature || state.currentPlan?.context_signature });
+      emit("trade_blocked", { reason: operable.reason, details: operable.details || [], risk_profile: riskProfile }, { context_signature: contextSignature || state.currentPlan?.context_signature });
       return { state: stateStore.getState(), activeTrade: null };
     }
 
-    const plan = state.currentPlan || armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }).currentPlan;
     if (learningMode === "exploitation") {
       const friction = Number(brainVerdict?.friction ?? 1);
       const triggerPresent = Boolean(plan.trigger || brainVerdict?.next_candle_plan?.trigger_long || brainVerdict?.next_candle_plan?.trigger_short);
@@ -368,23 +386,6 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       emit("trade_blocked", { reason: "duplicate_candle_trade_prevented", candle_key: currentCandleKey }, { context_signature: plan?.context_signature || contextSignature });
       return { state: stateStore.getState(), activeTrade: null };
     }
-    const executionPacket = getExecutionPacket();
-    const riskProfile = computeRiskSizing({
-      brainVerdict: plan.brain_verdict_snapshot || brainVerdict,
-      autoShift: plan.brain_verdict_snapshot?.auto_shift || brainVerdict?.auto_shift || {},
-      contextMemory: contextRow || {},
-      learningProgress: getLearningProgress() || {},
-      scenarioReliability: plan.scenario_primary?.reliability,
-      executorMode: state.mode,
-      scenario: plan.scenario_primary || scenario || {},
-      executionPacket,
-      config: {
-        learningProfile: state.learningProfile,
-      },
-    });
-    plan.risk_profile = riskProfile;
-    stateStore.setState({ currentPlan: plan, lastRiskProfile: riskProfile });
-    console.info(`[Risk] Mode = ${riskProfile.risk_mode}, size = ${riskProfile.size_multiplier.toFixed(2)}`);
     if (riskProfile.reason.includes("reduced_by_friction_danger")) console.info("[Risk] Reduced by friction/danger");
     if (riskProfile.reason.includes("boosted_by_familiarity_scenario")) console.info("[Risk] Boosted by familiarity/scenario reliability");
     if (riskProfile.size_multiplier <= 0) {

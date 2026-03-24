@@ -144,6 +144,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     familiarity: contextScores.familiarity,
     learningMode: modeState.mode || "mixed",
     manualControls,
+    reinforcementConfidenceDelta: contextMemoryRow?.reinforcement_confidence_delta,
   });
   let confidence = clamp(
     confidencePacket.confidence_score
@@ -294,9 +295,6 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
   }
 
   if (confidence < 0.3) {
-    entryQuality = "wait";
-    posture = "wait";
-    allowTrade = false;
     noTradeReasons.unshift("low_confidence_strict_confirmation_required");
   } else if (confidence > 0.6 && entryQuality === "wait" && triggerConfirmed && invalidationDefined) {
     entryQuality = "C";
@@ -409,6 +407,9 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
       learnedContextCurrent: {
         ...learning.learnedContextCurrent,
         ...contextScores,
+        persisted_confidence: confidence,
+        confidence_components: confidencePacket.components,
+        reinforcement_confidence_delta: Number(contextMemoryRow?.reinforcement_confidence_delta || 0),
       },
       shouldPersistOverride: modeState.lastAction === "invalidate_idea",
       overridePatch: {
