@@ -173,6 +173,8 @@ export function runSessionBrainOrchestrator({
     },
     learning_state: {
       mode: merged.brainPacket?.learning_mode || "mixed",
+      manual_bias_override: modeState?.manualBiasOverride || null,
+      operator_override: modeState?.manualBiasOverride || null,
     },
     risk_profile: null,
     brain_state: {
@@ -196,6 +198,10 @@ export function updateCurrentPacket(patch = {}) {
   _currentOrchestratorPacket = {
     ..._currentOrchestratorPacket,
     ...(patch || {}),
+    next_trade: {
+      ...(_currentOrchestratorPacket.next_trade || {}),
+      ...(patch?.next_trade || {}),
+    },
     learning_state: {
       ...(_currentOrchestratorPacket.learning_state || {}),
       ...(patch?.learning_state || {}),
