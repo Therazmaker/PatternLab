@@ -123,6 +123,9 @@ import { resolveScenarioSet } from "./modules/scenarioResolver.js";
 import { getLastResolvedScenarios, getScenarioMemoryRows } from "./modules/scenarioMemoryStore.js";
 import { updateScenarioContextStats } from "./modules/scenarioProbabilityUpdater.js";
 import { buildChatGPTAssistedExport } from "./modules/chatgptAssistedExport.js";
+import { buildBrainAssistPacket } from "./modules/brainAssistExport.js";
+import { ingestCopilotReinforcement } from "./modules/copilotReinforcementIngestor.js";
+import { applyReinforcementPatch } from "./modules/reinforcementPatchApplier.js";
 import { analyzeSessionCandles } from "./modules/sessionAnalystEngine.js";
 import { renderAnalystPanel } from "./modules/analystPanel.js";
 import { computeExcursionFromSignal, deriveColorHint, formatExcursion, normalizeCandleData, normalizeExcursion, normalizeOHLCInput, normalizeSessionRef, normalizeV3Meta, validateOHLCConsistency } from "./modules/v3.js";
@@ -442,6 +445,7 @@ let scenarioProjectionState = {
 };
 const sessionAnalysisConfig = getDefaultSessionAnalysisConfig();
 const SESSION_PREFS_KEY = "patternlab.sessionAnalysisPrefs.v2";
+const ASSISTED_REINFORCEMENT_HISTORY_KEY = "patternlab.assistedReinforcementHistory.v1";
 let sessionAnalysisPrefs = {
   showOverlay: true,
   showNarratives: true,
@@ -458,6 +462,10 @@ let sessionAnalysisPrefs = {
 let robustnessState = { overfit: null, stress: null, monteCarlo: { simulations: 0, insight: "Ejecuta simulación para ver resultados." }, summary: null };
 let pendingMemoryImport = null;
 let storageStatus = null;
+let assistedReinforcementState = {
+  lastSummary: null,
+  history: [],
+};
 
 let marketDataCandles = [];
 let marketDataMeta = {
@@ -3438,6 +3446,101 @@ function buildSessionAssistedExportContext() {
   };
 }
 
+function loadAssistedReinforcementHistory() {
+  try {
+    const raw = localStorage.getItem(ASSISTED_REINFORCEMENT_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const history = Array.isArray(parsed) ? parsed.slice(-80) : [];
+    assistedReinforcementState = {
+      ...assistedReinforcementState,
+      history,
+      lastSummary: history.length ? history[history.length - 1]?.reinforcement_summary || null : null,
+    };
+  } catch {
+    assistedReinforcementState = { ...assistedReinforcementState, history: [], lastSummary: null };
+  }
+}
+
+function persistAssistedReinforcementHistory() {
+  try {
+    localStorage.setItem(ASSISTED_REINFORCEMENT_HISTORY_KEY, JSON.stringify((assistedReinforcementState.history || []).slice(-80)));
+  } catch {}
+}
+
+async function handleSessionExportBrainAssist() {
+  const context = buildSessionAssistedExportContext();
+  const exportPacket = buildBrainAssistPacket({
+    ...context,
+    learningProgress: learningProgressPacket,
+    riskProfile: executorStateStore.getState()?.lastRiskProfile || null,
+    manualControls: manualControlsState,
+  });
+  const payloadText = JSON.stringify(exportPacket, null, 2);
+  const copied = await copySessionExportText(payloadText);
+  console.info("[Assist] Brain packet exported");
+  if (copied) {
+    setSessionCandleStatus("Brain Assist packet copied to clipboard.", "success");
+    return;
+  }
+  window.prompt("Copy Brain Assist packet", payloadText);
+  setSessionCandleStatus("Clipboard unavailable: Brain Assist packet opened in prompt.", "warning");
+}
+
+function handleApplyReinforcementJSON() {
+  const raw = window.prompt("Paste Copilot Reinforcement JSON (patternlab_copilot_reinforcement_v1)");
+  if (!raw) return;
+  const ingested = ingestCopilotReinforcement(raw);
+  if (!ingested.ok) {
+    setSessionCandleStatus(`Invalid reinforcement JSON: ${ingested.errors.join("; ")}`, "error");
+    return;
+  }
+  console.info("[Assist] Reinforcement JSON ingested");
+  const contextSignature = scenarioProjectionState.activeSet?.context_signature || _lastBrainVerdict?.learningEffects?.signature || null;
+  const linkage = {
+    sessionId: getActiveSession()?.id || null,
+    symbol: getSessionMarketView()?.symbol || null,
+    timeframe: getSessionMarketView()?.timeframe || null,
+    context_signature: contextSignature,
+  };
+  const applied = applyReinforcementPatch({
+    reinforcement: ingested.reinforcement,
+    brainVerdict: _lastBrainVerdict,
+    scenarioSet: scenarioProjectionState.activeSet,
+    brainMemoryStore,
+    contextSignature,
+    linkage,
+    log: (line) => console.info(line),
+  });
+  _lastBrainVerdict = applied.brainVerdict;
+  if (scenarioProjectionState.activeSet) scenarioProjectionState.activeSet = applied.scenarioSet;
+  const historyRow = {
+    timestamp: new Date().toISOString(),
+    source: ingested.reinforcement?.source || "external_assistant",
+    reinforcement_summary: {
+      headline: applied.stats.headline,
+      rulesUpdated: applied.stats.rulesUpdated,
+      confidenceDelta: applied.stats.confidenceDelta,
+      scenarioChanges: applied.stats.scenarioChanges,
+      lessonTagsAdded: applied.stats.lessonTagsAdded,
+    },
+    applied_fields: applied.appliedFields,
+  };
+  assistedReinforcementState.history = [...(assistedReinforcementState.history || []).slice(-79), historyRow];
+  assistedReinforcementState.lastSummary = historyRow.reinforcement_summary;
+  persistAssistedReinforcementHistory();
+  brainMemoryStore.addEvent(createBrainEvent("assist_reinforcement_applied", historyRow, linkage));
+  setSessionCandleStatus(`Reinforcement applied: ${historyRow.reinforcement_summary.headline}`, "success");
+}
+
+function handleResetLastReinforcement() {
+  const history = Array.isArray(assistedReinforcementState.history) ? [...assistedReinforcementState.history] : [];
+  history.pop();
+  assistedReinforcementState.history = history;
+  assistedReinforcementState.lastSummary = history.length ? history[history.length - 1].reinforcement_summary : null;
+  persistAssistedReinforcementHistory();
+  setSessionCandleStatus("Last reinforcement reset.", "warning");
+}
+
 async function handleSessionExportForChatGPT() {
   const context = buildSessionAssistedExportContext();
   const hasSession = Boolean(context.session?.id);
@@ -3802,6 +3905,12 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
     } else if (action === "manual-controls-reset") {
       manualControlsState = resetManualControls();
       console.info("[Manual] controls reset to defaults");
+    } else if (action === "assist-export") {
+      handleSessionExportBrainAssist();
+    } else if (action === "assist-apply") {
+      handleApplyReinforcementJSON();
+    } else if (action === "assist-reset") {
+      handleResetLastReinforcement();
     }
     refreshSessionCandlesTab();
     renderBrainDashboardPanel();
@@ -5006,6 +5115,10 @@ function renderBrainDashboardPanel() {
     contextRow,
     manualControls: manualControlsState,
     manualOverridesActive: hasActiveManualOverrides(manualControlsState),
+    assistedReinforcement: {
+      lastSummary: assistedReinforcementState.lastSummary,
+      historyCount: (assistedReinforcementState.history || []).length,
+    },
   });
 }
 
@@ -5921,6 +6034,7 @@ async function init() {
   metaFeedback = loadMetaFeedback();
   botCompilerState = loadBotCompilerState();
   manualControlsState = getManualControls();
+  loadAssistedReinforcementHistory();
   try {
     _sessionManualSR = JSON.parse(localStorage.getItem(SESSION_DRAWINGS_KEY) || localStorage.getItem(SESSION_SR_KEY_LEGACY) || "[]") || [];
   } catch { _sessionManualSR = []; }
