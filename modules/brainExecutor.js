@@ -83,9 +83,11 @@ export function createBrainExecutor({
     return brainMemoryStore?.getSnapshot?.().contexts?.[signature] || null;
   }
 
-  function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, contextRow = {}, state = {} } = {}) {
-    const profile = state?.learningProfile || {};
-    if (state.mode !== "paper" || !profile.enabled || !profile.exploration_mode) return false;
+function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, contextRow = {}, state = {} } = {}) {
+  if (String(brainVerdict?.learning_mode || "").toLowerCase() === "blocked") return false;
+  if (String(brainVerdict?.learning_mode || "").toLowerCase() !== "exploration") return false;
+  const profile = state?.learningProfile || {};
+  if (state.mode !== "paper" || !profile.enabled || !profile.exploration_mode) return false;
     if (brainVerdict?.exploration_override_applied === false) return false;
     if (brainVerdict?.exploration_trade_allowed === false) return false;
     const samples = Number(contextRow?.samples || contextRow?.counts || 0);
@@ -259,6 +261,15 @@ export function createBrainExecutor({
     }
 
     const contextRow = getContextLearning(contextSignature || scenario?.context_signature || state.currentPlan?.context_signature);
+    const learningMode = String(brainVerdict?.learning_mode || "mixed").toLowerCase();
+    if (learningMode === "blocked" || brainVerdict?.auto_shift?.block_trading) {
+      emit("trade_blocked", {
+        reason: "auto_shift_blocked",
+        mode: learningMode,
+        details: brainVerdict?.auto_shift?.reason || [],
+      }, { context_signature: contextSignature || contextRow?.context_signature || scenario?.context_signature });
+      return { state: stateStore.getState(), activeTrade: null };
+    }
     if (contextRow?.exploration_pause_remaining_candles > 0) {
       const remaining = Math.max(0, Number(contextRow.exploration_pause_remaining_candles || 0) - (switchedCandle ? 1 : 0));
       if (remaining !== Number(contextRow.exploration_pause_remaining_candles || 0)) {
@@ -306,6 +317,13 @@ export function createBrainExecutor({
         armedState.currentPlan.would_have_been_blocked_without_learning_mode = true;
         stateStore.setState({ currentPlan: armedState.currentPlan });
         console.info("[LearningProfile] Exploration override applied");
+      } else if (learningMode === "mixed") {
+        armedState.currentPlan.trade_mode = "mixed";
+        stateStore.setState({ currentPlan: armedState.currentPlan });
+      } else if (learningMode === "exploitation") {
+        armedState.currentPlan.trade_mode = "exploitation";
+        armedState.currentPlan.confirmation_required = "strong";
+        stateStore.setState({ currentPlan: armedState.currentPlan });
       }
       state = armedState;
       emit("executor_auto_arm", { reason: "valid_setup_detected", setup: armedState?.currentPlan?.setup_name }, { context_signature: contextSignature || armedState?.currentPlan?.context_signature });
@@ -320,6 +338,27 @@ export function createBrainExecutor({
     }
 
     const plan = state.currentPlan || armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }).currentPlan;
+    if (learningMode === "exploitation") {
+      const friction = Number(brainVerdict?.friction ?? 1);
+      const triggerPresent = Boolean(plan.trigger || brainVerdict?.next_candle_plan?.trigger_long || brainVerdict?.next_candle_plan?.trigger_short);
+      const invalidationPresent = Boolean(plan.invalidation || brainVerdict?.next_candle_plan?.invalidation);
+      if (friction > 0.68 || !triggerPresent || !invalidationPresent) {
+        emit("trade_blocked", {
+          reason: "exploitation_confirmation_failed",
+          friction,
+          triggerPresent,
+          invalidationPresent,
+        }, { context_signature: plan?.context_signature || contextSignature });
+        return { state: stateStore.getState(), activeTrade: null };
+      }
+    }
+    if (learningMode === "mixed") {
+      const friction = Number(brainVerdict?.friction ?? 1);
+      if (friction > 0.78) {
+        emit("trade_blocked", { reason: "mixed_mode_friction", friction }, { context_signature: plan?.context_signature || contextSignature });
+        return { state: stateStore.getState(), activeTrade: null };
+      }
+    }
     if (plan.trade_mode === "exploration" && Number(contextRow?.exploration_pause_remaining_candles || 0) > 0) {
       console.info("[LearningProfile] exploratory context paused after repeated losses");
       emit("trade_blocked", { reason: "exploration_context_paused", remaining: Number(contextRow?.exploration_pause_remaining_candles || 0) }, { context_signature: plan?.context_signature || contextSignature });
