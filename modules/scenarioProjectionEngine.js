@@ -145,14 +145,17 @@ function normalizeProbabilities(rows = []) {
   return rounded;
 }
 
-export function generateScenarioProjections({ analysis = {}, brainVerdict = null, learnedRules = [], learnedContexts = [], frictionScore = 0, humanOverrideMemory = null, executionPosture = "unknown", operatorOverrideMemory = null } = {}) {
+export function generateScenarioProjections({ analysis = {}, brainVerdict = null, learnedRules = [], learnedContexts = [], contextMemory = {}, frictionScore = 0, humanOverrideMemory = null, executionPosture = "unknown", operatorOverrideMemory = null } = {}) {
   const contextSignature = buildContextSignature(analysis);
+  const contextState = contextMemory?.[contextSignature] || null;
+  const isBlockedContext = Number(contextState?.blocked_for_candles || 0) > 0 || String(brainVerdict?.no_trade_reason || "") === "repeated_loss_context";
   const probabilityAdjustments = getScenarioProbabilityAdjustments(contextSignature);
   const candidateRows = SCENARIO_TYPES.map((type) => {
     const descriptor = scenarioDescriptor(type, analysis);
     const learnedShift = probabilityAdjustments.byType?.[type]?.shift || 0;
     const overridePenalty = (humanOverrideMemory?.[type] === "rejected_recently" || operatorOverrideMemory?.[type] === "rejected_recently") ? -0.1 : 0;
-    const score = clamp(baseScore(type, analysis, brainVerdict) + learnedShift + overridePenalty - toNumber(frictionScore, 0) * 0.08, 0.05, 5);
+    const blockPenalty = isBlockedContext ? (type === "chop_no_trade" ? 2.4 : -1.8) : 0;
+    const score = clamp(baseScore(type, analysis, brainVerdict) + learnedShift + overridePenalty + blockPenalty - toNumber(frictionScore, 0) * 0.08, 0.05, 5);
     return {
       type,
       score,
@@ -197,6 +200,8 @@ export function generateScenarioProjections({ analysis = {}, brainVerdict = null
       trigger_price: row.descriptor.targetDirection >= 0 ? row.descriptor.resistance : row.descriptor.support,
       invalidation_price: row.descriptor.targetDirection >= 0 ? row.descriptor.support : row.descriptor.resistance,
       target_direction: row.descriptor.targetDirection,
+      block_context: isBlockedContext && row.type !== "chop_no_trade",
+      blocked_reason: isBlockedContext ? "repeated_loss_context" : null,
     };
   });
 

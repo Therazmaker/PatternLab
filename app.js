@@ -393,9 +393,14 @@ let _lastCopilotEvaluation = null;
 let _lastCopilotEffects = null;
 let _lastBrainVerdict = null;
 const brainMemoryStore = createBrainMemoryStore();
-const brainModeController = createBrainModeController({ mode: "copilot", autoExecutionEnabled: false });
+const brainModeController = createBrainModeController({ mode: "executor", autoExecutionEnabled: true });
 const brainTradeJournal = createBrainTradeJournal();
-const executorStateStore = createExecutorStateStore();
+const executorStateStore = createExecutorStateStore({
+  enabled: true,
+  mode: "paper",
+  autoArm: true,
+  cooldownCandles: 1,
+});
 const tradeOutcomeLogger = createTradeOutcomeLogger({ brainMemoryStore, brainTradeJournal });
 const brainLearningUpdater = createBrainLearningUpdater({ brainMemoryStore });
 let learningProgressPacket = computeLearningProgressPacket({ memorySnapshot: brainMemoryStore.getSnapshot(), tradeJournalRows: brainTradeJournal.getAll() });
@@ -5102,6 +5107,7 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     copilotFeedback,
     copilotEvaluation,
     learnedContexts: getScenarioMemoryRows().slice(-200),
+    contextMemory: brainMemoryStore.getSnapshot().contexts,
     humanOverrideMemory: null,
     executionControlState,
   });

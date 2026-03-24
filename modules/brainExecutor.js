@@ -9,6 +9,10 @@ function nowMs() {
   return Date.now();
 }
 
+function candleKey(candle = {}) {
+  return String(candle?.id || candle?.timestamp || candle?.index || `${candle?.open}_${candle?.high}_${candle?.low}_${candle?.close}`);
+}
+
 function nextTradeId() {
   return `brain_trade_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -28,6 +32,14 @@ function computeOutcome(trade = {}) {
   const pnl = trade.direction === "short" ? trade.entry - trade.exit : trade.exit - trade.entry;
   if (Math.abs(pnl) < 1e-10) return "breakeven";
   return pnl > 0 ? "win" : "loss";
+}
+
+function hasPlanConfidence(brainVerdict = {}, scenario = {}) {
+  if (!brainVerdict || brainVerdict.allow_trade === false) return false;
+  if (String(brainVerdict?.entry_quality || "").toLowerCase() === "wait") return false;
+  if (brainVerdict?.no_trade_reason) return false;
+  if (scenario?.block_context || scenario?.blocked_reason) return false;
+  return true;
 }
 
 export function createBrainExecutor({
@@ -50,6 +62,8 @@ export function createBrainExecutor({
   function canOperate() {
     const state = stateStore.getState();
     if (!state.enabled || state.paused) return { ok: false, reason: "executor_disabled" };
+    if (state.mode !== "paper") return { ok: false, reason: "real_money_disabled" };
+    if (Number(state.cooldownCandlesRemaining || 0) > 0) return { ok: false, reason: "cooldown_candles" };
     if (state.cooldownUntil && new Date(state.cooldownUntil).getTime() > nowMs()) return { ok: false, reason: "cooldown" };
     const exec = getExecutionPacket();
     if (!exec.autoExecutionAllowed) return { ok: false, reason: "authority_blocked" };
@@ -58,6 +72,11 @@ export function createBrainExecutor({
       if (!gate.allowed) return { ok: false, reason: "live_mode_blocked", details: gate.reasons };
     }
     return { ok: true };
+  }
+
+  function getContextLearning(signature) {
+    if (!signature) return null;
+    return brainMemoryStore?.getSnapshot?.().contexts?.[signature] || null;
   }
 
   function armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }) {
@@ -80,6 +99,7 @@ export function createBrainExecutor({
       armed_at: new Date().toISOString(),
     };
     stateStore.setState({ armed: true, currentPlan: plan, lastAction: "armed", liveBlockedReason: null });
+    console.info(`[Executor] Auto-armed setup ${plan.setup_name} (${plan.direction})`);
     emit("executor_armed", { plan }, { context_signature: plan.context_signature });
     return stateStore.getState();
   }
@@ -111,6 +131,7 @@ export function createBrainExecutor({
     };
     activeTrade = trade;
     stateStore.setState({ activeTradeId: tradeId, armed: false, lastAction: "trade_opened" });
+    console.info(`[Executor] Trade opened ${tradeId} ${trade.direction} @ ${trade.entry}`);
     emit("trade_opened", { trade_id: tradeId, mode: trade.mode, direction: trade.direction, entry: trade.entry }, { context_signature: trade.context_signature, tradeId });
     return trade;
   }
@@ -148,9 +169,11 @@ export function createBrainExecutor({
     stateStore.setState({
       activeTradeId: null,
       currentPlan: null,
+      cooldownCandlesRemaining: Math.max(0, Number(stateStore.getState().cooldownCandles || 1)),
       cooldownUntil: new Date(nowMs() + cooldownMs).toISOString(),
       lastAction: "trade_closed",
     });
+    console.info(`[Executor] Trade closed ${closed.id} (${closed.result}) via ${closed.exit_reason}`);
 
     const logged = outcomeLogger?.logClosedTrade({
       trade: closed,
@@ -182,7 +205,16 @@ export function createBrainExecutor({
   }
 
   function processCandle({ candle, brainVerdict, nextCandlePlan, scenario, contextSignature } = {}) {
-    const state = stateStore.getState();
+    let state = stateStore.getState();
+    const currentCandleKey = candleKey(candle);
+    const switchedCandle = state.lastExecutedCandleKey !== currentCandleKey;
+    if (switchedCandle) {
+      state = stateStore.setState({
+        lastExecutedCandleKey: currentCandleKey,
+        cooldownCandlesRemaining: Math.max(0, Number(state.cooldownCandlesRemaining || 0) - 1),
+      });
+    }
+
     if (state.mode === "live") {
       const gate = liveGateEvaluator();
       if (!gate.allowed) {
@@ -196,6 +228,30 @@ export function createBrainExecutor({
       return { state: stateStore.getState(), activeTrade: activeTrade ? { ...activeTrade } : null };
     }
 
+    const contextRow = getContextLearning(contextSignature || scenario?.context_signature || state.currentPlan?.context_signature);
+    if (contextRow?.blocked_for_candles > 0) {
+      const remaining = Math.max(0, Number(contextRow.blocked_for_candles || 0) - (switchedCandle ? 1 : 0));
+      if (remaining !== Number(contextRow.blocked_for_candles || 0)) {
+        brainMemoryStore?.upsertContext(contextRow.context_signature, {
+          ...contextRow,
+          blocked_for_candles: remaining,
+          no_trade_reason: remaining > 0 ? "repeated_loss_context" : null,
+        }, { context_signature: contextRow.context_signature });
+      }
+      emit("trade_blocked", {
+        reason: "repeated_loss_context",
+        blocked_for_candles: remaining,
+      }, { context_signature: contextRow.context_signature });
+      return { state: stateStore.getState(), activeTrade: null };
+    }
+
+    const shouldAutoArm = !state.armed && state.autoArm && hasPlanConfidence(brainVerdict, scenario);
+    if (shouldAutoArm) {
+      const armedState = armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature });
+      state = armedState;
+      emit("executor_auto_arm", { reason: "valid_setup_detected", setup: armedState?.currentPlan?.setup_name }, { context_signature: contextSignature || armedState?.currentPlan?.context_signature });
+    }
+
     if (!state.armed) return { state, activeTrade: null };
 
     const operable = canOperate();
@@ -205,9 +261,20 @@ export function createBrainExecutor({
     }
 
     const plan = state.currentPlan || armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }).currentPlan;
+    if (state.lastExecutedCandleKey === currentCandleKey && state.lastAction === "trade_opened") {
+      emit("trade_blocked", { reason: "duplicate_candle_trade_prevented", candle_key: currentCandleKey }, { context_signature: plan?.context_signature || contextSignature });
+      return { state: stateStore.getState(), activeTrade: null };
+    }
     if (!evaluateTrigger(plan, candle)) return { state: stateStore.getState(), activeTrade: null };
 
     const trade = openTrade(plan, candle?.close);
+    stateStore.setState({ lastExecutedCandleKey: currentCandleKey });
+    emit("executor_trade_context", {
+      trigger_confirmed: true,
+      setup: plan.setup_name,
+      context_signature: plan.context_signature,
+      brain_verdict: plan.brain_verdict_snapshot,
+    }, { context_signature: plan.context_signature, tradeId: trade.id });
     return { state: stateStore.getState(), activeTrade: { ...trade } };
   }
 

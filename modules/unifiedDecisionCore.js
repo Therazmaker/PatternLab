@@ -21,7 +21,7 @@ function mapEntryQuality(score = 0.5) {
   return "wait";
 }
 
-export function buildBrainVerdict({ analysis = null, marketView = null, copilotFeedback = null, copilotEvaluation = null, modeState = {}, operatorState = {} } = {}) {
+export function buildBrainVerdict({ analysis = null, marketView = null, copilotFeedback = null, copilotEvaluation = null, modeState = {}, operatorState = {}, contextMemoryRow = null } = {}) {
   const probability = analysis?.pseudoMl?.probability || {};
   const structure = analysis?.overlays?.structureSummary || {};
   const baseBias = mapBias(probability.bias || analysis?.bias);
@@ -55,7 +55,11 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
   });
   if (learning.signature) console.info(`[Brain/Udc] Context match found: ${learning.signature}`);
 
-  const contextScores = computeContextScoring(learning.learnedContextCurrent || {});
+  const mergedContext = {
+    ...(learning.learnedContextCurrent || {}),
+    ...(contextMemoryRow || {}),
+  };
+  const contextScores = computeContextScoring(mergedContext);
   const learnedPenalty = learning.learnedContextCurrent?.penalty || 0;
   const learnedBoost = learning.learnedContextCurrent?.boost || 0;
   const rulePenalty = ruleSet.reduce((acc, row) => acc + Number(row.effect?.confidencePenalty || row.effect?.longPenalty || 0), 0);
@@ -110,6 +114,11 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     entryQuality = "wait";
     allowTrade = false;
     noTradeReasons.push("Friction too high (late/rejection/conflict risk)");
+  }
+  if (Number(contextMemoryRow?.blocked_for_candles || 0) > 0) {
+    entryQuality = "wait";
+    allowTrade = false;
+    noTradeReasons.push("repeated_loss_context");
   }
 
   if (frictionRaw >= 0.68 && entryQuality !== "wait") {
