@@ -38,6 +38,14 @@ function ensureModel(model = null) {
     rollingDiagnostics: Array.isArray(base?.rollingDiagnostics) ? base.rollingDiagnostics : [],
     lastDiagnosis: base?.lastDiagnosis || null,
     lastAdjustments: base?.lastAdjustments || null,
+    syntheticLearning: base?.syntheticLearning && typeof base.syntheticLearning === "object" ? base.syntheticLearning : {
+      syntheticWeight: 0.4,
+      weightedSamples: 0,
+      scenarioReliability: {},
+      familiarityByScenario: {},
+      lessonTags: {},
+      lastUpdatedAt: null,
+    },
   };
 }
 

@@ -106,6 +106,9 @@ import {
   renderNeuronGraph,
 } from "./modules/neuronGraph.js";
 import { buildImportPreview, importStrategySignal } from "./modules/importer.js";
+import { ingestSyntheticTrades } from "./modules/syntheticTradeIngestor.js";
+import { applySyntheticTradesToLearning, getSyntheticLearningSnapshot } from "./modules/syntheticLearningIntegrator.js";
+import { computeSyntheticLearningRatio, getSyntheticTrades } from "./modules/syntheticTradeStore.js";
 import { buildLiveImportPreview, computeLivePatternSummary, normalizeLivePatternSignal } from "./modules/livePatternSignals.js";
 import { buildClusterGraph, getWeightBounds } from "./src/modules/clusterMap/clusterGraphBuilder.js";
 import { buildSeededCandidatePayload, evaluateSeededPattern } from "./modules/seededPatternLab.js";
@@ -233,8 +236,8 @@ import {
 
 const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
-  jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"),
-  includeDuplicates: document.getElementById("import-allow-duplicates"), importReport: document.getElementById("import-report"),
+  jsonInput: document.getElementById("json-input"), preview: document.getElementById("preview"), validateBtn: document.getElementById("btn-validate"), importBtn: document.getElementById("btn-import"), clearBtn: document.getElementById("btn-clear"), loadDemoBtn: document.getElementById("btn-load-demo"), injectSyntheticBtn: document.getElementById("btn-inject-synthetic"),
+  includeDuplicates: document.getElementById("import-allow-duplicates"), importReport: document.getElementById("import-report"), syntheticLearningRatio: document.getElementById("synthetic-learning-ratio"),
   feedBody: document.getElementById("feed-body"), search: document.getElementById("search"), filterAsset: document.getElementById("filter-asset"), filterDirection: document.getElementById("filter-direction"), filterPattern: document.getElementById("filter-pattern"), filterSource: document.getElementById("filter-source"), filterStrategy: document.getElementById("filter-strategy"), filterStrategyVersion: document.getElementById("filter-strategy-version"), filterStatus: document.getElementById("filter-status"), filterTimeframe: document.getElementById("filter-timeframe"), filterNearSupport: document.getElementById("filter-near-support"), filterNearResistance: document.getElementById("filter-near-resistance"), filterHasOHLC: document.getElementById("filter-has-ohlc"), filterHasExcursion: document.getElementById("filter-has-excursion"), filterHasSession: document.getElementById("filter-has-session"), filterMfeMin: document.getElementById("filter-mfe-min"), filterMaeMax: document.getElementById("filter-mae-max"), exportBtn: document.getElementById("btn-export"), datasetFile: document.getElementById("dataset-file"),
   modal: document.getElementById("review-modal"), reviewDetails: document.getElementById("review-details"), reviewStatus: document.getElementById("review-status"), reviewComment: document.getElementById("review-comment"), reviewExpiryClose: document.getElementById("review-expiry-close"), reviewLabels: document.getElementById("review-labels"), reviewExecutionError: document.getElementById("review-execution-error"), reviewLateEntry: document.getElementById("review-late-entry"), reviewNearSupport: document.getElementById("review-near-support"), reviewNearResistance: document.getElementById("review-near-resistance"), reviewSrComment: document.getElementById("review-sr-comment"), reviewV3Toggle: document.getElementById("review-v3-toggle"), reviewOpen: document.getElementById("review-open"), reviewHigh: document.getElementById("review-high"), reviewLow: document.getElementById("review-low"), reviewClose: document.getElementById("review-close"), reviewMfe: document.getElementById("review-mfe"), reviewMae: document.getElementById("review-mae"), reviewExcursionUnit: document.getElementById("review-excursion-unit"), reviewSessionLink: document.getElementById("review-session-link"), reviewSessionCandle: document.getElementById("review-session-candle"), reviewV3Notes: document.getElementById("review-v3-notes"), reviewAutoExcursion: document.getElementById("btn-review-auto-excursion"), saveReviewBtn: document.getElementById("btn-save-review"), reviewNextBtn: document.getElementById("btn-review-next"), reviewPrevBtn: document.getElementById("btn-review-prev"),
   statsOverview: document.getElementById("stats-overview"), v3SignalStats: document.getElementById("v3-signal-stats"), sessionStats: document.getElementById("session-stats"), topAssets: document.getElementById("top-assets"), topPatterns: document.getElementById("top-patterns"), directionDist: document.getElementById("direction-dist"), statsBySource: document.getElementById("stats-by-source"), statsByStrategy: document.getElementById("stats-by-strategy"), statsBySymbol: document.getElementById("stats-by-symbol"), statsByTimeframe: document.getElementById("stats-by-timeframe"), statsByAction: document.getElementById("stats-by-action"), statsByResult: document.getElementById("stats-by-result"), statsFilterSource: document.getElementById("stats-filter-source"), statsFilterStrategy: document.getElementById("stats-filter-strategy"), statsFilterVersion: document.getElementById("stats-filter-version"), statsFilterSymbol: document.getElementById("stats-filter-symbol"), statsFilterTimeframe: document.getElementById("stats-filter-timeframe"), srAnalysisWrap: document.getElementById("sr-analysis-wrap"),
@@ -573,6 +576,7 @@ function refreshStorageStatusUI() {
     <li><span>Live Summary Rows</span><strong>${counts.livePatternSummary || 0}</strong></li>
     <li><span>Live Shadow Records</span><strong>${counts.liveShadowRecords || 0}</strong></li>
     <li><span>Strategy Runs</span><strong>${counts.strategyRuns || 0}</strong></li>
+    <li><span>Synthetic Trades</span><strong>${counts.syntheticTrades || 0}</strong></li>
     <li><span>Tamaño estimado</span><strong>${Math.round(estimatedBytes / 1024)} KB</strong></li>
   `;
   els.settingsStorageStatus.textContent = backend === "indexedDB"
@@ -2036,6 +2040,15 @@ function refreshSharedOptions() {
   }
 }
 
+
+function refreshSyntheticLearningRatio() {
+  if (!els.syntheticLearningRatio) return;
+  const syntheticRows = getSyntheticTrades();
+  const reviewedReal = state.signals.filter((s) => s.outcome?.status && s.outcome.status !== "pending").length;
+  const ratio = computeSyntheticLearningRatio(reviewedReal, syntheticRows);
+  els.syntheticLearningRatio.textContent = `Synthetic vs Real Learning Ratio: ${(ratio.ratioSynthetic * 100).toFixed(1)}% synthetic / ${(ratio.ratioReal * 100).toFixed(1)}% real (weighted synthetic samples: ${ratio.syntheticWeighted})`;
+}
+
 function refreshStats() {
   let scopedSignals = [...state.signals];
   if (statsFilters.source) scopedSignals = scopedSignals.filter((row) => row.source === statsFilters.source);
@@ -2799,6 +2812,7 @@ async function handleApproveStrategyRun() {
 function rerender() {
   renderPreview(els.preview, state.importPreview);
   renderImportReport(els.importReport, loadLastImportReport());
+  refreshSyntheticLearningRatio();
   refreshSharedOptions();
   refreshFeed();
   refreshReviewQueue();
@@ -3031,6 +3045,25 @@ function syncLiveShadowToUnifiedPipeline(records = [], options = {}) {
   });
   if (changed) replaceSignals(nextSignals);
   return changed;
+}
+
+function handleInjectSyntheticTrades() {
+  const raw = els.jsonInput?.value?.trim() || "";
+  if (!raw) {
+    setQuickAddFeedback("Pega un JSON con schema patternlab_synthetic_trades_v1.", true);
+    return;
+  }
+  const result = ingestSyntheticTrades(raw, { origin: "ui-import" });
+  if (!result.ok) {
+    setQuickAddFeedback(result.message || "No se pudo validar synthetic trades.", true);
+    return;
+  }
+
+  const applied = applySyntheticTradesToLearning(result.rows || []);
+  const snapshot = getSyntheticLearningSnapshot();
+  const tagCount = Object.keys(snapshot.lessonTags || {}).length;
+  setQuickAddFeedback(`Synthetic trades importadas: ${result.imported}. Learning weighted +${applied.weightedApplied}. Lesson tags: ${tagCount}.`, false);
+  rerender();
 }
 
 function handleImport() {
@@ -3781,6 +3814,7 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
   els.importBtn.addEventListener("click", handleImport);
   els.clearBtn.addEventListener("click", () => { els.jsonInput.value = ""; setImportPreview(null); rerender(); });
   els.loadDemoBtn.addEventListener("click", loadDemoJson);
+  els.injectSyntheticBtn?.addEventListener("click", handleInjectSyntheticTrades);
   els.search.addEventListener("input", (e) => { setFilter("search", e.target.value); refreshFeed(); });
   els.filterAsset.addEventListener("change", (e) => { setFilter("asset", e.target.value); refreshFeed(); });
   els.filterDirection.addEventListener("change", (e) => { setFilter("direction", e.target.value); refreshFeed(); });
