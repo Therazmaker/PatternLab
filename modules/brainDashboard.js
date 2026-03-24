@@ -161,8 +161,9 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">bonuses: <strong>confidence ${safe(riskProfile?.components?.confidence_bonus, 0)}</strong> · <strong>familiarity ${safe(riskProfile?.components?.familiarity_bonus, 0)}</strong> · <strong>scenario ${safe(riskProfile?.components?.scenario_bonus, 0)}</strong></p>
           <p class="tiny">penalties: <strong>danger ${safe(riskProfile?.components?.danger_penalty, 0)}</strong> · <strong>friction ${safe(riskProfile?.components?.friction_penalty, 0)}</strong></p>
           ${riskProfile?.risk_mode === "exploration" ? '<p class="tiny"><span class="badge badge-yellow">Exploration size reduced due to low familiarity</span></p>' : ""}
+          ${riskProfile?.risk_mode === "mixed" ? '<p class="tiny"><span class="badge badge-yellow">Mixed mode active: execution allowed with reduced size</span></p>' : ""}
           ${riskProfile?.risk_mode === "exploitation" ? '<p class="tiny"><span class="badge badge-green">Exploitation size boosted by reliable scenario</span></p>' : ""}
-          ${(riskProfile?.size_multiplier || 0) <= 0 ? '<p class="tiny"><span class="badge badge-yellow">Risk blocked by blocked learning mode</span></p>' : ""}
+          ${riskProfile?.risk_mode === "blocked" ? '<p class="tiny"><span class="badge badge-yellow">Risk blocked by blocked learning mode</span></p>' : ""}
         </section>
 
         <section>

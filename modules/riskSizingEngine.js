@@ -145,6 +145,14 @@ export function computeRiskSizing({
     if (sizeMultiplier < explorationMin) reasons.push("exploration_floor_applied");
     if (sizeMultiplier > explorationMax) reasons.push("exploration_cap_applied");
     sizeMultiplier = clamp(sizeMultiplier, explorationMin, explorationMax);
+  } else if (riskMode === "mixed") {
+    const mixedMin = 0.25;
+    const mixedMax = 0.5;
+    if (sizeMultiplier < mixedMin) reasons.push("mixed_mode_floor_applied");
+    if (sizeMultiplier > mixedMax) reasons.push("mixed_mode_cap_applied");
+    sizeMultiplier = clamp(sizeMultiplier, mixedMin, mixedMax);
+    reasons.push("mixed_mode_reduced_size");
+    console.info("[Risk] mixed mode active, reduced size");
   } else if (maturity === "immature") {
     if (sizeMultiplier > 0.5) reasons.push("immature_context_cap_applied");
     sizeMultiplier = Math.min(sizeMultiplier, 0.5);

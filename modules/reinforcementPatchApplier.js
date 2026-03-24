@@ -32,6 +32,7 @@ export function applyReinforcementPatch({
   log = () => {},
 } = {}) {
   const nextVerdict = { ...(brainVerdict || {}) };
+  const baseConfidenceBeforePatch = toFiniteNumber(nextVerdict.confidence, 0);
   const nextScenarioSet = { ...(scenarioSet || {}), scenarios: Array.isArray(scenarioSet?.scenarios) ? scenarioSet.scenarios.map((row) => ({ ...row })) : [] };
   const appliedFields = [];
   const logs = [];
@@ -48,8 +49,11 @@ export function applyReinforcementPatch({
     if (key === "confidence") {
       nextVerdict.confidence = clamp(verdictPatch[key], 0, 1) ?? nextVerdict.confidence;
     } else if (key === "confidence_delta") {
+      const delta = toFiniteNumber(verdictPatch[key], 0);
       const base = toFiniteNumber(nextVerdict.confidence, 0);
-      nextVerdict.confidence = clamp(base + Number(verdictPatch[key] || 0), 0, 1) ?? base;
+      nextVerdict.confidence = clamp(base + delta, 0, 1) ?? base;
+      nextVerdict.reinforcement_confidence_delta = Number(delta.toFixed(3));
+      addLog(`[Confidence] applied reinforcement delta ${delta >= 0 ? "+" : ""}${delta.toFixed(3)}`);
     } else if (key === "allow_trade") {
       const wantsAllowTrade = Boolean(verdictPatch[key]);
       if (!wantsAllowTrade) {
@@ -195,6 +199,12 @@ export function applyReinforcementPatch({
   if (Object.keys(contextPatch).length && contextSignature) {
     brainMemoryStore?.upsertContext?.(contextSignature, contextPatch, { ...linkage, context_signature: contextSignature });
   }
+  if (contextSignature) {
+    brainMemoryStore?.upsertContext?.(contextSignature, {
+      reinforcement_confidence_delta: toFiniteNumber(nextVerdict.reinforcement_confidence_delta, 0),
+      reinforcement_confidence: toFiniteNumber(nextVerdict.confidence, 0),
+    }, { ...linkage, context_signature: contextSignature });
+  }
   if (Object.keys(contextPatch).length) addLog("[Assist] Learning patch applied");
 
   const summaryHeadline = reinforcement?.assistant_summary?.headline || reinforcement?.assistant_summary?.summary || "Reinforcement applied";
@@ -208,7 +218,7 @@ export function applyReinforcementPatch({
       rulesUpdated,
       scenarioChanges: updatesByScenario.length,
       lessonTagsAdded: lessonTags,
-      confidenceDelta: toFiniteNumber(nextVerdict.confidence, 0) - toFiniteNumber(brainVerdict?.confidence, 0),
+      confidenceDelta: toFiniteNumber(nextVerdict.confidence, 0) - baseConfidenceBeforePatch,
       headline: summaryHeadline,
     },
   };

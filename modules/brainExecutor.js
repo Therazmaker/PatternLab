@@ -86,8 +86,9 @@ export function createBrainExecutor({
   }
 
 function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, contextRow = {}, state = {} } = {}) {
-  if (String(brainVerdict?.learning_mode || "").toLowerCase() === "blocked") return false;
-  if (String(brainVerdict?.learning_mode || "").toLowerCase() !== "exploration") return false;
+  const learningMode = String(brainVerdict?.learning_mode || "").toLowerCase();
+  if (learningMode === "blocked") return false;
+  if (learningMode !== "exploration") return false;
   const profile = state?.learningProfile || {};
   if (state.mode !== "paper" || !profile.enabled || !profile.exploration_mode) return false;
     if (brainVerdict?.exploration_override_applied === false) return false;
@@ -323,7 +324,9 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
         console.info("[LearningProfile] Exploration override applied");
       } else if (learningMode === "mixed") {
         armedState.currentPlan.trade_mode = "mixed";
+        armedState.currentPlan.confirmation_required = "moderate";
         stateStore.setState({ currentPlan: armedState.currentPlan });
+        console.info("[Learning] mode mixed allows execution");
       } else if (learningMode === "exploitation") {
         armedState.currentPlan.trade_mode = "exploitation";
         armedState.currentPlan.confirmation_required = "strong";

@@ -333,13 +333,19 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
   const adjustedFriction = clamp(frictionRaw * Number(autoShift.friction_penalty_multiplier || 1), 0, 1);
   contextMaturity = autoShift.context_maturity || contextMaturity;
 
-  if ((autoShift.block_trading || autoShift.learning_mode === "blocked") && !disableContextBlocking) {
+  const learningMode = String(autoShift.learning_mode || "mixed").toLowerCase();
+  if (learningMode === "blocked" && !disableContextBlocking) {
     allowTrade = false;
     posture = "wait";
     noTradeReasons.unshift("matured_bad_context");
     noTradeReasons.unshift("auto_shift_blocked");
   } else {
     allowTrade = Boolean(allowTrade && autoShift.allow_trade);
+  }
+  if (learningMode === "mixed" && allowTrade) {
+    posture = "execute_on_confirmation";
+    tradeReasonMode = "mixed_confirmation";
+    console.info("[Learning] mode mixed allows execution");
   }
   if (!allowTrade) entryQuality = "wait";
 
