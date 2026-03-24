@@ -59,7 +59,8 @@ import { evaluateCopilotFeedback } from "./modules/copilotFeedbackEvaluator.js";
 import { buildCopilotFeedbackEffects } from "./modules/copilotFeedbackBridge.js";
 import { renderCopilotFeedbackBlock, renderCopilotFeedbackTabPanel } from "./modules/copilotFeedbackPanel.js";
 import { renderBrainDashboard } from "./modules/brainDashboard.js";
-import { buildSessionContextSignature, runSessionBrainOrchestrator } from "./modules/sessionBrainOrchestrator.js";
+import { openTradeVisualizerModal } from "./src/ui/tradeVisualizerModal.js";
+import { buildSessionContextSignature, getCurrentPacket, runSessionBrainOrchestrator, updateCurrentPacket } from "./modules/sessionBrainOrchestrator.js";
 import { getManualControls, hasActiveManualOverrides, resetManualControls, setManualControls } from "./modules/manualControlsStore.js";
 import { persistHumanOverrideMemory, persistLearnedContext } from "./modules/brainLearningWriter.js";
 import { createBrainMemoryStore, createBrainEvent } from "./modules/brainMemoryStore.js";
@@ -163,6 +164,7 @@ import {
   getExecutionPacket,
   normalizeExecutionControlState,
   blockExecution,
+  blockCurrentSetup,
 } from "./modules/executionAuthority.js";
 import { getOperatorActions } from "./modules/operatorFeedback.js";
 import { computeOperatorModifier } from "./modules/operatorModifierEngine.js";
@@ -4164,6 +4166,48 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
         contextSignature: scenario?.context_signature || null,
       });
       setSessionCandleStatus("Brain Executor armed for next qualified trigger.", "success");
+    } else if (action === "open-trade-visualizer") {
+      openTradeVisualizerModal(getCurrentPacket(), {
+        executor: {
+          armTrade: () => {
+            const scenario = scenarioProjectionState.activeSet?.scenarios?.[0] || null;
+            brainExecutor.armSetup({
+              brainVerdict: _lastBrainVerdict,
+              nextCandlePlan: _lastBrainVerdict?.next_candle_plan,
+              scenario,
+              contextSignature: scenario?.context_signature || null,
+            });
+            setSessionCandleStatus("Setup confirmed: Brain Executor armed.", "success");
+          },
+        },
+        dispatch: ({ type, payload } = {}) => {
+          if (type !== "ADJUST_BIAS") return;
+          const dir = String(payload?.directionOverride || "").toLowerCase();
+          if (["long", "short"].includes(dir)) {
+            brainModeController.setManualBiasOverride(dir);
+            setSessionCandleStatus(`Bias override set to ${dir}.`, "info");
+          }
+        },
+        executionAuthority: {
+          blockCurrentSetup: () => {
+            blockCurrentSetup("operator_blocked_setup");
+            brainExecutor.cancelArm("operator_blocked_setup");
+            setSessionCandleStatus("Current setup blocked by operator.", "warning");
+          },
+        },
+        saveOperatorNote: (note = "", livePacket = {}) => {
+          brainMemoryStore.addEvent(createBrainEvent("operator_note", {
+            operator_note: String(note || ""),
+            next_trade: livePacket?.next_trade || null,
+          }, {
+            sessionId: getActiveSession()?.id || null,
+            symbol: getSessionMarketView()?.symbol || null,
+            timeframe: getSessionMarketView()?.timeframe || null,
+            context_signature: scenarioProjectionState.activeSet?.context_signature || _lastBrainVerdict?.learningEffects?.signature || null,
+          }));
+          setSessionCandleStatus("Operator note saved to brain memory.", "success");
+        },
+      });
     } else if (action === "executor-cancel-arm") {
       brainExecutor.cancelArm("operator_cancel");
     } else if (action === "executor-pause") {
@@ -5467,6 +5511,19 @@ function renderBrainDashboardPanel() {
   const reinforcementOverlay = brainMemoryStore.getReinforcementOverlay?.(contextSignature);
   const syntheticRows = getSyntheticTrades();
   const syntheticRatio = computeSyntheticLearningRatio(state.reviewed, syntheticRows);
+  updateCurrentPacket({
+    risk_profile: executorState?.lastRiskProfile || null,
+    learning_state: {
+      mode: _lastBrainVerdict?.learning_mode || "mixed",
+      familiarity: Number(_lastBrainVerdict?.familiarity || 0),
+    },
+    brain_state: {
+      confidence: Number(_lastBrainVerdict?.confidence || 0),
+      familiarity: Number(_lastBrainVerdict?.familiarity || 0),
+      danger_score: Number(_lastBrainVerdict?.danger_score || 0),
+      scenario_reliability: Number(learningProgressPacket?.scenarioReliability || 0),
+    },
+  });
   els.sessionBrainDashboard.innerHTML = renderBrainDashboard(_lastBrainVerdict, modeState, executionControlState, {
     executorState,
     activeTrade: brainExecutor.getActiveTrade(),

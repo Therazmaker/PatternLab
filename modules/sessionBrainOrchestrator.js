@@ -2,6 +2,8 @@ import { buildBrainVerdict } from "./unifiedDecisionCore.js";
 import { generateScenarioProjections } from "./scenarioProjectionEngine.js";
 import { getExecutionPacket } from "./executionAuthority.js";
 
+let _currentOrchestratorPacket = null;
+
 export function buildSessionContextSignature({ analysis = {}, symbol = "", timeframe = "" } = {}) {
   const regime = analysis?.pseudoMl?.regime?.regime || "unknown";
   const bias = analysis?.pseudoMl?.probability?.bias || analysis?.bias || "neutral";
@@ -153,11 +155,55 @@ export function runSessionBrainOrchestrator({
 
   console.info("[Orchestrator] context -> verdict -> scenarios -> authority packet assembled");
 
-  return {
+  const assembledPacket = {
     contextPacket,
     brainPacket: merged.brainPacket,
     scenarioPacket: merged.scenarioPacket,
     executionPacket: merged.executionPacket,
+    market_state: {
+      candles: Array.isArray(marketView?.candles) ? marketView.candles : [],
+    },
+    next_trade: {
+      setup: merged.scenarioPacket?.scenarios?.[0]?.name || merged.brainPacket?.next_candle_plan?.posture || null,
+      trigger: merged.scenarioPacket?.scenarios?.[0]?.trigger || merged.brainPacket?.next_candle_plan?.trigger_long || merged.brainPacket?.next_candle_plan?.trigger_short || null,
+      invalidation: merged.scenarioPacket?.scenarios?.[0]?.invalidation || merged.brainPacket?.next_candle_plan?.invalidation || null,
+      targets: merged.scenarioPacket?.scenarios?.[0]?.projected_path || [],
+      direction: merged.scenarioPacket?.scenarios?.[0]?.target_direction || merged.brainPacket?.bias || null,
+      momentum: analysis?.momentumCondition || null,
+    },
+    learning_state: {
+      mode: merged.brainPacket?.learning_mode || "mixed",
+    },
+    risk_profile: null,
+    brain_state: {
+      confidence: Number(merged.brainPacket?.confidence || 0),
+      danger_score: Number(merged.brainPacket?.danger_score || 0),
+      familiarity: Number(merged.brainPacket?.familiarity || 0),
+      scenario_reliability: Number(merged.brainPacket?.scenario_reliability || 0),
+    },
     uiPacket,
   };
+  _currentOrchestratorPacket = assembledPacket;
+  return assembledPacket;
+}
+
+export function getCurrentPacket() {
+  return _currentOrchestratorPacket;
+}
+
+export function updateCurrentPacket(patch = {}) {
+  if (!_currentOrchestratorPacket) return null;
+  _currentOrchestratorPacket = {
+    ..._currentOrchestratorPacket,
+    ...(patch || {}),
+    learning_state: {
+      ...(_currentOrchestratorPacket.learning_state || {}),
+      ...(patch?.learning_state || {}),
+    },
+    brain_state: {
+      ...(_currentOrchestratorPacket.brain_state || {}),
+      ...(patch?.brain_state || {}),
+    },
+  };
+  return _currentOrchestratorPacket;
 }

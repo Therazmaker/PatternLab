@@ -126,6 +126,9 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Exploratory Trade (Learning Mode)</span></p>' : ""}
           ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Friction bypassed for exploration</span></p>' : ""}
           ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Danger context allowed for data collection</span></p>' : ""}
+          <div class="button-row compact">
+            <button type="button" class="ghost" data-brain-action="open-trade-visualizer">👁 View Setup</button>
+          </div>
         </section>
 
         <section>
