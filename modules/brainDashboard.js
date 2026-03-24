@@ -68,6 +68,10 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const assistScenarioChanges = Number(assistSummary?.scenarioChanges || 0);
   const assistConfidenceDelta = Number(assistSummary?.confidenceDelta || 0);
   const assistTags = Array.isArray(assistSummary?.lessonTagsAdded) ? assistSummary.lessonTagsAdded : [];
+  const assistInput = String(assistState?.inputText || "");
+  const assistInputValid = Boolean(assistState?.inputValid);
+  const assistInputError = assistState?.inputError || "";
+  const assistHistory = Array.isArray(assistState?.history || []) ? assistState.history.slice(-5).reverse() : [];
   const learningStateMessage = String(verdict?.learning_mode || "mixed") === "exploration"
     ? "Exploration: low sample context"
     : String(verdict?.learning_mode || "mixed") === "exploitation"
@@ -227,11 +231,19 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">tags added:</p>
           <div>${chips(assistTags)}</div>
           <p class="tiny">history entries: <strong>${safe(assistState?.historyCount, 0)}</strong></p>
+          <label class="tiny" for="reinforcementInput">Copilot Reinforcement JSON</label>
+          <textarea id="reinforcementInput" data-brain-control="reinforcement-input" placeholder="Paste Copilot Reinforcement JSON here..." rows="8" style="width:100%;resize:vertical;font-family:monospace;">${assistInput}</textarea>
+          <p class="tiny ${assistInputValid ? "badge-green" : "badge-muted"}">${assistInput ? (assistInputValid ? "valid JSON" : safe(assistInputError, "invalid JSON")) : "No reinforcement applied"}</p>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="assist-export">Export Brain Assist</button>
-            <button type="button" class="ghost" data-brain-action="assist-apply">Apply Reinforcement JSON</button>
-            <button type="button" class="ghost" data-brain-action="assist-reset">Reset Last Reinforcement</button>
+            <button type="button" class="ghost" data-brain-action="assist-download">Download Brain Assist</button>
+            <button type="button" class="ghost" data-brain-action="assist-apply" ${assistInputValid ? "" : "disabled"}>Apply Reinforcement</button>
+            <button type="button" class="ghost" data-brain-action="assist-clear">Clear</button>
+            <button type="button" class="ghost" data-brain-action="assist-example">Load Example</button>
           </div>
+          <p class="tiny">Last Reinforcement: <strong>${safe(assistState?.lastAppliedAt || "none")}</strong></p>
+          <p class="tiny">History (last 5):</p>
+          <div>${assistHistory.length ? assistHistory.map((row) => `<div class="tiny muted">• ${safe(row?.summary || row?.reinforcement_summary?.headline, "Reinforcement applied")} <span class="muted">(${safe(row?.timestamp, "")})</span></div>`).join("") : '<span class="badge-muted">none</span>'}</div>
           <p class="muted tiny">Reinforcement refines tactical bias and learning state only. Execution authority remains unchanged.</p>
         </section>
 

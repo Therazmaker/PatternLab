@@ -28,6 +28,7 @@ export function applyReinforcementPatch({
   brainMemoryStore = null,
   contextSignature = null,
   linkage = {},
+  riskCaps = {},
   log = () => {},
 } = {}) {
   const nextVerdict = { ...(brainVerdict || {}) };
@@ -41,11 +42,29 @@ export function applyReinforcementPatch({
   };
 
   const verdictPatch = reinforcement?.verdict_patch || {};
-  const allowedVerdictKeys = ["confidence", "posture", "entry_quality", "bias", "no_trade_reason"];
+  const allowedVerdictKeys = ["confidence", "confidence_delta", "posture", "entry_quality", "bias", "no_trade_reason", "allow_trade"];
   allowedVerdictKeys.forEach((key) => {
     if (verdictPatch[key] === undefined) return;
-    if (key === "confidence") nextVerdict.confidence = clamp(verdictPatch[key], 0, 1) ?? nextVerdict.confidence;
-    else nextVerdict[key] = verdictPatch[key];
+    if (key === "confidence") {
+      nextVerdict.confidence = clamp(verdictPatch[key], 0, 1) ?? nextVerdict.confidence;
+    } else if (key === "confidence_delta") {
+      const base = toFiniteNumber(nextVerdict.confidence, 0);
+      nextVerdict.confidence = clamp(base + Number(verdictPatch[key] || 0), 0, 1) ?? base;
+    } else if (key === "allow_trade") {
+      const wantsAllowTrade = Boolean(verdictPatch[key]);
+      if (!wantsAllowTrade) {
+        nextVerdict.allow_trade = false;
+      } else {
+        const activePlan = nextVerdict?.next_candle_plan || {};
+        if (activePlan?.invalidation && (activePlan?.trigger_long || activePlan?.trigger_short)) {
+          nextVerdict.allow_trade = true;
+        } else {
+          addLog("[Assist] allow_trade=true ignored (missing trigger/invalidation)");
+        }
+      }
+    } else {
+      nextVerdict[key] = verdictPatch[key];
+    }
     appliedFields.push(`verdict_patch.${key}`);
   });
 
@@ -66,11 +85,16 @@ export function applyReinforcementPatch({
     const currentPlan = { ...(nextVerdict?.next_candle_plan || {}) };
     ["posture", "trigger_long", "trigger_short", "invalidation", "reasoning_summary", "entry_quality", "bias_hint"].forEach((key) => {
       if (nextPlanPatch[key] !== undefined) {
+        if ((key === "trigger_long" || key === "trigger_short" || key === "invalidation") && !String(nextPlanPatch[key] || "").trim()) return;
         currentPlan[key] = nextPlanPatch[key];
         appliedFields.push(`next_candle_patch.${key}`);
       }
     });
-    nextVerdict.next_candle_plan = currentPlan;
+    if (!currentPlan?.invalidation || (!currentPlan?.trigger_long && !currentPlan?.trigger_short)) {
+      addLog("[Assist] trigger/invalidation patch ignored to preserve safety constraints");
+    } else {
+      nextVerdict.next_candle_plan = currentPlan;
+    }
   }
 
   const ruleUpdates = Array.isArray(reinforcement?.rule_updates) ? reinforcement.rule_updates : [];
@@ -114,7 +138,24 @@ export function applyReinforcementPatch({
     }).sort((a, b) => Number(a._priority || 999) - Number(b._priority || 999)).map((row, idx) => ({ ...row, rank: idx + 1 }));
     nextScenarioSet.scenarios = updatedScenarios;
     appliedFields.push("scenario_updates");
-    addLog("[Assist] Scenario probabilities updated");
+    addLog("[Assist] Scenario updated");
+  }
+
+  if (riskPatch.size_multiplier !== undefined) {
+    const incomingSize = toFiniteNumber(riskPatch.size_multiplier, null);
+    if (incomingSize !== null) {
+      const hardCap = Number.isFinite(riskCaps?.maxSizeMultiplier) ? riskCaps.maxSizeMultiplier : 1;
+      nextVerdict.risk_size_multiplier = Math.max(0, Math.min(hardCap, incomingSize));
+      appliedFields.push("risk_patch.size_multiplier");
+    }
+  }
+  if (riskPatch.max_size_cap !== undefined) {
+    const incomingCap = toFiniteNumber(riskPatch.max_size_cap, null);
+    if (incomingCap !== null) {
+      const hardCap = Number.isFinite(riskCaps?.maxSizeMultiplier) ? riskCaps.maxSizeMultiplier : 1;
+      nextVerdict.risk_size_cap = Math.max(0, Math.min(hardCap, incomingCap));
+      appliedFields.push("risk_patch.max_size_cap");
+    }
   }
 
   const learningPatch = reinforcement?.learning_patch || {};
