@@ -266,7 +266,7 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
 
     const contextRow = getContextLearning(contextSignature || scenario?.context_signature || state.currentPlan?.context_signature);
     const learningMode = String(brainVerdict?.learning_mode || "mixed").toLowerCase();
-    if (learningMode === "blocked" || brainVerdict?.auto_shift?.block_trading) {
+    if (learningMode === "blocked") {
       emit("trade_blocked", {
         reason: "auto_shift_blocked",
         mode: learningMode,
@@ -356,13 +356,6 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
         return { state: stateStore.getState(), activeTrade: null };
       }
     }
-    if (learningMode === "mixed") {
-      const friction = Number(brainVerdict?.friction ?? 1);
-      if (friction > 0.78) {
-        emit("trade_blocked", { reason: "mixed_mode_friction", friction }, { context_signature: plan?.context_signature || contextSignature });
-        return { state: stateStore.getState(), activeTrade: null };
-      }
-    }
     if (plan.trade_mode === "exploration" && Number(contextRow?.exploration_pause_remaining_candles || 0) > 0) {
       console.info("[LearningProfile] exploratory context paused after repeated losses");
       emit("trade_blocked", { reason: "exploration_context_paused", remaining: Number(contextRow?.exploration_pause_remaining_candles || 0) }, { context_signature: plan?.context_signature || contextSignature });
@@ -372,8 +365,6 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       emit("trade_blocked", { reason: "duplicate_candle_trade_prevented", candle_key: currentCandleKey }, { context_signature: plan?.context_signature || contextSignature });
       return { state: stateStore.getState(), activeTrade: null };
     }
-    if (!evaluateTrigger(plan, candle)) return { state: stateStore.getState(), activeTrade: null };
-
     const executionPacket = getExecutionPacket();
     const riskProfile = computeRiskSizing({
       brainVerdict: plan.brain_verdict_snapshot || brainVerdict,
@@ -398,6 +389,7 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       emit("trade_blocked", { reason: "risk_profile_zero_size", risk_profile: riskProfile }, { context_signature: plan?.context_signature || contextSignature });
       return { state: stateStore.getState(), activeTrade: null };
     }
+    if (!evaluateTrigger(plan, candle)) return { state: stateStore.getState(), activeTrade: null };
 
     const trade = openTrade(plan, candle?.close);
     if (plan.trade_mode === "exploration") {

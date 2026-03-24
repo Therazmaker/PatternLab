@@ -107,22 +107,52 @@ export function computeRiskSizing({
     profile: config?.learningProfile || {},
   });
 
-  if (riskMode === "exploration" || brainVerdict?.exploration_override_applied) {
-    if (sizeMultiplier > 0.4) reasons.push("exploration_cap_applied");
-    sizeMultiplier = Math.min(sizeMultiplier, 0.4);
+  if (riskMode === "blocked") {
+    sizeMultiplier = 0;
+    reasons.push("blocked_mode_zero_size");
+    const riskScoreBlocked = clamp(
+      (confidence * 0.2)
+      + (scenarioScore * 0.15)
+      + (familiarity * 0.1)
+      - (danger * 0.2)
+      - (friction * 0.15),
+      0,
+      1,
+    );
+    return {
+      risk_mode: riskMode,
+      size_multiplier: 0,
+      risk_score: Number(riskScoreBlocked.toFixed(3)),
+      capital_fraction: computeCapitalFraction(riskMode, 0, config),
+      reason: reasons,
+      components: {
+        base: Number(base.toFixed(3)),
+        confidence_bonus: Number(confidenceBonus.toFixed(3)),
+        familiarity_bonus: Number(familiarityBonus.toFixed(3)),
+        scenario_bonus: Number(scenarioBonus.toFixed(3)),
+        danger_penalty: Number(dangerPenalty.toFixed(3)),
+        friction_penalty: Number(frictionPenalty.toFixed(3)),
+      },
+    };
   }
-  if (maturity === "immature") {
+
+  if (riskMode === "exploration" || brainVerdict?.exploration_override_applied) {
+    const explorationMin = 0.2;
+    const explorationMax = 0.4;
+    if (sizeMultiplier < explorationMin) reasons.push("exploration_floor_applied");
+    if (sizeMultiplier > explorationMax) reasons.push("exploration_cap_applied");
+    sizeMultiplier = clamp(sizeMultiplier, explorationMin, explorationMax);
+  } else if (maturity === "immature") {
     if (sizeMultiplier > 0.5) reasons.push("immature_context_cap_applied");
     sizeMultiplier = Math.min(sizeMultiplier, 0.5);
   }
-  if (riskMode === "blocked" || autoShift?.block_trading || scenario?.block_context) {
-    sizeMultiplier = 0;
-    reasons.push("blocked_mode_zero_size");
+  if (sizeMultiplier <= 0) {
+    sizeMultiplier = riskMode === "mixed" ? 0.05 : riskMode === "exploitation" ? 0.1 : 0.2;
+    reasons.push("non_blocked_min_size_applied");
   }
 
   const manualConfirmationRequired = executionPacket?.manualConfirmationRequired !== false;
   if (String(executorMode).toLowerCase() === "live" && manualConfirmationRequired && !executionPacket?.manualConfirmed) {
-    sizeMultiplier = 0;
     reasons.push("live_manual_confirmation_missing");
   }
 
