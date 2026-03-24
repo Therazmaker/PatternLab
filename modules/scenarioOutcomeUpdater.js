@@ -32,8 +32,8 @@ export function updateContextFromScenarioOutcome({
   const lastOutcomes = [...(Array.isArray(base.last_outcomes) ? base.last_outcomes : []), outcome].slice(-8);
   const consecutiveLosses = lastOutcomes.slice().reverse().findIndex((x) => x !== "loss");
   const lossStreak = consecutiveLosses === -1 ? lastOutcomes.length : consecutiveLosses;
-
   const rawWinrate = samples > 0 ? wins / samples : 0;
+  const maturedBadContext = samples >= 10 && rawWinrate <= 0.35 && lossStreak >= 3;
   const preferredPosture = outcome === "win"
     ? (scenario.posture || base.preferred_posture || "wait")
     : base.preferred_posture || "wait";
@@ -74,6 +74,9 @@ export function updateContextFromScenarioOutcome({
     preferred_posture: preferredPosture,
     trust_operator: Number(trustOperator.toFixed(3)),
     operator_caution: Number(operatorCaution.toFixed(3)),
+    blocked_for_candles: maturedBadContext ? Math.max(Number(base.blocked_for_candles || 0), 5) : Math.max(0, Number(base.blocked_for_candles || 0) - (outcome === "win" ? 1 : 0)),
+    exploration_pause_remaining_candles: lossStreak >= 3 ? Math.max(Number(base.exploration_pause_remaining_candles || 0), 5) : Math.max(0, Number(base.exploration_pause_remaining_candles || 0)),
+    no_trade_reason: maturedBadContext ? "matured_bad_context" : base.no_trade_reason || null,
   };
 
   const scoring = computeContextScoring(row);

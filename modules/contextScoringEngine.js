@@ -20,6 +20,9 @@ export function getDefaultContextLearningRow(overrides = {}) {
     preferred_posture: "wait",
     trust_operator: 0,
     operator_caution: 0,
+    blocked_for_candles: 0,
+    exploration_pause_remaining_candles: 0,
+    no_trade_reason: null,
     ...overrides,
   };
 }

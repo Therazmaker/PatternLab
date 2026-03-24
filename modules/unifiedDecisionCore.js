@@ -2,6 +2,7 @@ import { activateLearnedRules } from "./ruleActivationEngine.js";
 import { ingestLearningFromFeedback } from "./contextLearningEngine.js";
 import { buildNextCandlePlan } from "./nextCandlePlanner.js";
 import { computeContextScoring } from "./contextScoringEngine.js";
+import { evaluateAutoShift } from "./autoShiftEngine.js";
 
 export const AGGRESSIVE_LEARNING_PROFILE = Object.freeze({
   profile: "aggressive_learning",
@@ -61,12 +62,6 @@ function contextMaturityForSamples(samples = 0, profile = AGGRESSIVE_LEARNING_PR
   if (samples < Number(profile.min_samples_before_strict_block || 10)) return "immature";
   if (samples < Number(profile.min_samples_before_context_maturity || 20)) return "growing";
   return "mature";
-}
-
-function learningModeForContext({ contextMaturity = "immature", winrate = 0 } = {}) {
-  if (contextMaturity === "immature") return "exploration";
-  if (contextMaturity === "mature" && Number(winrate || 0) >= 0.55) return "exploitation";
-  return "mixed";
 }
 
 export function buildBrainVerdict({ analysis = null, marketView = null, copilotFeedback = null, copilotEvaluation = null, modeState = {}, operatorState = {}, contextMemoryRow = null } = {}) {
@@ -154,8 +149,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
   const learningProfile = AGGRESSIVE_LEARNING_PROFILE;
   const modeIsPaper = (modeState?.executorMode || "paper") === "paper";
   const sampleCount = Number(contextScores.samples || contextMemoryRow?.counts || contextMemoryRow?.samples || 0);
-  const contextMaturity = contextMaturityForSamples(sampleCount, learningProfile);
-  const learningMode = learningModeForContext({ contextMaturity, winrate: contextScores.winrate });
+  let contextMaturity = contextMaturityForSamples(sampleCount, learningProfile);
   const contextPaused = Number(contextMemoryRow?.exploration_pause_remaining_candles || 0) > 0 || Number(contextMemoryRow?.blocked_for_candles || 0) > 0;
   const maturedBadContext = sampleCount >= 10 && Number(contextScores.winrate || 0) <= 0.35;
   const matureGoodContext = sampleCount >= 20 && Number(contextScores.winrate || 0) >= 0.55;
@@ -259,6 +253,47 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     allowTrade = false;
     noTradeReasons.unshift("missing_invalidation");
   }
+
+  const autoShift = evaluateAutoShift({
+    contextSignature: learning.signature || contextMemoryRow?.context_signature || null,
+    contextMemory: {
+      ...contextMemoryRow,
+      ...contextScores,
+      samples: sampleCount,
+      last_outcomes: learning.learnedContextCurrent?.last_outcomes || contextMemoryRow?.last_outcomes || [],
+    },
+    learningProgress: {
+      familiarity: contextScores.familiarity,
+      context_score: contextScores.context_score,
+    },
+    verdict: {
+      confidence,
+      friction: frictionRaw,
+      entry_quality: entryQuality,
+      context_score: contextScores.context_score,
+      danger_score: contextScores.danger_score,
+      next_candle_plan: nextPlan,
+      modeState,
+      mode,
+    },
+    profile: learningProfile,
+  });
+
+  confidence = clamp(autoShift.final_confidence + Number(autoShift.confidence_boost || 0), 0, 1);
+  entryQuality = autoShift.entry_quality;
+  const adjustedFriction = clamp(frictionRaw * Number(autoShift.friction_penalty_multiplier || 1), 0, 1);
+  contextMaturity = autoShift.context_maturity || contextMaturity;
+
+  if (autoShift.block_trading || autoShift.learning_mode === "blocked") {
+    allowTrade = false;
+    posture = "wait";
+    noTradeReasons.unshift("matured_bad_context");
+    noTradeReasons.unshift("auto_shift_blocked");
+  } else {
+    allowTrade = Boolean(allowTrade && autoShift.allow_trade);
+  }
+  if (!allowTrade) entryQuality = "wait";
+
   if (allowTrade && tradeReasonMode === "policy_block") tradeReasonMode = "standard";
 
   console.info(`[Brain/Udc] Next candle posture: ${String(posture || "wait").replace(/\s+/g, "_")}`);
@@ -271,7 +306,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     bias,
     confidence: Number(confidence.toFixed(3)),
     entry_quality: entryQuality,
-    friction: Number(frictionRaw.toFixed(3)),
+    friction: Number(adjustedFriction.toFixed(3)),
     posture,
     allow_trade: allowTrade,
     active_rules: ruleSet,
@@ -279,7 +314,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     next_candle_plan: { ...nextPlan, posture },
     no_trade_reason: noTradeReason,
     learning_profile: learningProfile,
-    learning_mode: explorationOverrideApplied ? "exploration" : learningMode,
+    learning_mode: autoShift.learning_mode || (explorationOverrideApplied ? "exploration" : "mixed"),
     exploration_trade_allowed: explorationTradeAllowed,
     exploration_override_applied: explorationOverrideApplied,
     bypassed_blocks: bypassedBlocks,
@@ -290,7 +325,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
       danger_score: contextScores.danger_score,
       familiarity: contextScores.familiarity,
       confidence_adjustment: contextScores.confidence_adjustment,
-      friction: Number(frictionRaw.toFixed(3)),
+      friction: Number(adjustedFriction.toFixed(3)),
       allow_trade: allowTrade,
     },
     context_score: contextScores.context_score,
@@ -301,6 +336,7 @@ export function buildBrainVerdict({ analysis = null, marketView = null, copilotF
     preferred_posture: matureGoodContext ? "execute_on_confirmation" : (learning.learnedContextCurrent?.preferredPosture || "wait"),
     last_outcomes: learning.learnedContextCurrent?.last_outcomes || [],
     executor_ready: mode === "executor" && Boolean(modeState.autoExecutionEnabled) && posture !== "wait" && allowTrade,
+    auto_shift: autoShift,
     market_state: marketState,
     mode,
     learningEffects: {

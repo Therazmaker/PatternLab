@@ -42,10 +42,20 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   }
   const profile = executorState?.learningProfile || verdict?.learning_profile || {};
   const planContext = plan?.context_signature ? (opts?.contextRow || {}) : {};
+  const autoShift = verdict?.auto_shift || {};
   const maxExploratoryTrades = Number(profile?.max_exploratory_trades_per_context || 5);
   const exploratoryTaken = Number(planContext?.exploratory_trades_taken || 0);
   const exploratoryLeft = Math.max(0, maxExploratoryTrades - exploratoryTaken);
   const pauseRemaining = Number(planContext?.exploration_pause_remaining_candles || 0);
+  const exploreRatio = Number(autoShift?.exploration_weight ?? 0.5);
+  const exploitRatio = Number(autoShift?.exploitation_weight ?? 0.5);
+  const learningStateMessage = String(verdict?.learning_mode || "mixed") === "exploration"
+    ? "Exploration: low sample context"
+    : String(verdict?.learning_mode || "mixed") === "exploitation"
+      ? "Exploitation: high winrate context"
+      : String(verdict?.learning_mode || "mixed") === "blocked"
+        ? "Blocked: repeated losses detected"
+        : "Mixed: uncertain edge";
 
   return `
     <article class="panel-soft brain-dashboard">
@@ -93,9 +103,17 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
         </section>
 
         <section>
-          <h5>E. Learning Progress</h5>
+          <h5>E. Learning State</h5>
+          <p class="tiny">mode: <strong>${safe(verdict.learning_mode, "mixed")}</strong> · ratio: <strong>${Math.round(exploreRatio * 100)}/${Math.round(exploitRatio * 100)}</strong> (explore/exploit)</p>
+          <p class="tiny">context maturity: <strong>${safe(verdict.context_maturity, "immature")}</strong> · familiarity: <strong>${safe(autoShift?.familiarity, verdict.familiarity)}</strong></p>
+          <p class="tiny">auto-shift reason: <strong>${safe((autoShift?.reason || []).join(", "), learningStateMessage)}</strong></p>
+          <p class="tiny"><span class="badge">${learningStateMessage}</span></p>
+          ${(verdict?.learning_mode === "blocked" || verdict?.auto_shift?.block_trading) ? `<p class="tiny"><span class="badge badge-yellow">Trading blocked (${safe(autoShift?.context_pause_candles, 0)} candle pause)</span></p>` : ""}
+        </section>
+
+        <section>
+          <h5>F. Learning Progress</h5>
           <p class="tiny">Learning Profile: <strong>${safe(profile?.profile || "aggressive_learning")}</strong> · enabled: <strong>${profile?.enabled ? "yes" : "no"}</strong></p>
-          <p class="tiny">Learning Mode: <strong>${safe(verdict.learning_mode, "mixed")}</strong> · Context Maturity: <strong>${safe(verdict.context_maturity, "immature")}</strong></p>
           <p class="tiny">Exploratory trades left (context): <strong>${safe(exploratoryLeft, 0)}</strong> / ${safe(maxExploratoryTrades, 5)}</p>
           <p class="tiny">Context pause: <strong>${pauseRemaining > 0 ? `ACTIVE (${pauseRemaining} candles left)` : "inactive"}</strong></p>
           ${verdict?.exploration_trade_allowed ? '<p class="tiny"><span class="badge">exploratory trade allowed despite wait</span></p>' : ""}
