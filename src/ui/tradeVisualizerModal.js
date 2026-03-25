@@ -1028,6 +1028,17 @@ function renderModal(packet = {}) {
             <button class="ghost" type="button" data-tvm-action="adjust-bias-short">Adjust Bias Short</button>
             <button class="ghost" type="button" data-tvm-action="block-trade">Block Trade</button>
           </div>
+          <div class="tvm-level-selector">
+            <div class="tiny"><strong>Place Levels</strong> — select a level then click the chart</div>
+            <div class="button-row compact">
+              <button class="ghost tvm-level-btn" type="button" data-tvm-action="select-level-entry" data-tvm-level="entry" title="Click to select Entry placement mode, then click chart">📍 Set Entry</button>
+              <button class="ghost tvm-level-btn" type="button" data-tvm-action="select-level-sl" data-tvm-level="stopLoss" title="Click to select Stop Loss placement mode, then click chart">🛑 Set SL</button>
+              <button class="ghost tvm-level-btn" type="button" data-tvm-action="select-level-tp" data-tvm-level="takeProfit" title="Click to select Take Profit placement mode, then click chart">🎯 Set TP</button>
+            </div>
+          </div>
+          <div class="button-row compact">
+            <button class="tvm-btn-place-trade" type="button" data-tvm-action="place-trade-now" title="Immediately open a trade with the current Entry / SL / TP levels">🚀 Place Trade Now</button>
+          </div>
           <label class="tiny" for="tvm-note">Operator note</label>
           <textarea id="tvm-note" rows="4" placeholder="Add note for brain memory store">${_operatorNote}</textarea>
           <div class="button-row compact"><button class="ghost" type="button" data-tvm-action="save-note">Save Note</button></div>
@@ -1195,6 +1206,23 @@ function syncTradeEditor(root, trade = {}) {
   if (e) e.value = num(trade.entry, 0).toFixed(2);
   if (sl) sl.value = num(trade.stopLoss, 0).toFixed(2);
   if (tp) tp.value = num(trade.takeProfit, 0).toFixed(2);
+}
+
+function activatePlacementHandle(root, handle) {
+  _activePlacementHandle = ["entry", "stopLoss", "takeProfit"].includes(handle) ? handle : "entry";
+  const holder = root?.querySelector("#tvm-trade-handles");
+  const canvas = root?.querySelector("#tvm-chart");
+  if (holder) {
+    holder.querySelectorAll("[data-trade-handle]").forEach((el) => {
+      el.classList.toggle("selected", el.dataset.tradeHandle === _activePlacementHandle);
+    });
+  }
+  if (canvas) canvas.classList.add("tvm-chart-place-mode");
+  if (root) {
+    root.querySelectorAll("[data-tvm-level]").forEach((btn) => {
+      btn.classList.toggle("tvm-level-active", btn.dataset.tvmLevel === _activePlacementHandle);
+    });
+  }
 }
 
 function updateHandlePositions(root, trade = {}) {
@@ -1383,6 +1411,7 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
 
   bindTradeHandleDrag(_modalRoot, () => getCurrentPacket() || packet);
   refreshTradeVisualState(_modalRoot, packet, { syncEditor: true });
+  activatePlacementHandle(_modalRoot, _activePlacementHandle);
 
   const onTradeInput = () => {
     if (!_modalRoot) return;
@@ -1438,6 +1467,27 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
       controls?.saveOperatorNote?.(note, livePacket);
     } else if (action === "simulate") {
       updateSimulationBars(_modalRoot, livePacket?.next_trade || {}, livePacket?.market_state?.candles || []);
+    } else if (action === "select-level-entry") {
+      activatePlacementHandle(_modalRoot, "entry");
+    } else if (action === "select-level-sl") {
+      activatePlacementHandle(_modalRoot, "stopLoss");
+    } else if (action === "select-level-tp") {
+      activatePlacementHandle(_modalRoot, "takeProfit");
+    } else if (action === "place-trade-now") {
+      const tradeToBePlaced = _visualTrade || _systemTradeProposal;
+      if (tradeToBePlaced) {
+        const result = controls?.executor?.placeManualTrade?.({
+          direction: tradeToBePlaced.direction,
+          entry: tradeToBePlaced.entry,
+          stopLoss: tradeToBePlaced.stopLoss,
+          takeProfit: tradeToBePlaced.takeProfit,
+        });
+        if (result) {
+          _visualTrade = { ...tradeToBePlaced, status: "active", triggeredAt: Date.now(), source: "operator_manual" };
+          updateCurrentPacket({ visual_trade: _visualTrade });
+          _onTradeSync?.(_visualTrade, livePacket, "place_trade_now");
+        }
+      }
     } else if (action === "use-auto-trade" || action === "reset-system-trade") {
       _systemTradeProposal = buildProposedTrade(livePacket);
       _visualTrade = { ...normalizeTradeLevels(_systemTradeProposal, livePacket?.market_state?.candles || []).trade, source: "system_auto", status: "pending", triggeredAt: null, resolvedAt: null, mfe: 0, mae: 0 };

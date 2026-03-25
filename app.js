@@ -4477,6 +4477,17 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
             });
             setSessionCandleStatus("Setup confirmed: Brain Executor armed.", "success");
           },
+          placeManualTrade: (tradeData = {}) => {
+            const result = brainExecutor.placeManualTrade(tradeData);
+            if (result) {
+              setSessionCandleStatus(`Manual trade placed: ${tradeData.direction} @ ${Number(tradeData.entry || 0).toFixed(2)}`, "success");
+              refreshSessionCandlesTab?.();
+              renderBrainDashboardPanel?.();
+            } else {
+              setSessionCandleStatus("Manual trade rejected. Check levels or close the active trade first.", "warning");
+            }
+            return result;
+          },
         },
         dispatch: ({ type, payload } = {}) => {
           if (type !== "ADJUST_BIAS") return;

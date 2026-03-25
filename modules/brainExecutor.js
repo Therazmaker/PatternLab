@@ -665,11 +665,92 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     return activeTrade ? { ...activeTrade } : null;
   }
 
+  function placeManualTrade({ direction, entry, stopLoss, takeProfit } = {}) {
+    if (activeTrade) {
+      console.warn("[Executor] Cannot place manual trade: an active trade already exists.");
+      emit("trade_blocked", { reason: "active_trade_exists" }, {});
+      return null;
+    }
+    const dir = direction === "short" ? "short" : "long";
+    const entryVal = toNumber(entry, null);
+    const slVal = toNumber(stopLoss, null);
+    const tpVal = toNumber(takeProfit, null);
+
+    if (!Number.isFinite(entryVal) || entryVal <= 0 || !Number.isFinite(slVal) || slVal <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) {
+      console.warn("[Executor] Manual trade rejected: non-finite or non-positive levels.", { entry: entryVal, stopLoss: slVal, takeProfit: tpVal });
+      emit("trade_blocked", { reason: "invalid_trade_levels", issues: ["levels_non_finite_or_non_positive"] }, {});
+      return null;
+    }
+    if (dir === "long" && !(slVal < entryVal && entryVal < tpVal)) {
+      console.warn("[Executor] Manual long trade rejected: invalid level order. Expected: SL < Entry < TP.", { entry: entryVal, stopLoss: slVal, takeProfit: tpVal });
+      emit("trade_blocked", { reason: "invalid_trade_levels", issues: ["invalid_long_ordering"] }, {});
+      return null;
+    }
+    if (dir === "short" && !(tpVal < entryVal && entryVal < slVal)) {
+      console.warn("[Executor] Manual short trade rejected: invalid level order. Expected: TP < Entry < SL.", { entry: entryVal, stopLoss: slVal, takeProfit: tpVal });
+      emit("trade_blocked", { reason: "invalid_trade_levels", issues: ["invalid_short_ordering"] }, {});
+      return null;
+    }
+
+    const tradeId = nextTradeId();
+    const trade = {
+      id: tradeId,
+      mode: stateStore.getState().mode,
+      direction: dir,
+      entry: entryVal,
+      stop: slVal,
+      target: tpVal,
+      mfe: 0,
+      mae: 0,
+      bars: 0,
+      opened_at: new Date().toISOString(),
+      context_signature: null,
+      scenario_taken: null,
+      trigger_used: null,
+      brain_verdict: null,
+      trade_mode: "manual",
+      context_maturity: "manual",
+      exploration_reason: null,
+      would_have_been_blocked_without_learning_mode: false,
+      risk_profile: null,
+      status: "active",
+      tags: ["manual"],
+      trade_type: "manual",
+      reason: "manual_operator",
+      confidence: null,
+      opened_candle_key: null,
+      opened_candle_index: null,
+    };
+    activeTrade = trade;
+    stateStore.setState({ activeTradeId: tradeId, armed: false, lastAction: "trade_opened" });
+    console.info(`[Executor] Manual trade ${tradeId} ${trade.direction} @ ${trade.entry}`);
+    emit("trade_opened", { trade_id: tradeId, mode: trade.mode, direction: trade.direction, entry: trade.entry }, {});
+    brainTradeJournal?.upsertJournalTrade({
+      id: trade.id,
+      mode: trade.mode,
+      source: "operator_manual",
+      type: "manual",
+      status: "active",
+      setup: "manual",
+      direction: trade.direction,
+      entry: trade.entry,
+      stopLoss: trade.stop,
+      takeProfit: trade.target,
+      confidence: null,
+      triggeredAt: trade.opened_at,
+      notes: "Manual operator trade",
+      tags: ["manual"],
+      tradeMeta: { mode: trade.mode, type: "manual", reason: "manual_operator" },
+    });
+    return trade;
+  }
+
   return {
     armSetup,
     cancelArm,
     processCandle,
     getActiveTrade,
+    placeManualTrade,
   };
 }
 
