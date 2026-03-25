@@ -9,6 +9,7 @@ let _chartLayout = null;
 let _activeDragHandle = null;
 let _activePlacementHandle = "entry";
 let _visualTradeLearningRecords = [];
+let _onTradeSync = null;
 
 function num(value, fallback = null) {
   const n = Number(value);
@@ -1184,8 +1185,13 @@ function updateTradeLearningRecord(trade = {}, packet = {}) {
 function refreshTradeVisualState(root, packet = {}, options = {}) {
   if (!_visualTrade || !root) return;
   const shouldSyncEditor = Boolean(options.syncEditor);
+  const prevStatus = _visualTrade?.status;
   const resolved = resolveTradeState(_visualTrade, packet);
   if (resolved) _visualTrade = resolved;
+  if (_visualTrade?.status && _visualTrade.status !== prevStatus) {
+    if (_onTradeSync) _onTradeSync(_visualTrade, packet, "status_change");
+    else console.warn("[Journal] Trade status changed without journal sync callback.", _visualTrade.id, prevStatus, _visualTrade.status);
+  }
   updateTradeLearningRecord(_visualTrade, packet);
   if (shouldSyncEditor) syncTradeEditor(root, _visualTrade);
   _chartLayout = drawMiniChart(
@@ -1260,6 +1266,7 @@ function bindTradeHandleDrag(root, getPacket) {
     _visualTrade.timeInTradeSec = 0;
     syncTradeEditor(root, _visualTrade);
     updateCurrentPacket({ visual_trade: _visualTrade });
+    _onTradeSync?.(_visualTrade, livePacket, "drag_adjust");
     refreshTradeVisualState(root, livePacket);
     if (!tooltip) return;
     const label = handle === "entry" ? "Entry" : handle === "stopLoss" ? "SL" : "TP";
@@ -1306,11 +1313,13 @@ function bindTradeHandleDrag(root, getPacket) {
 }
 
 export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
+  _onTradeSync = typeof controls?.onTradeSync === "function" ? controls.onTradeSync : null;
   const packet = brainPacket || getCurrentPacket() || {};
   _systemTradeProposal = buildProposedTrade(packet);
   _visualTradeLearningRecords = Array.isArray(packet?.visual_trade_learning_records) ? [...packet.visual_trade_learning_records] : [];
   _visualTrade = packet?.visual_trade ? { ...packet.visual_trade } : { ..._systemTradeProposal };
   _visualTrade = normalizeTradeLevels(_visualTrade, packet?.market_state?.candles || []).trade;
+  _onTradeSync?.(_visualTrade, packet, "modal_open");
   if (_modalRoot) _modalRoot.remove();
   _modalRoot = document.createElement("div");
   _modalRoot.className = "tvm-root";
@@ -1327,6 +1336,7 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
     const source = nextManual.direction !== (_systemTradeProposal?.direction || nextManual.direction) ? "operator_override" : "operator_manual";
     _visualTrade = normalizeTradeLevels({ ...nextManual, source, status: "pending", triggeredAt: null, resolvedAt: null, mfe: 0, mae: 0 }, livePacket?.market_state?.candles || []).trade;
     updateCurrentPacket({ visual_trade: _visualTrade });
+    _onTradeSync?.(_visualTrade, livePacket, "operator_edit");
     refreshTradeVisualState(_modalRoot, livePacket);
   };
   ["#tvm-trade-direction", "#tvm-trade-entry", "#tvm-trade-sl", "#tvm-trade-tp"].forEach((selector) => {
@@ -1378,15 +1388,18 @@ export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
       _visualTrade = { ...normalizeTradeLevels(_systemTradeProposal, livePacket?.market_state?.candles || []).trade, source: "system_auto", status: "pending", triggeredAt: null, resolvedAt: null, mfe: 0, mae: 0 };
       syncTradeEditor(_modalRoot, _visualTrade);
       updateCurrentPacket({ visual_trade: _visualTrade });
+      _onTradeSync?.(_visualTrade, livePacket, "use_auto_trade");
     } else if (action === "apply-manual-trade") {
       const edited = readTradeEditor(_modalRoot, _visualTrade || _systemTradeProposal);
       const source = edited.direction !== (_systemTradeProposal?.direction || edited.direction) ? "operator_override" : "operator_manual";
       _visualTrade = { ...normalizeTradeLevels(edited, livePacket?.market_state?.candles || []).trade, source, status: "pending", createdAt: _visualTrade?.createdAt || Date.now(), triggeredAt: null, resolvedAt: null, mfe: 0, mae: 0 };
       updateCurrentPacket({ visual_trade: _visualTrade });
+      _onTradeSync?.(_visualTrade, livePacket, "apply_manual_trade");
     } else if (action === "cancel-trade") {
       if (_visualTrade) {
         _visualTrade = { ..._visualTrade, status: "cancelled", resolvedAt: Date.now(), markers: [...(_visualTrade.markers || []), { type: "cancelled", ts: Date.now(), label: "Trade Cancelled", price: _visualTrade.entry }] };
         updateCurrentPacket({ visual_trade: _visualTrade });
+        _onTradeSync?.(_visualTrade, livePacket, "cancel_trade");
       }
     }
     window.setTimeout(() => {

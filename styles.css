@@ -77,6 +77,12 @@ th, td { border-bottom:1px solid var(--line); padding:.55rem .4rem; text-align:l
 .journal-layout { display: grid; grid-template-columns: .85fr 1.15fr; gap: 1rem; }
 .journal-form { display: grid; gap: .5rem; }
 .journal-filters { margin-bottom: .7rem; }
+.journal-trades-list table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.journal-trades-list th, .journal-trades-list td { border-bottom: 1px solid #233246; padding: .35rem .4rem; text-align: left; vertical-align: top; }
+.journal-trades-list tr { cursor: pointer; }
+.journal-trades-list tr:hover { background: rgba(56,189,248,.08); }
+.journal-trades-list .badge { font-size: .64rem; }
+.journal-trade-detail { margin-top: .6rem; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; }
 #review-modal { border: 1px solid var(--line); background: #0f1621; color: var(--text); border-radius: 12px; width: min(680px, 95vw); }
 .review-form { display:grid; gap:.7rem; }
 .review-form header { display:flex; justify-content:space-between; align-items:center; }

@@ -369,6 +369,18 @@
 
       <section class="panel tab-panel" data-panel="journal">
         <h2>Journal / Lab Notes</h2>
+        <article class="panel-soft">
+          <h3>Paper Trade Journal</h3>
+          <div class="filters journal-filters">
+            <select id="journal-trade-filter-status"><option value="">All status</option></select>
+            <select id="journal-trade-filter-direction"><option value="">All directions</option><option value="long">Long</option><option value="short">Short</option></select>
+            <select id="journal-trade-filter-source"><option value="">All sources</option><option value="brain_auto">brain_auto</option><option value="operator_adjusted">operator_adjusted</option><option value="operator_manual">operator_manual</option></select>
+            <select id="journal-trade-filter-setup"><option value="">All setups</option></select>
+            <input id="journal-trade-search" placeholder="Search id / notes..." />
+          </div>
+          <div id="journal-trades-list" class="journal-trades-list"></div>
+          <div id="journal-trade-detail" class="panel-soft journal-trade-detail muted">Select a trade row to inspect details.</div>
+        </article>
         <div class="journal-layout">
           <form id="journal-form" class="journal-form">
             <input id="note-id" type="hidden" />
