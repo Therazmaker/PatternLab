@@ -7,6 +7,7 @@ let _visualTrade = null;
 let _systemTradeProposal = null;
 let _chartLayout = null;
 let _activeDragHandle = null;
+let _activePlacementHandle = "entry";
 let _visualTradeLearningRecords = [];
 
 function num(value, fallback = null) {
@@ -896,6 +897,7 @@ function renderModal(packet = {}) {
             <h5>A. Chart Container</h5>
             <span id="tvm-countdown" class="tvm-countdown tvm-countdown-${countdown.urgency}">Candle closes in: ${countdown.display}</span>
           </div>
+          <p class="tiny muted tvm-chart-hint">Select E / SL / TP, then click the chart to place the level. You can still drag each handle.</p>
           <div class="tvm-chart-wrap" id="tvm-chart-wrap">
             <canvas id="tvm-chart" width="960" height="340"></canvas>
             <div class="tvm-trade-handles" id="tvm-trade-handles">
@@ -1229,6 +1231,13 @@ function bindTradeHandleDrag(root, getPacket) {
   const tooltip = root.querySelector("#tvm-handle-tooltip");
   if (!holder || !canvas) return;
   const dragState = { handle: null };
+  const setActiveHandle = (handle) => {
+    _activePlacementHandle = ["entry", "stopLoss", "takeProfit"].includes(handle) ? handle : "entry";
+    holder.querySelectorAll("[data-trade-handle]").forEach((el) => {
+      el.classList.toggle("selected", el.dataset.tradeHandle === _activePlacementHandle);
+    });
+    canvas.classList.add("tvm-chart-place-mode");
+  };
   const hideTooltip = () => {
     if (!tooltip) return;
     tooltip.classList.remove("show");
@@ -1238,13 +1247,10 @@ function bindTradeHandleDrag(root, getPacket) {
     const pct = (clientY - rect.top) / Math.max(1, rect.height);
     return Math.max(0, Math.min(canvas.height, pct * canvas.height));
   };
-  const onMove = (event) => {
-    if (!dragState.handle || !_chartLayout || !_visualTrade) return;
-    const canvasY = toCanvasY(event.clientY);
-    const price = _chartLayout.priceFromY(canvasY);
-    _activeDragHandle = dragState.handle;
+  const applyTradeLevel = (handle, price, event = null) => {
+    _activeDragHandle = handle;
     const livePacket = getPacket();
-    _visualTrade = applyHandleDrag({ ..._visualTrade, source: "operator_manual" }, dragState.handle, price, livePacket?.market_state?.candles || []);
+    _visualTrade = applyHandleDrag({ ..._visualTrade, source: "operator_manual" }, handle, price, livePacket?.market_state?.candles || []);
     _visualTrade.status = "pending";
     _visualTrade.triggeredAt = null;
     _visualTrade.resolvedAt = null;
@@ -1255,12 +1261,20 @@ function bindTradeHandleDrag(root, getPacket) {
     syncTradeEditor(root, _visualTrade);
     updateCurrentPacket({ visual_trade: _visualTrade });
     refreshTradeVisualState(root, livePacket);
-    if (tooltip) {
-      const label = dragState.handle === "entry" ? "Entry" : dragState.handle === "stopLoss" ? "SL" : "TP";
-      tooltip.textContent = `${label}: ${fmtPrice(_visualTrade[dragState.handle])}`;
-      tooltip.style.top = `${Math.max(8, Math.min(canvas.clientHeight - 16, event.clientY - canvas.getBoundingClientRect().top))}px`;
-      tooltip.classList.add("show");
+    if (!tooltip) return;
+    const label = handle === "entry" ? "Entry" : handle === "stopLoss" ? "SL" : "TP";
+    tooltip.textContent = `${label}: ${fmtPrice(_visualTrade[handle])}`;
+    if (event) {
+      const canvasRect = canvas.getBoundingClientRect();
+      tooltip.style.top = `${Math.max(8, Math.min(canvas.clientHeight - 16, event.clientY - canvasRect.top))}px`;
     }
+    tooltip.classList.add("show");
+  };
+  const onMove = (event) => {
+    if (!dragState.handle || !_chartLayout || !_visualTrade) return;
+    const canvasY = toCanvasY(event.clientY);
+    const price = _chartLayout.priceFromY(canvasY);
+    applyTradeLevel(dragState.handle, price, event);
   };
   const endDrag = () => {
     dragState.handle = null;
@@ -1274,6 +1288,7 @@ function bindTradeHandleDrag(root, getPacket) {
     handleEl.addEventListener("pointerdown", (event) => {
       if (!_visualTrade) return;
       event.preventDefault();
+      setActiveHandle(handleEl.dataset.tradeHandle);
       dragState.handle = handleEl.dataset.tradeHandle;
       handleEl.classList.add("dragging");
       handleEl.setPointerCapture?.(event.pointerId);
@@ -1281,6 +1296,13 @@ function bindTradeHandleDrag(root, getPacket) {
       window.addEventListener("pointerup", endDrag, { once: true });
     });
   });
+  canvas.addEventListener("click", (event) => {
+    if (!_visualTrade || !_chartLayout || dragState.handle) return;
+    const canvasY = toCanvasY(event.clientY);
+    const price = _chartLayout.priceFromY(canvasY);
+    applyTradeLevel(_activePlacementHandle || "entry", price, event);
+  });
+  setActiveHandle(_activePlacementHandle);
 }
 
 export function openTradeVisualizerModal(brainPacket = null, controls = {}) {
