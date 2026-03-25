@@ -897,11 +897,6 @@ function renderModal(packet = {}) {
             <h5>A. Chart Container</h5>
             <span id="tvm-countdown" class="tvm-countdown tvm-countdown-${countdown.urgency}">Candle closes in: ${countdown.display}</span>
           </div>
-          <div class="tvm-placement-tools" role="group" aria-label="Level placement tools">
-            <button type="button" class="ghost tvm-placement-tool" data-trade-pick="entry">E</button>
-            <button type="button" class="ghost tvm-placement-tool" data-trade-pick="takeProfit">TP</button>
-            <button type="button" class="ghost tvm-placement-tool" data-trade-pick="stopLoss">SL</button>
-          </div>
           <p class="tiny muted tvm-chart-hint">Select E / SL / TP, then click the chart to place the level. You can still drag each handle.</p>
           <div class="tvm-chart-wrap" id="tvm-chart-wrap">
             <canvas id="tvm-chart" width="960" height="340"></canvas>
@@ -1241,9 +1236,6 @@ function bindTradeHandleDrag(root, getPacket) {
     holder.querySelectorAll("[data-trade-handle]").forEach((el) => {
       el.classList.toggle("selected", el.dataset.tradeHandle === _activePlacementHandle);
     });
-    root.querySelectorAll("[data-trade-pick]").forEach((el) => {
-      el.classList.toggle("selected", el.dataset.tradePick === _activePlacementHandle);
-    });
     canvas.classList.add("tvm-chart-place-mode");
   };
   const hideTooltip = () => {
@@ -1309,9 +1301,6 @@ function bindTradeHandleDrag(root, getPacket) {
     const canvasY = toCanvasY(event.clientY);
     const price = _chartLayout.priceFromY(canvasY);
     applyTradeLevel(_activePlacementHandle || "entry", price, event);
-  });
-  root.querySelectorAll("[data-trade-pick]").forEach((btn) => {
-    btn.addEventListener("click", () => setActiveHandle(btn.dataset.tradePick));
   });
   setActiveHandle(_activePlacementHandle);
 }

@@ -462,9 +462,6 @@ details[open] > .dt-summary::before { transform:rotate(90deg); }
 .tvm-area-controls { grid-area: controls; }
 .tvm-area-sim { grid-area: sim; }
 .tvm-chart-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; margin-bottom:.35rem; }
-.tvm-placement-tools { display:flex; gap:.35rem; margin:.05rem 0 .3rem; }
-.tvm-placement-tool { min-width:2.25rem; padding:.2rem .5rem; font-size:.68rem; border-radius:999px; }
-.tvm-placement-tool.selected { border-color:rgba(125,211,252,.75); background:rgba(14,116,144,.3); color:#e0f2fe; }
 .tvm-chart-hint { margin:.05rem 0 .35rem; }
 .tvm-countdown { font-size:.7rem; font-weight:700; border-radius:999px; padding:.2rem .5rem; border:1px solid rgba(125, 211, 252, .4); background:rgba(14, 116, 144, .22); color:#bae6fd; }
 .tvm-countdown-warning { border-color:rgba(245, 158, 11, .55); background:rgba(120, 53, 15, .3); color:#fde68a; }
