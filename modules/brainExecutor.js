@@ -51,6 +51,7 @@ export function createBrainExecutor({
   stateStore,
   brainMemoryStore,
   outcomeLogger,
+  brainTradeJournal = null,
   learningUpdater,
   getExecutionPacket = () => ({ authority: "manual_only", autoExecutionAllowed: false }),
   getLearningProgress = () => ({}),
@@ -58,6 +59,7 @@ export function createBrainExecutor({
   cooldownMs = 90_000,
 } = {}) {
   let activeTrade = null;
+  const MIN_PAPER_SIZE = 0.01;
 
   function emit(type, payload = {}, linkage = {}) {
     const event = createBrainEvent(type, payload, linkage);
@@ -123,11 +125,36 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       target_direction: toNumber(scenario?.target_direction, direction === "long" ? 1 : direction === "short" ? -1 : 0),
       context_signature: contextSignature || scenario?.context_signature || null,
       brain_verdict_snapshot: brainVerdict || null,
+      confidence: toNumber(brainVerdict?.confidence, null),
+      plan_trade_id: `${nextTradeId()}_plan`,
       armed_at: new Date().toISOString(),
     };
     stateStore.setState({ armed: true, currentPlan: plan, lastAction: "armed", liveBlockedReason: null });
     console.info(`[Executor] Auto-armed setup ${plan.setup_name} (${plan.direction})`);
     emit("executor_armed", { plan }, { context_signature: plan.context_signature });
+    if (brainTradeJournal) {
+      const status = "planned";
+      brainTradeJournal.upsertJournalTrade({
+        id: plan.plan_trade_id || `${nextTradeId()}_plan`,
+        mode: "paper",
+        source: "brain_auto",
+        status,
+        setup: plan.setup_name,
+        direction: plan.direction,
+        entry: toNumber(plan.planned_entry, null),
+        stopLoss: toNumber(plan.stop, toNumber(plan.invalidation_price, null)),
+        takeProfit: toNumber(plan.target, null),
+        confidence: plan.confidence,
+        tags: Array.isArray(plan.tags) ? plan.tags : [],
+        notes: plan.trade_mode === "exploration" ? "Exploratory Paper Trade" : "",
+        tradeMeta: {
+          mode: "paper",
+          type: plan.trade_type || "standard",
+          reason: plan.exploration_reason || "planned",
+          riskSize: toNumber(plan.risk_profile?.size_multiplier, null),
+        },
+      });
+    }
     return stateStore.getState();
   }
 
@@ -159,12 +186,37 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       exploration_reason: plan.exploration_reason || null,
       would_have_been_blocked_without_learning_mode: Boolean(plan.would_have_been_blocked_without_learning_mode),
       risk_profile: plan.risk_profile || null,
-      status: "open",
+      status: "triggered",
+      tags: Array.isArray(plan.tags) ? [...plan.tags] : [],
+      trade_type: plan.trade_type || "standard",
+      reason: plan.exploration_reason || null,
+      confidence: toNumber(plan.confidence, null),
     };
     activeTrade = trade;
     stateStore.setState({ activeTradeId: tradeId, armed: false, lastAction: "trade_opened" });
     console.info(`[Executor] Trade opened ${tradeId} ${trade.direction} @ ${trade.entry}`);
     emit("trade_opened", { trade_id: tradeId, mode: trade.mode, direction: trade.direction, entry: trade.entry }, { context_signature: trade.context_signature, tradeId });
+    brainTradeJournal?.upsertJournalTrade({
+      id: trade.id,
+      mode: "paper",
+      source: "brain_auto",
+      status: "triggered",
+      setup: plan.setup_name,
+      direction: trade.direction,
+      entry: trade.entry,
+      stopLoss: trade.stop,
+      takeProfit: trade.target,
+      confidence: trade.confidence,
+      triggeredAt: trade.opened_at,
+      notes: trade.trade_type === "exploratory" ? "Exploratory Paper Trade" : "",
+      tags: trade.tags,
+      tradeMeta: {
+        mode: "paper",
+        type: trade.trade_type,
+        reason: trade.reason || "signal_trigger",
+        riskSize: toNumber(plan.risk_profile?.size_multiplier, null),
+      },
+    });
     return trade;
   }
 
@@ -173,6 +225,15 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     const price = toNumber(latestPrice, null);
     if (price === null) return null;
     activeTrade.bars += 1;
+    if (activeTrade.status === "triggered") {
+      activeTrade.status = "active";
+      brainTradeJournal?.upsertJournalTrade({
+        id: activeTrade.id,
+        status: "active",
+        triggeredAt: activeTrade.opened_at,
+        notes: activeTrade.trade_type === "exploratory" ? "Exploratory Paper Trade" : "",
+      });
+    }
     const favorable = activeTrade.direction === "short" ? activeTrade.entry - price : price - activeTrade.entry;
     const adverse = activeTrade.direction === "short" ? price - activeTrade.entry : activeTrade.entry - price;
     activeTrade.mfe = Math.max(activeTrade.mfe, favorable);
@@ -228,17 +289,73 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     });
 
     learningUpdater?.applyTradeLearning(logged || closed);
+    brainTradeJournal?.upsertJournalTrade({
+      id: closed.id,
+      status: "closed",
+      outcome: closed.result,
+      resolvedAt: closed.closed_at,
+      candlesInTrade: closed.resolution_candles,
+      mfe: closed.mfe,
+      mae: closed.mae,
+      notes: closed.trade_type === "exploratory" ? "Exploratory Paper Trade" : "",
+    });
     return closed;
   }
 
   function evaluateTrigger(plan, candle = {}) {
-    const price = toNumber(candle?.close, null);
-    if (price === null) return false;
-    const trigger = toNumber(plan.trigger_price, null);
+    const high = toNumber(candle?.high, null);
+    const low = toNumber(candle?.low, null);
+    const close = toNumber(candle?.close, null);
+    const trigger = toNumber(plan.trigger_price, toNumber(plan.planned_entry, null));
     if (trigger === null) return false;
-    if (plan.direction === "long") return price >= trigger;
-    if (plan.direction === "short") return price <= trigger;
+    if (plan.direction === "long") return (high !== null ? high >= trigger : close >= trigger);
+    if (plan.direction === "short") return (low !== null ? low <= trigger : close <= trigger);
     return false;
+  }
+
+  function normalizeSetupName(name = "") {
+    return String(name || "").trim().toLowerCase();
+  }
+
+  function isAggressivePaperMode(state = {}, brainVerdict = {}) {
+    if (String(state?.mode || "").toLowerCase() !== "paper") return false;
+    const uiMode = String(brainVerdict?.brain_mode || brainVerdict?.mode || "").toUpperCase();
+    const profile = String(state?.learningProfile?.profile || "").toLowerCase();
+    return uiMode === "AGGRESSIVE_PAPER" || profile.includes("aggressive");
+  }
+
+  function hasValidSetupDirection({ state, brainVerdict, nextCandlePlan, scenario } = {}) {
+    const direction = inferDirection({ ...(nextCandlePlan || {}), ...(scenario || {}), brain_bias: brainVerdict?.bias });
+    const setupName = normalizeSetupName(scenario?.name || nextCandlePlan?.posture || "");
+    const setupExists = Boolean(setupName) && !setupName.includes("no_trade") && !setupName.includes("chop");
+    return { direction, setupName, valid: setupExists && direction !== "none" };
+  }
+
+  function ensureFallbackLevels(plan = {}, candle = {}) {
+    const lastPrice = toNumber(candle?.close, null);
+    const high = toNumber(candle?.high, lastPrice);
+    const low = toNumber(candle?.low, lastPrice);
+    const candleRange = Math.max(Math.abs((high ?? lastPrice ?? 0) - (low ?? lastPrice ?? 0)), 1e-6);
+    const entry = toNumber(plan.planned_entry, toNumber(plan.trigger_price, lastPrice));
+    if (entry === null) return plan;
+    let stop = toNumber(plan.stop, toNumber(plan.invalidation_price, null));
+    let target = toNumber(plan.target, null);
+    if (plan.direction === "short") {
+      if (stop === null) stop = entry + candleRange * 0.5;
+      if (target === null) target = entry - candleRange * 1.0;
+      if (!(target < entry && entry < stop)) {
+        target = entry - candleRange * 1.0;
+        stop = entry + candleRange * 0.5;
+      }
+    } else {
+      if (stop === null) stop = entry - candleRange * 0.5;
+      if (target === null) target = entry + candleRange * 1.0;
+      if (!(stop < entry && entry < target)) {
+        stop = entry - candleRange * 0.5;
+        target = entry + candleRange * 1.0;
+      }
+    }
+    return { ...plan, planned_entry: entry, trigger_price: toNumber(plan.trigger_price, entry), stop, target };
   }
 
   function processCandle({ candle, brainVerdict, nextCandlePlan, scenario, contextSignature } = {}) {
@@ -301,7 +418,10 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     }
 
     const allowExploration = shouldAllowExplorationTrade({ brainVerdict, scenario, contextRow, state });
-    const shouldAutoArm = !state.armed && state.autoArm && (hasPlanConfidence(brainVerdict, scenario) || allowExploration);
+    const setupDirection = hasValidSetupDirection({ state, brainVerdict, nextCandlePlan, scenario });
+    const noTradeVerdict = String(brainVerdict?.verdict || brainVerdict?.action || "").toUpperCase() === "NO_TRADE" || Boolean(brainVerdict?.no_trade_reason);
+    const forcePaperExploratory = isAggressivePaperMode(state, brainVerdict) && noTradeVerdict && setupDirection.valid;
+    const shouldAutoArm = !state.armed && ((state.mode === "paper") || state.autoArm) && (hasPlanConfidence(brainVerdict, scenario) || allowExploration || forcePaperExploratory);
     if (shouldAutoArm) {
       const armedState = armSetup({
         brainVerdict: {
@@ -313,12 +433,15 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
         scenario,
         contextSignature,
       });
-      if (allowExploration) {
+      if (allowExploration || forcePaperExploratory) {
         const exploratoryDirection = inferDirection({ ...(armedState.currentPlan || {}), ...(scenario || {}), brain_bias: brainVerdict?.bias });
         armedState.currentPlan.trade_mode = "exploration";
+        armedState.currentPlan.trade_type = "exploratory";
         armedState.currentPlan.context_maturity = brainVerdict?.context_maturity || "immature";
         armedState.currentPlan.setup_name = `exploratory_${exploratoryDirection === "short" ? "short" : "long"}`;
-        armedState.currentPlan.exploration_reason = "explore_to_learn";
+        armedState.currentPlan.exploration_reason = "learning_collection";
+        armedState.currentPlan.confidence = Math.min(toNumber(brainVerdict?.confidence, 0.2), 0.3);
+        armedState.currentPlan.tags = ["exploratory", "low_confidence", "high_danger"];
         armedState.currentPlan.would_have_been_blocked_without_learning_mode = true;
         stateStore.setState({ currentPlan: armedState.currentPlan });
         console.info("[LearningProfile] Exploration override applied");
@@ -338,7 +461,9 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
 
     if (!state.armed) return { state, activeTrade: null };
 
-    const plan = state.currentPlan || armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }).currentPlan;
+    let plan = state.currentPlan || armSetup({ brainVerdict, nextCandlePlan, scenario, contextSignature }).currentPlan;
+    plan = ensureFallbackLevels(plan, candle);
+    stateStore.setState({ currentPlan: plan });
     const executionPacket = getExecutionPacket();
     const riskProfile = computeRiskSizing({
       brainVerdict: plan.brain_verdict_snapshot || brainVerdict,
@@ -388,7 +513,12 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     }
     if (riskProfile.reason.includes("reduced_by_friction_danger")) console.info("[Risk] Reduced by friction/danger");
     if (riskProfile.reason.includes("boosted_by_familiarity_scenario")) console.info("[Risk] Boosted by familiarity/scenario reliability");
-    if (riskProfile.size_multiplier <= 0) {
+    if (riskProfile.size_multiplier <= 0 && state.mode === "paper") {
+      riskProfile.size_multiplier = MIN_PAPER_SIZE;
+      riskProfile.capital_fraction = Math.max(MIN_PAPER_SIZE, Number(riskProfile.capital_fraction || 0));
+      riskProfile.reason = [...new Set([...(riskProfile.reason || []), "paper_minimum_size_applied"])];
+      stateStore.setState({ currentPlan: { ...plan, risk_profile: riskProfile }, lastRiskProfile: riskProfile });
+    } else if (riskProfile.size_multiplier <= 0) {
       console.info("[Risk] Blocked in blocked mode");
       emit("trade_blocked", { reason: "risk_profile_zero_size", risk_profile: riskProfile }, { context_signature: plan?.context_signature || contextSignature });
       return { state: stateStore.getState(), activeTrade: null };
