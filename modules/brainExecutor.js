@@ -57,6 +57,10 @@ export function createBrainExecutor({
   getLearningProgress = () => ({}),
   liveGateEvaluator = () => ({ allowed: false, reasons: ["live gate unavailable"] }),
   cooldownMs = 90_000,
+  intrabarPolicy = {
+    allowSameCandleExit: false,
+    sameBarTouchRule: "stop_first",
+  },
 } = {}) {
   let activeTrade = null;
   const MIN_PAPER_SIZE = 0.01;
@@ -185,7 +189,7 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     return stateStore.getState();
   }
 
-  function openTrade(plan, price) {
+  function openTrade(plan, price, candle = {}) {
     const tradeId = nextTradeId();
     const entry = toNumber(price, plan.planned_entry);
     const levelValidation = validateTradeLevels({
@@ -229,6 +233,8 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       trade_type: plan.trade_type || "standard",
       reason: plan.exploration_reason || null,
       confidence: toNumber(plan.confidence, null),
+      opened_candle_key: candleKey(candle),
+      opened_candle_index: Number.isFinite(Number(candle?.index)) ? Number(candle.index) : null,
     };
     activeTrade = trade;
     stateStore.setState({ activeTradeId: tradeId, armed: false, lastAction: "trade_opened" });
@@ -266,6 +272,8 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     const close = toNumber(candle?.close, null);
     const price = toNumber(close, null);
     if (price === null) return null;
+    const currentCandleKey = candleKey(candle);
+    if (!intrabarPolicy?.allowSameCandleExit && activeTrade.opened_candle_key === currentCandleKey) return null;
     activeTrade.bars += 1;
     const favorablePoint = activeTrade.direction === "short" ? (Number.isFinite(low) ? low : price) : (Number.isFinite(high) ? high : price);
     const adversePoint = activeTrade.direction === "short" ? (Number.isFinite(high) ? high : price) : (Number.isFinite(low) ? low : price);
@@ -275,22 +283,39 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     activeTrade.mae = Math.max(activeTrade.mae, adverse);
 
     let exitReason = null;
+    let stopHit = false;
+    let targetHit = false;
     if (activeTrade.direction === "long") {
-      if (activeTrade.stop !== null && Number.isFinite(low) && low <= activeTrade.stop) exitReason = "stop";
-      else if (activeTrade.target !== null && Number.isFinite(high) && high >= activeTrade.target) exitReason = "target";
+      stopHit = activeTrade.stop !== null && Number.isFinite(low) && low <= activeTrade.stop;
+      targetHit = activeTrade.target !== null && Number.isFinite(high) && high >= activeTrade.target;
     } else if (activeTrade.direction === "short") {
-      if (activeTrade.stop !== null && Number.isFinite(high) && high >= activeTrade.stop) exitReason = "stop";
-      else if (activeTrade.target !== null && Number.isFinite(low) && low <= activeTrade.target) exitReason = "target";
+      stopHit = activeTrade.stop !== null && Number.isFinite(high) && high >= activeTrade.stop;
+      targetHit = activeTrade.target !== null && Number.isFinite(low) && low <= activeTrade.target;
+    }
+    if (stopHit && targetHit) {
+      const rule = String(intrabarPolicy?.sameBarTouchRule || "stop_first").toLowerCase();
+      const stopPreferred = rule !== "target_first";
+      exitReason = stopPreferred ? "ambiguous_intrabar_stop_first" : "ambiguous_intrabar_target_first";
+      activeTrade.intrabar_ambiguity = true;
+      activeTrade.intrabar_resolution_rule = stopPreferred ? "stop_first" : "target_first";
+      if (stopPreferred) activeTrade.exit = activeTrade.stop;
+      else activeTrade.exit = activeTrade.target;
+    } else if (stopHit) {
+      exitReason = "stop";
+    } else if (targetHit) {
+      exitReason = "target";
     }
     if (activeTrade.bars >= 16 && !exitReason) exitReason = "rule_exit";
 
     if (!exitReason) return null;
-    activeTrade.exit = price;
+    if (!Number.isFinite(activeTrade.exit)) activeTrade.exit = price;
     activeTrade.closed_at = new Date().toISOString();
     activeTrade.exit_reason = exitReason;
     activeTrade.result = computeOutcome(activeTrade);
     activeTrade.resolution_candles = activeTrade.bars;
     activeTrade.time_in_trade_sec = Math.max(0, Math.round((new Date(activeTrade.closed_at).getTime() - new Date(activeTrade.opened_at).getTime()) / 1000));
+    activeTrade.resolved_candle_index = Number.isFinite(Number(candle?.index)) ? Number(candle.index) : null;
+    activeTrade.instant_resolution = activeTrade.opened_candle_key === currentCandleKey || activeTrade.opened_at === activeTrade.closed_at;
     activeTrade.status = "closed";
 
     const closed = { ...activeTrade };
@@ -335,6 +360,13 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       mfe: closed.mfe,
       mae: closed.mae,
       notes: closed.trade_type === "exploratory" ? "Exploratory Paper Trade" : "",
+      tradeMeta: {
+        triggeredCandleIndex: closed.opened_candle_index,
+        resolvedCandleIndex: closed.resolved_candle_index,
+        instant_resolution: Boolean(closed.instant_resolution),
+        ambiguous_intrabar: Boolean(closed.intrabar_ambiguity),
+        intrabar_resolution_rule: closed.intrabar_resolution_rule || null,
+      },
     });
     return closed;
   }
@@ -613,7 +645,7 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
 
     if (!evaluateTrigger(plan, candle)) return { state: stateStore.getState(), activeTrade: null };
 
-    const trade = openTrade(plan, candle?.close);
+    const trade = openTrade(plan, candle?.close, candle);
     if (!trade) return { state: stateStore.getState(), activeTrade: null };
     if (plan.trade_mode === "exploration") {
       console.info("[Executor] Exploratory trade executed");

@@ -62,6 +62,14 @@ function normalizeSource(value = "brain_auto") {
   return "brain_auto";
 }
 
+function hasActivationMarker(markers = []) {
+  if (!Array.isArray(markers)) return false;
+  return markers.some((marker) => {
+    const raw = String(marker?.type || marker?.kind || marker?.event || marker?.name || "").toLowerCase();
+    return raw.includes("activated") || raw.includes("trigger");
+  });
+}
+
 function inferRiskReward(trade = {}) {
   const existing = toFiniteNumber(trade.riskReward, null);
   if (existing !== null) return Number(existing.toFixed(4));
@@ -91,6 +99,29 @@ export function normalizeJournalTrade(brainTrade = {}, context = {}) {
   const forcedInvalid = invalidReasons.length > 0;
   const initialStatus = brainTrade.status || context.status || (brainTrade.result ? "closed" : "planned");
   const status = toLifecycleStatus(forcedInvalid ? "invalid" : initialStatus);
+  const triggeredAt = brainTrade.triggeredAt || brainTrade.triggered_at || context.triggeredAt || null;
+  const resolvedAt = brainTrade.resolvedAt || brainTrade.resolved_at || context.resolvedAt || null;
+  const baseMeta = brainTrade.tradeMeta && typeof brainTrade.tradeMeta === "object" ? brainTrade.tradeMeta : {};
+  const triggeredCandleIndex = toFiniteNumber(brainTrade.triggeredCandleIndex ?? baseMeta.triggeredCandleIndex, null);
+  const resolvedCandleIndex = toFiniteNumber(brainTrade.resolvedCandleIndex ?? baseMeta.resolvedCandleIndex, null);
+  const candlesInTradeRaw = toFiniteNumber(brainTrade.candlesInTrade ?? brainTrade.resolution_candles, null);
+  const candlesInTrade = (
+    Number.isFinite(candlesInTradeRaw)
+      ? candlesInTradeRaw
+      : (Number.isFinite(triggeredCandleIndex) && Number.isFinite(resolvedCandleIndex) ? Math.max(0, resolvedCandleIndex - triggeredCandleIndex) : null)
+  );
+  const normalizedCandles = (
+    Number.isFinite(candlesInTrade)
+      ? ((Number.isFinite(triggeredCandleIndex) && Number.isFinite(resolvedCandleIndex) && resolvedCandleIndex > triggeredCandleIndex)
+        ? Math.max(1, candlesInTrade)
+        : Math.max(0, candlesInTrade))
+      : null
+  );
+  const instantResolution = Boolean(baseMeta.instant_resolution || (triggeredAt && resolvedAt && triggeredAt === resolvedAt));
+  const mfeRaw = toFiniteNumber(brainTrade.mfe, null);
+  const maeRaw = toFiniteNumber(brainTrade.mae, null);
+  const mfe = Number.isFinite(mfeRaw) ? Math.max(0, mfeRaw) : (status === "closed" && Number.isFinite(normalizedCandles) && normalizedCandles >= 1 ? 0 : null);
+  const mae = Number.isFinite(maeRaw) ? Math.max(0, maeRaw) : (status === "closed" && Number.isFinite(normalizedCandles) && normalizedCandles >= 1 ? 0 : null);
   return {
     id,
     mode: "paper",
@@ -105,19 +136,22 @@ export function normalizeJournalTrade(brainTrade = {}, context = {}) {
     riskReward: inferRiskReward(brainTrade),
     confidence: toFiniteNumber(brainTrade.confidence, null),
     createdAt: brainTrade.createdAt || brainTrade.created_at || brainTrade.ts || context.createdAt || now,
-    triggeredAt: brainTrade.triggeredAt || brainTrade.triggered_at || context.triggeredAt || null,
-    resolvedAt: brainTrade.resolvedAt || brainTrade.resolved_at || context.resolvedAt || null,
+    triggeredAt,
+    resolvedAt,
     timeInTradeSec: toFiniteNumber(brainTrade.timeInTradeSec ?? brainTrade.time_in_trade_sec, null),
-    candlesInTrade: toFiniteNumber(brainTrade.candlesInTrade ?? brainTrade.resolution_candles, null),
-    mfe: toFiniteNumber(brainTrade.mfe, null),
-    mae: toFiniteNumber(brainTrade.mae, null),
+    candlesInTrade: normalizedCandles,
+    mfe,
+    mae,
     notes: brainTrade.notes || context.notes || "",
     operatorAdjusted: Boolean(brainTrade.operatorAdjusted ?? source === "operator_adjusted"),
     contextSnapshot: brainTrade.contextSnapshot && typeof brainTrade.contextSnapshot === "object" ? brainTrade.contextSnapshot : (context.contextSnapshot && typeof context.contextSnapshot === "object" ? context.contextSnapshot : {}),
-    tradeMeta: brainTrade.tradeMeta && typeof brainTrade.tradeMeta === "object" ? brainTrade.tradeMeta : {
-      triggeredCandleIndex: toFiniteNumber(brainTrade.triggeredCandleIndex, null),
-      markers: Array.isArray(brainTrade.markers) ? brainTrade.markers : [],
-      learningRecorded: Boolean(brainTrade.learningRecorded),
+    tradeMeta: {
+      ...baseMeta,
+      triggeredCandleIndex,
+      resolvedCandleIndex,
+      markers: Array.isArray(baseMeta.markers) ? baseMeta.markers : (Array.isArray(brainTrade.markers) ? brainTrade.markers : []),
+      learningRecorded: Boolean(baseMeta.learningRecorded ?? brainTrade.learningRecorded),
+      instant_resolution: instantResolution,
     },
     invalidReasons,
     learningExcluded: forcedInvalid || Boolean(brainTrade.learningExcluded),
@@ -144,11 +178,20 @@ function mergeJournalTrade(existing = null, incoming = {}) {
     updatedAt: nowIso(),
   };
   if (existing.status !== incoming.status) {
-    merged.lifecycleHistory.unshift({
-      from: existing.status,
-      to: incoming.status,
-      ts: merged.updatedAt,
-    });
+    const markers = merged.tradeMeta?.markers || [];
+    const hasActivation = hasActivationMarker(markers) || Boolean(merged.triggeredAt);
+    if (existing.status === "planned" && incoming.status === "closed" && hasActivation) {
+      merged.lifecycleHistory.unshift(
+        { from: "active", to: "closed", ts: merged.updatedAt },
+        { from: "planned", to: "active", ts: merged.updatedAt },
+      );
+    } else {
+      merged.lifecycleHistory.unshift({
+        from: existing.status,
+        to: incoming.status,
+        ts: merged.updatedAt,
+      });
+    }
     merged.lifecycleHistory = merged.lifecycleHistory.slice(0, 40);
   }
   return merged;
