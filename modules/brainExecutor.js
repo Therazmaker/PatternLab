@@ -133,6 +133,16 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     console.info(`[Executor] Auto-armed setup ${plan.setup_name} (${plan.direction})`);
     emit("executor_armed", { plan }, { context_signature: plan.context_signature });
     if (brainTradeJournal) {
+      const planValidation = validateTradeLevels({
+        direction: plan.direction,
+        entry: toNumber(plan.planned_entry, null),
+        stopLoss: toNumber(plan.stop, toNumber(plan.invalidation_price, null)),
+        takeProfit: toNumber(plan.target, null),
+      });
+      if (!planValidation.valid) {
+        console.warn("[Executor] Planned trade rejected from journal due to invalid levels.", planValidation.issues);
+        return stateStore.getState();
+      }
       const status = "planned";
       brainTradeJournal.upsertJournalTrade({
         id: plan.plan_trade_id || `${nextTradeId()}_plan`,
@@ -166,6 +176,17 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
   function openTrade(plan, price) {
     const tradeId = nextTradeId();
     const entry = toNumber(price, plan.planned_entry);
+    const levelValidation = validateTradeLevels({
+      direction: plan.direction,
+      entry,
+      stopLoss: toNumber(plan.stop, toNumber(plan.invalidation_price, null)),
+      takeProfit: toNumber(plan.target, null),
+    });
+    if (!levelValidation.valid) {
+      console.warn("[Executor] Trade execution rejected due to invalid levels.", levelValidation.issues);
+      emit("trade_blocked", { reason: "invalid_trade_levels", issues: levelValidation.issues }, { context_signature: plan?.context_signature || null });
+      return null;
+    }
     const trade = {
       id: tradeId,
       mode: stateStore.getState().mode,
@@ -332,30 +353,30 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
   }
 
   function ensureFallbackLevels(plan = {}, candle = {}) {
-    const lastPrice = toNumber(candle?.close, null);
-    const high = toNumber(candle?.high, lastPrice);
-    const low = toNumber(candle?.low, lastPrice);
-    const candleRange = Math.max(Math.abs((high ?? lastPrice ?? 0) - (low ?? lastPrice ?? 0)), 1e-6);
-    const entry = toNumber(plan.planned_entry, toNumber(plan.trigger_price, lastPrice));
-    if (entry === null) return plan;
+    const fallback = fallbackTradeLevels({ direction: plan.direction }, [candle], candle);
+    if (!fallback) return plan;
+    let entry = toNumber(plan.planned_entry, toNumber(plan.trigger_price, fallback.currentPrice));
     let stop = toNumber(plan.stop, toNumber(plan.invalidation_price, null));
     let target = toNumber(plan.target, null);
-    if (plan.direction === "short") {
-      if (stop === null) stop = entry + candleRange * 0.5;
-      if (target === null) target = entry - candleRange * 1.0;
-      if (!(target < entry && entry < stop)) {
-        target = entry - candleRange * 1.0;
-        stop = entry + candleRange * 0.5;
-      }
-    } else {
-      if (stop === null) stop = entry - candleRange * 0.5;
-      if (target === null) target = entry + candleRange * 1.0;
-      if (!(stop < entry && entry < target)) {
-        stop = entry - candleRange * 0.5;
-        target = entry + candleRange * 1.0;
-      }
+
+    if (entry === 0) entry = fallback.currentPrice;
+    if (!Number.isFinite(entry) || entry <= 0 || stop === 0 || target === 0) {
+      entry = fallback.entry;
+      stop = fallback.stop;
+      target = fallback.target;
     }
-    return { ...plan, planned_entry: entry, trigger_price: toNumber(plan.trigger_price, entry), stop, target };
+    const validation = validateTradeLevels({ direction: plan.direction, entry, stopLoss: stop, takeProfit: target }, [candle], candle);
+    if (!validation.valid) {
+      console.warn("[Executor] Invalid levels detected. Regenerating fallback.", { issues: validation.issues });
+      entry = fallback.entry;
+      stop = fallback.stop;
+      target = fallback.target;
+    }
+    const finalValidation = validateTradeLevels({ direction: plan.direction, entry, stopLoss: stop, takeProfit: target }, [candle], candle);
+    if (finalValidation.warnings.length) {
+      console.warn("[Executor] Trade levels warning.", { warnings: finalValidation.warnings, rr: finalValidation.rr });
+    }
+    return { ...plan, planned_entry: entry, trigger_price: toNumber(plan.trigger_price, entry), stop, target, risk_reward: finalValidation.rr };
   }
 
   function processCandle({ candle, brainVerdict, nextCandlePlan, scenario, contextSignature } = {}) {
@@ -523,9 +544,33 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       emit("trade_blocked", { reason: "risk_profile_zero_size", risk_profile: riskProfile }, { context_signature: plan?.context_signature || contextSignature });
       return { state: stateStore.getState(), activeTrade: null };
     }
+    const preExecutionValidation = validateTradeLevels({
+      direction: plan.direction,
+      entry: plan.planned_entry,
+      stopLoss: plan.stop,
+      takeProfit: plan.target,
+    }, [candle], candle);
+    if (!preExecutionValidation.valid) {
+      console.warn("[Executor] Blocking trade: invalid levels.", preExecutionValidation.issues);
+      const regeneratedPlan = ensureFallbackLevels(plan, candle);
+      const regeneratedValidation = validateTradeLevels({
+        direction: regeneratedPlan.direction,
+        entry: regeneratedPlan.planned_entry,
+        stopLoss: regeneratedPlan.stop,
+        takeProfit: regeneratedPlan.target,
+      }, [candle], candle);
+      if (!regeneratedValidation.valid) {
+        emit("trade_blocked", { reason: "invalid_trade_levels", issues: regeneratedValidation.issues }, { context_signature: plan?.context_signature || contextSignature });
+        return { state: stateStore.getState(), activeTrade: null };
+      }
+      plan = regeneratedPlan;
+      stateStore.setState({ currentPlan: plan });
+    }
+
     if (!evaluateTrigger(plan, candle)) return { state: stateStore.getState(), activeTrade: null };
 
     const trade = openTrade(plan, candle?.close);
+    if (!trade) return { state: stateStore.getState(), activeTrade: null };
     if (plan.trade_mode === "exploration") {
       console.info("[Executor] Exploratory trade executed");
       console.info("[Executor] Exploratory trade opened");
@@ -550,4 +595,90 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
     processCandle,
     getActiveTrade,
   };
+}
+
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) return value;
+  return Math.min(max, Math.max(min, value));
+}
+
+function computeCandleStats(candles = [], fallbackCandle = {}) {
+  const rows = Array.isArray(candles) && candles.length ? candles : [fallbackCandle];
+  const highs = rows.map((c) => toNumber(c?.high, null)).filter((v) => Number.isFinite(v));
+  const lows = rows.map((c) => toNumber(c?.low, null)).filter((v) => Number.isFinite(v));
+  const closes = rows.map((c) => toNumber(c?.close, null)).filter((v) => Number.isFinite(v));
+  const candleMin = lows.length ? Math.min(...lows) : (closes.length ? Math.min(...closes) : null);
+  const candleMax = highs.length ? Math.max(...highs) : (closes.length ? Math.max(...closes) : null);
+  const currentPrice = closes.length ? closes[closes.length - 1] : toNumber(fallbackCandle?.close, null);
+  const candleRange = Number.isFinite(candleMin) && Number.isFinite(candleMax) ? Math.max(candleMax - candleMin, 1e-6) : 1e-6;
+  return { candleMin, candleMax, currentPrice, candleRange };
+}
+
+function fallbackTradeLevels(plan = {}, candles = [], fallbackCandle = {}) {
+  const { candleMin, candleMax, currentPrice, candleRange } = computeCandleStats(candles, fallbackCandle);
+  if (!Number.isFinite(currentPrice)) return null;
+  const buffer = candleRange * 0.5;
+  const direction = String(plan?.direction || "long").toLowerCase();
+  let entry = currentPrice;
+  let stop = direction === "short" ? currentPrice + (candleRange * 0.5) : currentPrice - (candleRange * 0.5);
+  let target = direction === "short" ? currentPrice - (candleRange * 1.0) : currentPrice + (candleRange * 1.0);
+
+  if (Number.isFinite(candleMin) && Number.isFinite(candleMax)) {
+    entry = clamp(entry, candleMin, candleMax);
+    stop = clamp(stop, candleMin - buffer, candleMax + buffer);
+    target = clamp(target, candleMin - buffer, candleMax + buffer);
+  }
+
+  if (entry === 0) entry = currentPrice;
+  if (direction === "short") {
+    if (!(target < entry && entry < stop)) {
+      target = Math.max(1e-6, entry - (candleRange * 1.0));
+      stop = Math.max(entry + 1e-6, entry + (candleRange * 0.5));
+    }
+  } else if (!(stop < entry && entry < target)) {
+    stop = Math.max(1e-6, entry - (candleRange * 0.5));
+    target = Math.max(entry + 1e-6, entry + (candleRange * 1.0));
+  }
+
+  entry = Math.max(1e-6, entry);
+  stop = Math.max(1e-6, stop);
+  target = Math.max(1e-6, target);
+  return { entry, stop, target, currentPrice, candleRange };
+}
+
+function validateTradeLevels(trade = {}, candles = [], fallbackCandle = {}) {
+  const direction = String(trade?.direction || "").toLowerCase();
+  const entry = toNumber(trade?.entry, null);
+  const stopLoss = toNumber(trade?.stopLoss, null);
+  const takeProfit = toNumber(trade?.takeProfit, null);
+  const { currentPrice, candleRange } = computeCandleStats(candles, fallbackCandle);
+  const maxDistance = candleRange * 5;
+  const issues = [];
+  const warnings = [];
+
+  if (![entry, stopLoss, takeProfit].every((v) => Number.isFinite(v) && v > 0)) issues.push("levels_non_finite_or_non_positive");
+  if (direction === "short") {
+    if (!(takeProfit < entry && entry < stopLoss)) issues.push("invalid_short_ordering");
+  } else if (direction === "long") {
+    if (!(stopLoss < entry && entry < takeProfit)) issues.push("invalid_long_ordering");
+  } else {
+    issues.push("invalid_direction");
+  }
+
+  if (Number.isFinite(currentPrice) && Number.isFinite(maxDistance) && maxDistance > 0) {
+    if (Math.abs(entry - currentPrice) > maxDistance) issues.push("entry_too_far_from_price");
+    if (Math.abs(stopLoss - currentPrice) > maxDistance) issues.push("stop_too_far_from_price");
+    if (Math.abs(takeProfit - currentPrice) > maxDistance) issues.push("target_too_far_from_price");
+  } else {
+    issues.push("invalid_price_context");
+  }
+
+  const risk = Number.isFinite(entry) && Number.isFinite(stopLoss) ? Math.abs(entry - stopLoss) : NaN;
+  const reward = Number.isFinite(entry) && Number.isFinite(takeProfit) ? Math.abs(entry - takeProfit) : NaN;
+  if (!Number.isFinite(risk) || risk <= 0) issues.push("non_positive_risk");
+  const rr = Number.isFinite(risk) && risk > 0 && Number.isFinite(reward) ? reward / risk : null;
+  if (Number.isFinite(rr) && rr > 50) issues.push("rr_extreme_reject");
+  else if (Number.isFinite(rr) && rr > 10) warnings.push("rr_suspicious");
+
+  return { valid: issues.length === 0, issues, warnings, rr };
 }

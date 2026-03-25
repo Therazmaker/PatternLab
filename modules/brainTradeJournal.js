@@ -11,12 +11,34 @@ function toFiniteNumber(value, fallback = null) {
 
 function toLifecycleStatus(status = "planned") {
   const raw = String(status || "").toLowerCase();
+  if (raw === "invalid") return "invalid";
   if (["planned", "pending"].includes(raw)) return "planned";
   if (raw === "triggered") return "triggered";
   if (raw === "active") return "active";
   if (["closed", "stopped", "target_hit"].includes(raw)) return "closed";
   if (raw === "cancelled") return "cancelled";
   return "planned";
+}
+
+function hasInvalidOrdering(direction = "long", entry = null, stopLoss = null, takeProfit = null) {
+  if ([entry, stopLoss, takeProfit].every((v) => v === null || v === undefined)) return false;
+  if (![entry, stopLoss, takeProfit].every((v) => Number.isFinite(v))) return true;
+  if (direction === "short") return !(takeProfit < entry && entry < stopLoss);
+  return !(stopLoss < entry && entry < takeProfit);
+}
+
+function detectTradeInvalidity(trade = {}) {
+  const direction = normalizeDirection(trade.direction);
+  const entry = toFiniteNumber(trade.entry, null);
+  const stopLoss = toFiniteNumber(trade.stopLoss ?? trade.stop_loss, null);
+  const takeProfit = toFiniteNumber(trade.takeProfit ?? trade.take_profit, null);
+  const riskReward = toFiniteNumber(trade.riskReward, null);
+  const invalidReasons = [];
+  if (entry === 0) invalidReasons.push("entry_zero");
+  if (takeProfit !== null && takeProfit < 0) invalidReasons.push("tp_negative");
+  if (riskReward !== null && riskReward > 100) invalidReasons.push("rr_extreme");
+  if (hasInvalidOrdering(direction, entry, stopLoss, takeProfit)) invalidReasons.push("invalid_ordering");
+  return invalidReasons;
 }
 
 function toOutcome(status = "", explicitOutcome = null) {
@@ -62,10 +84,13 @@ function ensureTradeId(rawTrade = {}) {
 
 export function normalizeJournalTrade(brainTrade = {}, context = {}) {
   const id = ensureTradeId(brainTrade);
-  const status = toLifecycleStatus(brainTrade.status || context.status || (brainTrade.result ? "closed" : "planned"));
   const outcome = toOutcome(brainTrade.status, brainTrade.outcome ?? brainTrade.result ?? context.outcome ?? null);
   const now = nowIso();
   const source = normalizeSource(brainTrade.source || context.source || "brain_auto");
+  const invalidReasons = detectTradeInvalidity(brainTrade);
+  const forcedInvalid = invalidReasons.length > 0;
+  const initialStatus = brainTrade.status || context.status || (brainTrade.result ? "closed" : "planned");
+  const status = toLifecycleStatus(forcedInvalid ? "invalid" : initialStatus);
   return {
     id,
     mode: "paper",
@@ -94,6 +119,8 @@ export function normalizeJournalTrade(brainTrade = {}, context = {}) {
       markers: Array.isArray(brainTrade.markers) ? brainTrade.markers : [],
       learningRecorded: Boolean(brainTrade.learningRecorded),
     },
+    invalidReasons,
+    learningExcluded: forcedInvalid || Boolean(brainTrade.learningExcluded),
     updatedAt: now,
     lifecycleHistory: [],
   };
@@ -164,7 +191,7 @@ export function createBrainTradeJournal(seed = [], options = {}) {
 
   function hydrate(nextSeed = []) {
     rows.length = 0;
-    rows.push(...(Array.isArray(nextSeed) ? nextSeed : []));
+    rows.push(...(Array.isArray(nextSeed) ? nextSeed.map((row) => normalizeJournalTrade(row)) : []));
     publish();
   }
 
