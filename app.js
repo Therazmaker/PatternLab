@@ -55,6 +55,8 @@ import {
   validateMemoryPayload,
   loadCopilotFeedback,
   saveCopilotFeedback,
+  loadLibraryItems,
+  saveLibraryItems,
 } from "./modules/storage.js";
 import { importCopilotFeedback, getCopilotFeedback, getCopilotFeedbackHistory, hydrateCopilotFeedbackStore, serializeCopilotFeedbackStore } from "./modules/copilotFeedbackStore.js";
 import { evaluateCopilotFeedback } from "./modules/copilotFeedbackEvaluator.js";
@@ -237,6 +239,7 @@ import {
   renderRobustnessScore,
   renderStressTests,
 } from "./modules/ui.js";
+import { LIBRARY_EXAMPLES, normalizeLibraryItem, resolveLibraryMatches } from "./modules/libraryMemory.js";
 
 const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
@@ -329,6 +332,17 @@ els.sessionOperatorDecision = document.getElementById("session-operator-decision
 els.sessionCopilotFeedbackBlock = document.getElementById("session-copilot-feedback-block");
 els.sessionBrainDashboard = document.getElementById("session-brain-dashboard");
 els.copilotFeedbackPanel = document.getElementById("copilot-feedback-panel");
+els.libraryJsonInput = document.getElementById("library-json-input");
+els.libraryValidateBtn = document.getElementById("btn-library-validate");
+els.librarySaveBtn = document.getElementById("btn-library-save");
+els.libraryClearBtn = document.getElementById("btn-library-clear");
+els.libraryLoadExampleBtn = document.getElementById("btn-library-load-example");
+els.libraryInputStatus = document.getElementById("library-input-status");
+els.libraryFilterType = document.getElementById("library-filter-type");
+els.libraryFilterActive = document.getElementById("library-filter-active");
+els.libraryFilterSearch = document.getElementById("library-filter-search");
+els.libraryItemsBody = document.getElementById("library-items-body");
+els.libraryDetailView = document.getElementById("library-detail-view");
 
 els.slSymbol = document.getElementById("sl-symbol");
 els.slTimeframe = document.getElementById("sl-timeframe");
@@ -563,6 +577,11 @@ let patternReviewDecisions = {};
 let livePatternSignals = [];
 let livePatternSummary = [];
 let importerMode = "research";
+let libraryItems = [];
+let selectedLibraryItemId = "";
+const libraryFilters = { type: "", active: "all", search: "" };
+let libraryInputLastValidation = null;
+let latestLibraryResolution = { matches: [], warnings: [], lessons: [], biasHints: [] };
 let strategyRuns = [];
 let strategyLifecycleState = normalizeLifecycleState();
 let selectedStrategyVersionId = "";
@@ -2960,6 +2979,7 @@ function rerender() {
   refreshRobustnessLab();
   refreshSessionCandlesTab();
   refreshStorageStatusUI();
+  refreshLibraryPanel();
   renderStrategyLab();
   renderPatternReviewPanel();
   renderSeededPatternLab();
@@ -3037,6 +3057,7 @@ async function handleImportMemory() {
     notes = loadNotes();
     journalTrades = loadJournalTrades();
     brainTradeJournal.hydrate(journalTrades);
+    libraryItems = loadLibraryItems();
     rerender();
     setSettingsStatus("Importación completada con éxito.", "ok");
   } catch (error) {
@@ -3951,6 +3972,146 @@ ${payloadText}`;
   setSessionCandleStatus("Clipboard unavailable: export opened in prompt modal.", "warning");
 }
 
+
+function setLibraryInputStatus(message, tone = "muted") {
+  if (!els.libraryInputStatus) return;
+  els.libraryInputStatus.className = `quick-add-feedback ${tone}`;
+  els.libraryInputStatus.textContent = message;
+}
+
+function getLibraryItems() {
+  return Array.isArray(libraryItems) ? libraryItems : [];
+}
+
+function upsertLibraryItem(item) {
+  const next = [...getLibraryItems()];
+  const index = next.findIndex((row) => row.id === item.id);
+  if (index >= 0) next[index] = item;
+  else next.unshift(item);
+  libraryItems = next;
+  saveLibraryItems(libraryItems).catch((error) => console.error("[Library] save failed", error));
+}
+
+function removeLibraryItem(id) {
+  libraryItems = getLibraryItems().filter((item) => item.id !== id);
+  if (selectedLibraryItemId === id) selectedLibraryItemId = "";
+  saveLibraryItems(libraryItems).catch((error) => console.error("[Library] save failed", error));
+}
+
+function toggleLibraryItemActive(id) {
+  libraryItems = getLibraryItems().map((item) => item.id === id ? { ...item, active: !item.active } : item);
+  saveLibraryItems(libraryItems).catch((error) => console.error("[Library] save failed", error));
+}
+
+function getFilteredLibraryItems() {
+  const search = String(libraryFilters.search || "").trim().toLowerCase();
+  return getLibraryItems().filter((item) => {
+    if (libraryFilters.type && item.type !== libraryFilters.type) return false;
+    if (libraryFilters.active === "active" && item.active === false) return false;
+    if (libraryFilters.active === "inactive" && item.active !== false) return false;
+    if (!search) return true;
+    const haystack = [item.id, item.name, ...(item.tags || [])].join(" ").toLowerCase();
+    return haystack.includes(search);
+  });
+}
+
+function refreshLibraryPanel() {
+  if (!els.libraryItemsBody) return;
+  const rows = getFilteredLibraryItems();
+  if (!rows.length) {
+    els.libraryItemsBody.innerHTML = '<tr><td colspan="7" class="muted tiny">No library items found.</td></tr>';
+  } else {
+    els.libraryItemsBody.innerHTML = rows.map((item) => {
+      const statusClass = item.active === false ? "library-status-inactive" : "library-status-active";
+      return `<tr>
+        <td>${item.id}</td>
+        <td>${item.type}</td>
+        <td>${item.name}</td>
+        <td>${Number(item.priority || 0).toFixed(2)}</td>
+        <td>${(item.tags || []).join(", ") || "-"}</td>
+        <td class="${statusClass}">${item.active === false ? "inactive" : "active"}</td>
+        <td>
+          <div class="button-row compact">
+            <button class="ghost" data-library-action="toggle" data-library-id="${item.id}">${item.active === false ? "Activate" : "Deactivate"}</button>
+            <button class="ghost" data-library-action="inspect" data-library-id="${item.id}">Inspect</button>
+            <button class="ghost" data-library-action="delete" data-library-id="${item.id}">Delete</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  const selected = getLibraryItems().find((item) => item.id === selectedLibraryItemId) || null;
+  if (els.libraryDetailView) {
+    els.libraryDetailView.textContent = selected
+      ? JSON.stringify(selected, null, 2)
+      : "Select an item to inspect full JSON.";
+  }
+
+  els.libraryItemsBody.querySelectorAll("[data-library-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.libraryAction;
+      const id = btn.dataset.libraryId;
+      if (!id) return;
+      if (action === "toggle") {
+        toggleLibraryItemActive(id);
+        refreshLibraryPanel();
+        return;
+      }
+      if (action === "inspect") {
+        selectedLibraryItemId = id;
+        refreshLibraryPanel();
+        return;
+      }
+      if (action === "delete") {
+        if (!window.confirm(`Delete library item '${id}'?`)) return;
+        removeLibraryItem(id);
+        refreshLibraryPanel();
+      }
+    });
+  });
+}
+
+function parseLibraryInput() {
+  const raw = String(els.libraryJsonInput?.value || "").trim();
+  if (!raw) return { ok: false, error: "Library JSON is empty." };
+  try {
+    const parsed = JSON.parse(raw);
+    return normalizeLibraryItem(parsed);
+  } catch (error) {
+    return { ok: false, error: error.message || "Invalid JSON." };
+  }
+}
+
+function handleLibraryValidate() {
+  const result = parseLibraryInput();
+  libraryInputLastValidation = result;
+  if (!result.ok) {
+    setLibraryInputStatus(`Validation error: ${result.error}`, "error");
+    return;
+  }
+  setLibraryInputStatus(`Valid ${result.item.type} · ${result.item.id}`, "success");
+}
+
+function handleLibrarySave() {
+  const result = parseLibraryInput();
+  libraryInputLastValidation = result;
+  if (!result.ok) {
+    setLibraryInputStatus(`Cannot save: ${result.error}`, "error");
+    return;
+  }
+  upsertLibraryItem(result.item);
+  selectedLibraryItemId = result.item.id;
+  setLibraryInputStatus(`Saved ${result.item.id} to library.`, "success");
+  refreshLibraryPanel();
+}
+
+function handleLibraryLoadExample() {
+  const next = LIBRARY_EXAMPLES[Math.floor(Math.random() * LIBRARY_EXAMPLES.length)];
+  if (els.libraryJsonInput) els.libraryJsonInput.value = JSON.stringify(next, null, 2);
+  setLibraryInputStatus("Loaded example JSON.", "muted");
+}
+
 function setupTabs() {
   els.tabs.forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -3964,6 +4125,9 @@ function setupTabs() {
       }
       if (tab === "copilot-feedback") {
         renderCopilotFeedbackTabUI();
+      }
+      if (tab === "library") {
+        refreshLibraryPanel();
       }
     });
   });
@@ -4058,6 +4222,17 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
   });
   els.importBtn.addEventListener("click", handleImport);
   els.clearBtn.addEventListener("click", () => { els.jsonInput.value = ""; setImportPreview(null); rerender(); });
+  els.libraryValidateBtn?.addEventListener("click", handleLibraryValidate);
+  els.librarySaveBtn?.addEventListener("click", handleLibrarySave);
+  els.libraryClearBtn?.addEventListener("click", () => {
+    if (els.libraryJsonInput) els.libraryJsonInput.value = "";
+    libraryInputLastValidation = null;
+    setLibraryInputStatus("Cleared.", "muted");
+  });
+  els.libraryLoadExampleBtn?.addEventListener("click", handleLibraryLoadExample);
+  els.libraryFilterType?.addEventListener("change", (event) => { libraryFilters.type = event.target.value || ""; refreshLibraryPanel(); });
+  els.libraryFilterActive?.addEventListener("change", (event) => { libraryFilters.active = event.target.value || "all"; refreshLibraryPanel(); });
+  els.libraryFilterSearch?.addEventListener("input", (event) => { libraryFilters.search = event.target.value || ""; refreshLibraryPanel(); });
   els.loadDemoBtn.addEventListener("click", loadDemoJson);
   els.injectSyntheticBtn?.addEventListener("click", handleInjectSyntheticTrades);
   els.search.addEventListener("input", (e) => { setFilter("search", e.target.value); refreshFeed(); });
@@ -5687,6 +5862,7 @@ function renderBrainDashboardPanel() {
         scenario_primary: reinforcementOverlay?.scenario_updates?.[0]?.scenario_name || reinforcementOverlay?.scenario_updates?.[0]?.scenario_id || null,
       },
     },
+    libraryInsights: latestLibraryResolution,
   });
   if (focusState) {
     const nextInput = document.getElementById(focusState.id);
@@ -5904,6 +6080,22 @@ function updateSessionOperatorContext(analysis, marketView, livePlanRecord = nul
     timeframe: marketView.timeframe,
     context_signature: orchestration.contextPacket?.context_signature,
   }));
+
+  latestLibraryResolution = resolveLibraryMatches({
+    setupName: _lastBrainVerdict?.next_candle_plan?.posture || analysis?.overlays?.structureSummary?.entryQuality || "",
+    direction: _lastBrainVerdict?.bias || machineSignal.direction || "",
+    tags: [
+      analysis?.pseudoMl?.regime?.regime,
+      analysis?.volatilityCondition,
+      analysis?.overlays?.structureSummary?.bias,
+      marketView?.timeframe,
+      marketView?.symbol,
+    ].filter(Boolean),
+    contextLabels: [
+      `session:${getActiveSession()?.session || ""}`,
+      `regime:${analysis?.pseudoMl?.regime?.regime || ""}`,
+    ],
+  }, libraryItems);
 
   const latestCandle = marketView?.candles?.[marketView.candles.length - 1] || null;
   brainExecutor.processCandle({
@@ -6708,6 +6900,7 @@ async function init() {
   selectedStrategyRunId = strategyRuns[0]?.id || "";
   livePatternSignals = loadLivePatternSignals();
   livePatternSummary = loadLivePatternSummary();
+  libraryItems = loadLibraryItems();
   // Hydrate copilot feedback store from persisted state
   const storedCopilot = loadCopilotFeedback();
   if (storedCopilot) hydrateCopilotFeedbackStore(storedCopilot);

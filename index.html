@@ -24,6 +24,7 @@
     <nav class="tabs panel">
       <button class="tab-btn active" data-tab="import">Import</button>
       <button class="tab-btn" data-tab="feed">Feed</button>
+      <button class="tab-btn" data-tab="library">Library</button>
       <button class="tab-btn" data-tab="review">Review</button>
       <button class="tab-btn" data-tab="stats">Stats</button>
       <button class="tab-btn" data-tab="compare">Compare</button>
@@ -133,6 +134,49 @@
         <div id="preview" class="preview"></div>
         <div id="import-report" class="preview"></div>
         <div id="synthetic-learning-ratio" class="preview muted">Synthetic vs Real Learning Ratio: 0% synthetic / 100% real</div>
+      </section>
+
+
+
+      <section class="panel tab-panel" data-panel="library">
+        <h2>Library</h2>
+        <p class="muted">Structured trading knowledge for the Brain. Paste JSON, validate, save, and activate what should influence analysis.</p>
+        <textarea id="library-json-input" placeholder='{"id":"lesson_x","type":"lesson","name":"Wait for reclaim","tags":["reclaim"],"data":{"hint":"Avoid early entry"}}'></textarea>
+        <div class="button-row">
+          <button id="btn-library-validate">Validate JSON</button>
+          <button id="btn-library-save" class="primary">Save to Library</button>
+          <button id="btn-library-clear" class="ghost">Clear</button>
+          <button id="btn-library-load-example" class="ghost">Load Example</button>
+        </div>
+        <div id="library-input-status" class="quick-add-feedback muted">Paste a JSON object and validate before saving.</div>
+
+        <div class="filters">
+          <select id="library-filter-type">
+            <option value="">All types</option>
+            <option value="pattern">pattern</option>
+            <option value="context">context</option>
+            <option value="lesson">lesson</option>
+            <option value="rule">rule</option>
+          </select>
+          <select id="library-filter-active">
+            <option value="all">All status</option>
+            <option value="active">Active only</option>
+            <option value="inactive">Inactive only</option>
+          </select>
+          <input id="library-filter-search" placeholder="Search id / name / tags" />
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Type</th><th>Name</th><th>Priority</th><th>Tags</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="library-items-body"></tbody>
+          </table>
+        </div>
+
+        <h3>Detail</h3>
+        <pre id="library-detail-view" class="preview muted">Select an item to inspect full JSON.</pre>
       </section>
 
       <section class="panel tab-panel full-width" data-panel="feed">

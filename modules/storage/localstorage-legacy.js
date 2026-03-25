@@ -24,6 +24,7 @@ export const LEGACY_KEYS = {
   learningModel: "patternlab.learningModel.v1",
   copilotFeedback: "patternlab.copilotFeedback.v1",
   syntheticTrades: "patternlab.syntheticTrades.v1",
+  libraryItems: "patternlab.libraryItems.v1",
 };
 
 const warnedQuotaKeys = new Set();
@@ -62,6 +63,7 @@ export function readLegacySnapshot() {
     operatorPatternSummary: parseJson(localStorage.getItem(LEGACY_KEYS.operatorPatternSummary), null),
     learningModel: parseJson(localStorage.getItem(LEGACY_KEYS.learningModel), null),
     syntheticTrades: parseJson(localStorage.getItem(LEGACY_KEYS.syntheticTrades), []),
+    libraryItems: parseJson(localStorage.getItem(LEGACY_KEYS.libraryItems), []),
   };
 }
 
