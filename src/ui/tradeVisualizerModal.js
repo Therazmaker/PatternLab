@@ -73,6 +73,15 @@ function avgCandleRange(candles = []) {
   return total / rows.length;
 }
 
+function getCurrentPrice(candles = [], fallback = null) {
+  const rows = toRecentCandles(candles);
+  const lastClose = num(rows[rows.length - 1]?.close, null);
+  if (Number.isFinite(lastClose) && lastClose > 0) return lastClose;
+  const fallbackPrice = num(fallback, null);
+  if (Number.isFinite(fallbackPrice) && fallbackPrice > 0) return fallbackPrice;
+  return null;
+}
+
 function fallbackFromStructure(direction, candles = [], entry = null) {
   const rows = toRecentCandles(candles);
   const last = rows[rows.length - 1] || { close: 0, high: 0, low: 0 };
@@ -92,12 +101,54 @@ function fallbackFromStructure(direction, candles = [], entry = null) {
   return { entry: refEntry, stopLoss, takeProfit };
 }
 
+function sanitizeTradeEntry(trade = {}, candles = []) {
+  const direction = trade?.direction === "short" ? "short" : "long";
+  const avgRange = avgCandleRange(candles);
+  const minGap = Math.max(1e-6, avgRange * 0.12);
+  const currentPrice = getCurrentPrice(candles, trade?.entry);
+  const rawEntry = num(trade?.entry, null);
+  const needsEntryFix = rawEntry === null || rawEntry <= 0;
+  let entry = needsEntryFix ? currentPrice : rawEntry;
+
+  if (!Number.isFinite(entry) || entry <= 0) {
+    const regenerated = fallbackFromStructure(direction, candles, currentPrice);
+    entry = num(regenerated?.entry, currentPrice);
+  }
+  if (!Number.isFinite(entry) || entry <= 0) {
+    throw new Error("[TradeVisualizer] Invalid trade entry (0/negative) after regeneration.");
+  }
+
+  let stopLoss = num(trade?.stopLoss, null);
+  let takeProfit = num(trade?.takeProfit, null);
+  if (needsEntryFix) {
+    const fallback = fallbackFromStructure(direction, candles, entry);
+    const riskDistance = Number.isFinite(stopLoss) ? Math.max(minGap, Math.abs(rawEntry - stopLoss)) : Math.abs(entry - fallback.stopLoss);
+    const rewardDistance = Number.isFinite(takeProfit) ? Math.max(minGap, Math.abs(takeProfit - rawEntry)) : Math.abs(fallback.takeProfit - entry);
+    if (direction === "short") {
+      stopLoss = entry + riskDistance;
+      takeProfit = entry - rewardDistance;
+    } else {
+      stopLoss = entry - riskDistance;
+      takeProfit = entry + rewardDistance;
+    }
+  }
+
+  return {
+    ...trade,
+    direction,
+    entry,
+    stopLoss,
+    takeProfit,
+    currentPrice,
+  };
+}
+
 export function buildProposedTrade(packet = {}) {
   const nextTrade = packet?.next_trade || {};
   const levels = getTradeLevels(nextTrade);
   const candles = packet?.market_state?.candles || [];
   const direction = inferDirection(nextTrade);
-  const lastClose = num(candles?.[candles.length - 1]?.close, num(levels.trigger, 0));
+  const lastClose = getCurrentPrice(candles, levels.trigger);
   const baseEntry = num(levels.trigger, lastClose);
   const structure = fallbackFromStructure(direction, candles, baseEntry);
 
@@ -114,7 +165,7 @@ export function buildProposedTrade(packet = {}) {
     if (!(takeProfit < entry)) takeProfit = entry - minGap * 2;
   }
 
-  return {
+  return sanitizeTradeEntry({
     id: uid("visual"),
     direction,
     entry,
@@ -124,7 +175,7 @@ export function buildProposedTrade(packet = {}) {
     source: "system_auto",
     createdAt: Date.now(),
     notes: "Auto-proposed trade from packet structure.",
-  };
+  }, candles);
 }
 
 export function evaluateTradeStatus(trade = {}, candles = []) {
@@ -164,17 +215,18 @@ function formatTradeClock(seconds = 0) {
 }
 
 function normalizeTradeLevels(nextTrade = {}, candles = []) {
+  const sanitized = sanitizeTradeEntry(nextTrade, candles);
   const rows = toRecentCandles(candles);
   const avgRange = avgCandleRange(rows);
   const minGap = Math.max(1e-6, avgRange * 0.12);
   const snap = Math.max(1e-4, avgRange / 50);
   const direction = nextTrade?.direction === "short" ? "short" : "long";
   const next = {
-    ...nextTrade,
-    direction,
-    entry: num(nextTrade?.entry, 0),
-    stopLoss: num(nextTrade?.stopLoss, 0),
-    takeProfit: num(nextTrade?.takeProfit, 0),
+    ...sanitized,
+    direction: sanitized.direction,
+    entry: num(sanitized?.entry, sanitized?.currentPrice),
+    stopLoss: num(sanitized?.stopLoss, 0),
+    takeProfit: num(sanitized?.takeProfit, 0),
   };
   if (direction === "long") {
     next.stopLoss = Math.min(next.stopLoss, next.entry - minGap);
@@ -195,6 +247,9 @@ function normalizeTradeLevels(nextTrade = {}, candles = []) {
   next.entry = snapPrice(next.entry);
   next.stopLoss = snapPrice(next.stopLoss);
   next.takeProfit = snapPrice(next.takeProfit);
+  if (next.entry === 0) {
+    throw new Error("[TradeVisualizer] Entry resolved to 0 after normalization.");
+  }
   return { trade: next, minGap, snap };
 }
 
