@@ -615,3 +615,6 @@ details[open] > .dt-summary::before { transform:rotate(90deg); }
 .dt-stat-value { font-size:.8rem; font-weight:600; color:#cbd5e1; }
 
 .dt-stats-cols { display:grid; grid-template-columns:repeat(auto-fill,minmax(11rem,1fr)); gap:.6rem; margin-top:.4rem; }
+
+.library-status-active { color: #86efac; }
+.library-status-inactive { color: #fca5a5; }

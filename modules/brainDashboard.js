@@ -62,6 +62,10 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
   const exploreRatio = Number(autoShift?.exploration_weight ?? 0.5);
   const exploitRatio = Number(autoShift?.exploitation_weight ?? 0.5);
   const assistState = opts?.assistedReinforcement || {};
+  const libraryInsights = opts?.libraryInsights || { matches: [], warnings: [], lessons: [], biasHints: [] };
+  const topLibraryMatches = Array.isArray(libraryInsights.matches) ? libraryInsights.matches.slice(0, 3) : [];
+  const libraryLessons = Array.isArray(libraryInsights.lessons) ? libraryInsights.lessons.slice(0, 2) : [];
+  const libraryBiasHints = Array.isArray(libraryInsights.biasHints) ? libraryInsights.biasHints.slice(0, 2) : [];
   const assistSummary = assistState?.lastSummary || {};
   const assistHeadline = assistSummary?.headline || "No reinforcement applied yet";
   const assistRuleCount = Number(assistSummary?.rulesUpdated || 0);
@@ -114,6 +118,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <p class="tiny">danger: <strong>${safe(verdict.danger_score)}</strong> · familiarity: <strong>${safe(verdict.familiarity)}</strong> · learned bias: <strong>${safe(verdict.learned_bias)}</strong></p>
           <p class="tiny">active rules: <strong>${(verdict.active_rules || []).length}</strong></p>
           <div>${chips((verdict.active_rules || []).map((rule) => rule.text || rule.id))}</div>
+          <p class="tiny">library matches: <strong>${topLibraryMatches.length}</strong></p>
+          <div>${chips(topLibraryMatches.map((row) => `${row.item?.type}:${row.item?.name || row.item?.id}`))}</div>
         </section>
 
         <section>
@@ -126,6 +132,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Exploratory Trade (Learning Mode)</span></p>' : ""}
           ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Friction bypassed for exploration</span></p>' : ""}
           ${verdict?.exploration_override_applied ? '<p class="tiny"><span class="badge badge-yellow">Danger context allowed for data collection</span></p>' : ""}
+          <p class="tiny">library hints:</p>
+          <div>${chips(libraryBiasHints.map((row) => `${row.hint}${row.bias ? ` (${row.bias})` : ""}`))}</div>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="open-trade-visualizer">👁 View Setup</button>
           </div>
@@ -181,6 +189,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
 
         <section>
           <h5>H. Executor Controls</h5>
+          <p class="tiny">library hints:</p>
+          <div>${chips(libraryBiasHints.map((row) => `${row.hint}${row.bias ? ` (${row.bias})` : ""}`))}</div>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="executor-toggle">Brain Executor ${executorState.enabled ? "ON" : "OFF"}</button>
             <button type="button" class="ghost" data-brain-action="executor-mode-paper">Mode: Paper</button>
@@ -232,6 +242,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
             </select>
           </label>
           <div class="tiny muted">Live preview → confidence <strong>${pct(confidencePreview)}</strong> · size <strong>${sizePreview.toFixed(3)}</strong> · mode <strong>${safe(modePreview)}</strong></div>
+          <p class="tiny">library hints:</p>
+          <div>${chips(libraryBiasHints.map((row) => `${row.hint}${row.bias ? ` (${row.bias})` : ""}`))}</div>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="manual-controls-reset">Reset manual controls</button>
           </div>
@@ -248,6 +260,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <label class="tiny" for="reinforcementInput">Copilot Reinforcement JSON</label>
           <textarea id="reinforcementInput" data-brain-control="reinforcement-input" placeholder="Paste Copilot Reinforcement JSON here..." rows="8" style="width:100%;resize:vertical;font-family:monospace;">${assistInput}</textarea>
           <p class="tiny ${assistInputValid ? "badge-green" : "badge-muted"}">${assistInput ? (assistInputValid ? "Valid JSON" : `Invalid JSON: ${safe(assistInputError, "invalid JSON")}`) : "No reinforcement applied"}</p>
+          <p class="tiny">library hints:</p>
+          <div>${chips(libraryBiasHints.map((row) => `${row.hint}${row.bias ? ` (${row.bias})` : ""}`))}</div>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="assist-export">Export Brain Assist</button>
             <button type="button" class="ghost" data-brain-action="assist-download">Download Brain Assist</button>
@@ -260,6 +274,8 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
           <label class="tiny" for="syntheticTradesInput">Synthetic Trades JSON</label>
           <textarea id="syntheticTradesInput" data-brain-control="synthetic-input" placeholder="Paste Synthetic Trades JSON here..." rows="6" style="width:100%;resize:vertical;font-family:monospace;">${syntheticInput}</textarea>
           <p class="tiny ${syntheticInputValid ? "badge-green" : "badge-muted"}">${syntheticInput ? (syntheticInputValid ? "Valid JSON" : `Invalid JSON: ${safe(syntheticInputError, "invalid JSON")}`) : "No synthetic JSON loaded"}</p>
+          <p class="tiny">library hints:</p>
+          <div>${chips(libraryBiasHints.map((row) => `${row.hint}${row.bias ? ` (${row.bias})` : ""}`))}</div>
           <div class="button-row compact">
             <button type="button" class="ghost" data-brain-action="assist-synthetic-inject" ${syntheticInputValid ? "" : "disabled"}>Inject Synthetic Trades</button>
             <button type="button" class="ghost" data-brain-action="assist-synthetic-clear">Clear Synthetic JSON</button>
@@ -278,6 +294,7 @@ export function renderBrainDashboard(verdict = null, modeState = {}, executionCo
 
       </div>
       <div class="brain-summary muted tiny">${safe(verdict.no_trade_reason || verdict.next_candle_plan?.reasoning_summary, "Executor and learning telemetry active")}</div>
+      <div class="brain-summary muted tiny">Brain Voice · Library: ${libraryLessons.length ? libraryLessons.map((row) => row.name || row.id).join(" · ") : "No active lesson match"}</div>
     </article>
   `;
 }
