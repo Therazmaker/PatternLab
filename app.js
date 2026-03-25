@@ -22,6 +22,7 @@ import {
   loadStrategyRuns,
   loadStrategyLifecycle,
   loadNotes,
+  loadJournalTrades,
   loadPatternVersionsRegistry,
   loadPromotedPatterns,
   loadSeededPatternResults,
@@ -44,6 +45,7 @@ import {
   saveStrategyLifecycle,
   saveMetaFeedback,
   saveNotes,
+  saveJournalTrades,
   savePatternVersionsRegistry,
   savePromotedPatterns,
   saveSeededPatternResults,
@@ -68,7 +70,7 @@ import { createBrainModeController } from "./modules/brainModeController.js";
 import { createExecutorStateStore } from "./modules/executorStateStore.js";
 import { createBrainExecutor } from "./modules/brainExecutor.js";
 import { createTradeOutcomeLogger } from "./modules/tradeOutcomeLogger.js";
-import { createBrainTradeJournal } from "./modules/brainTradeJournal.js";
+import { createBrainTradeJournal, normalizeJournalTrade } from "./modules/brainTradeJournal.js";
 import { createBrainLearningUpdater } from "./modules/brainLearningUpdater.js";
 import { computeLearningProgressPacket } from "./modules/learningProgressEngine.js";
 import { buildDecisionTrace } from "./modules/decisionTraceBuilder.js";
@@ -252,6 +254,7 @@ const els = {
   robustnessPattern: document.getElementById("robustness-pattern"), robustnessVersion: document.getElementById("robustness-version"), robustnessWindow: document.getElementById("robustness-window"), mcMethod: document.getElementById("mc-method"), mcSimulations: document.getElementById("mc-simulations"), runMonteCarloBtn: document.getElementById("btn-run-montecarlo"), robustnessStatus: document.getElementById("robustness-status"), overfitWrap: document.getElementById("overfit-wrap"), stressWrap: document.getElementById("stress-wrap"), montecarloWrap: document.getElementById("montecarlo-wrap"), robustnessWrap: document.getElementById("robustness-wrap"),
   noteId: document.getElementById("note-id"), noteTitle: document.getElementById("note-title"), noteContent: document.getElementById("note-content"), noteTags: document.getElementById("note-tags"), notePattern: document.getElementById("note-pattern"), noteAsset: document.getElementById("note-asset"), noteSignal: document.getElementById("note-signal"), noteForm: document.getElementById("journal-form"), noteResetBtn: document.getElementById("btn-note-reset"),
   noteSearch: document.getElementById("note-search"), noteFilterTag: document.getElementById("note-filter-tag"), noteFilterPattern: document.getElementById("note-filter-pattern"), noteFilterAsset: document.getElementById("note-filter-asset"), notesList: document.getElementById("notes-list"),
+  journalTradesList: document.getElementById("journal-trades-list"), journalTradeDetail: document.getElementById("journal-trade-detail"), journalTradeFilterStatus: document.getElementById("journal-trade-filter-status"), journalTradeFilterDirection: document.getElementById("journal-trade-filter-direction"), journalTradeFilterSource: document.getElementById("journal-trade-filter-source"), journalTradeFilterSetup: document.getElementById("journal-trade-filter-setup"), journalTradeSearch: document.getElementById("journal-trade-search"),
   reviewQueue: document.getElementById("review-queue"),
   forwardSplitMode: document.getElementById("forward-split-mode"), forwardRatio: document.getElementById("forward-ratio"), forwardDate: document.getElementById("forward-date"), forwardWrap: document.getElementById("forward-wrap"),
   errorClustersWrap: document.getElementById("error-clusters-wrap"), errorClusterDetails: document.getElementById("error-cluster-details"),
@@ -372,9 +375,12 @@ els.sessionScenarioFollowSelect = document.getElementById("session-scenario-foll
 const compareFilters = { asset: "", direction: "", timeframe: "", rangeMode: "all", rangeValue: 30, nearSupport: "", nearResistance: "" };
 const radarFilters = { asset: "", direction: "", patternName: "", timeframe: "", rangeMode: "24h", rangeValue: 25 };
 const noteFilters = { search: "", tag: "", patternName: "", asset: "" };
+const journalTradeFilters = { status: "", direction: "", source: "", setup: "", search: "" };
 const forwardConfig = { splitMode: "ratio", ratio: 0.7, splitDate: "" };
 let statsFilters = { source: "", strategyId: "", versionId: "", symbol: "", timeframe: "" };
 let notes = [];
+let journalTrades = [];
+let selectedJournalTradeId = "";
 let lastRanking = [];
 let metaFeedback = { usefulHypothesisTypes: [], weakHypothesisTypes: [], dismissedHypothesisTypes: [], acceptedSuggestionTypes: [], ignoredSuggestionTypes: [], history: [] };
 let forwardValidation = null;
@@ -405,7 +411,13 @@ let _lastBrainVerdict = null;
 let manualControlsState = getManualControls();
 const brainMemoryStore = createBrainMemoryStore();
 const brainModeController = createBrainModeController({ mode: "executor", autoExecutionEnabled: true });
-const brainTradeJournal = createBrainTradeJournal();
+const brainTradeJournal = createBrainTradeJournal([], {
+  onChange: (rows = []) => {
+    journalTrades = Array.isArray(rows) ? rows : [];
+    saveJournalTrades(journalTrades).catch((error) => console.error("[Storage] saveJournalTrades failed", error));
+    refreshJournalTrades();
+  },
+});
 const executorStateStore = createExecutorStateStore({
   enabled: true,
   mode: "paper",
@@ -2237,6 +2249,102 @@ function refreshNotes() {
   renderFilterOptions(els.noteFilterTag, [...new Set(notes.flatMap((n) => n.tags))].sort(), "Todas las etiquetas");
 }
 
+function formatJournalTradeTime(seconds = null) {
+  const safe = Number.isFinite(Number(seconds)) ? Math.max(0, Math.floor(Number(seconds))) : null;
+  if (safe === null) return "-";
+  const mm = String(Math.floor(safe / 60)).padStart(2, "0");
+  const ss = String(safe % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function fmtJournalPrice(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : "-";
+}
+
+function getJournalBadgeClass(value = "") {
+  if (["win", "target_hit"].includes(value)) return "badge-green";
+  if (["loss", "stopped"].includes(value)) return "badge-red";
+  if (["cancelled"].includes(value)) return "badge-yellow";
+  if (["active", "triggered"].includes(value)) return "badge-blue";
+  return "badge-muted";
+}
+
+function filterJournalTrades(rows = []) {
+  const term = String(journalTradeFilters.search || "").trim().toLowerCase();
+  return rows.filter((row) => {
+    if (journalTradeFilters.status && row.status !== journalTradeFilters.status) return false;
+    if (journalTradeFilters.direction && row.direction !== journalTradeFilters.direction) return false;
+    if (journalTradeFilters.source && row.source !== journalTradeFilters.source) return false;
+    if (journalTradeFilters.setup && row.setup !== journalTradeFilters.setup) return false;
+    if (term) {
+      const haystack = [row.id, row.notes, row.setup].join(" ").toLowerCase();
+      if (!haystack.includes(term)) return false;
+    }
+    return true;
+  });
+}
+
+function refreshJournalTrades() {
+  if (!els.journalTradesList) return;
+  const orphanTrade = getCurrentPacket()?.visual_trade || null;
+  if (orphanTrade?.id && !journalTrades.some((row) => row.id === orphanTrade.id)) {
+    console.warn("[Journal] Recovered orphan visual trade into journal.", orphanTrade.id);
+    syncTradeToJournal(orphanTrade, { status: orphanTrade.status || "planned" });
+  }
+  const filtered = filterJournalTrades(journalTrades);
+  const setups = [...new Set(journalTrades.map((row) => row.setup).filter(Boolean))].sort();
+  const statuses = [...new Set(journalTrades.map((row) => row.status).filter(Boolean))].sort();
+  renderFilterOptions(els.journalTradeFilterSetup, setups, "All setups");
+  renderFilterOptions(els.journalTradeFilterStatus, statuses, "All status");
+  if (journalTradeFilters.setup) els.journalTradeFilterSetup.value = journalTradeFilters.setup;
+  if (journalTradeFilters.status) els.journalTradeFilterStatus.value = journalTradeFilters.status;
+  if (!filtered.length) {
+    els.journalTradesList.innerHTML = `<p class="muted tiny">No paper trades journaled yet.</p>`;
+    return;
+  }
+  els.journalTradesList.innerHTML = `
+    <table>
+      <thead><tr><th>ID</th><th>Status</th><th>Source</th><th>Setup</th><th>Dir</th><th>Entry / SL / TP</th><th>RR</th><th>Conf</th><th>Outcome</th><th>Time</th><th>Candles</th><th>MFE / MAE</th></tr></thead>
+      <tbody>
+      ${filtered.slice(0, 250).map((row) => `
+        <tr data-journal-trade-id="${row.id}">
+          <td>${row.id}</td>
+          <td><span class="${getJournalBadgeClass(row.status)}">${row.status}</span></td>
+          <td><span class="badge ${getJournalBadgeClass(row.source)}">${row.source}</span></td>
+          <td>${row.setup || "-"}</td>
+          <td>${row.direction || "-"}</td>
+          <td>${fmtJournalPrice(row.entry)} / ${fmtJournalPrice(row.stopLoss)} / ${fmtJournalPrice(row.takeProfit)}</td>
+          <td>${Number.isFinite(Number(row.riskReward)) ? Number(row.riskReward).toFixed(2) : "-"}</td>
+          <td>${Number.isFinite(Number(row.confidence)) ? Number(row.confidence).toFixed(2) : "-"}</td>
+          <td><span class="${getJournalBadgeClass(row.outcome || "")}">${row.outcome || "-"}</span></td>
+          <td>${formatJournalTradeTime(row.timeInTradeSec)}</td>
+          <td>${Number.isFinite(Number(row.candlesInTrade)) ? row.candlesInTrade : "-"}</td>
+          <td>${Number.isFinite(Number(row.mfe)) ? Number(row.mfe).toFixed(2) : "-"} / ${Number.isFinite(Number(row.mae)) ? Number(row.mae).toFixed(2) : "-"}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>`;
+  els.journalTradesList.querySelectorAll("[data-journal-trade-id]").forEach((node) => {
+    node.addEventListener("click", () => {
+      selectedJournalTradeId = node.getAttribute("data-journal-trade-id") || "";
+      const selected = journalTrades.find((row) => row.id === selectedJournalTradeId) || null;
+      if (!selected || !els.journalTradeDetail) return;
+      els.journalTradeDetail.classList.remove("muted");
+      els.journalTradeDetail.textContent = JSON.stringify(selected, null, 2);
+    });
+  });
+}
+
+function syncTradeToJournal(trade = {}, context = {}) {
+  const normalized = normalizeJournalTrade(trade, context);
+  if (!normalized.id) {
+    console.warn("[Journal] Trade created without id; generated fallback id.");
+  }
+  const upserted = brainTradeJournal.upsertJournalTrade(normalized);
+  if (!upserted) console.warn("[Journal] Failed to upsert trade state change.", trade?.id);
+  return upserted;
+}
+
 function refreshV5() {
   forwardValidation = computeForwardValidation(state.signals, forwardConfig);
   errorClusters = buildErrorClusters(state.signals);
@@ -2839,6 +2947,7 @@ function rerender() {
   refreshVersions();
   refreshConfidenceEvolution();
   refreshNotes();
+  refreshJournalTrades();
   refreshV5();
   refreshBotGenerator();
   refreshRobustnessLab();
@@ -2919,6 +3028,8 @@ async function handleImportMemory() {
     patternVersionsRegistry = loadPatternVersionsRegistry();
     activePatternVersionId = loadActivePatternVersionId();
     notes = loadNotes();
+    journalTrades = loadJournalTrades();
+    brainTradeJournal.hydrate(journalTrades);
     rerender();
     setSettingsStatus("Importación completada con éxito.", "ok");
   } catch (error) {
@@ -4056,6 +4167,11 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
   els.noteFilterTag.addEventListener("change", (e) => { noteFilters.tag = e.target.value; refreshNotes(); });
   els.noteFilterPattern.addEventListener("change", (e) => { noteFilters.patternName = e.target.value; refreshNotes(); });
   els.noteFilterAsset.addEventListener("change", (e) => { noteFilters.asset = e.target.value; refreshNotes(); });
+  els.journalTradeFilterStatus?.addEventListener("change", (e) => { journalTradeFilters.status = e.target.value; refreshJournalTrades(); });
+  els.journalTradeFilterDirection?.addEventListener("change", (e) => { journalTradeFilters.direction = e.target.value; refreshJournalTrades(); });
+  els.journalTradeFilterSource?.addEventListener("change", (e) => { journalTradeFilters.source = e.target.value; refreshJournalTrades(); });
+  els.journalTradeFilterSetup?.addEventListener("change", (e) => { journalTradeFilters.setup = e.target.value; refreshJournalTrades(); });
+  els.journalTradeSearch?.addEventListener("input", (e) => { journalTradeFilters.search = e.target.value; refreshJournalTrades(); });
 
   els.botPattern?.addEventListener("change", handleBotPatternChange);
   els.botVersion?.addEventListener("change", handleBotVersionChange);
@@ -4206,6 +4322,15 @@ els.slScoreBearMin?.addEventListener("input", () => renderStrategyLab());
             context_signature: scenarioProjectionState.activeSet?.context_signature || _lastBrainVerdict?.learningEffects?.signature || null,
           }));
           setSessionCandleStatus("Operator note saved to brain memory.", "success");
+        },
+        onTradeSync: (trade = {}, livePacket = {}, reason = "") => {
+          const contextSnapshot = {
+            symbol: getSessionMarketView()?.symbol || null,
+            timeframe: getSessionMarketView()?.timeframe || null,
+            setupDirection: livePacket?.next_trade?.direction || null,
+            reason,
+          };
+          syncTradeToJournal(trade, { contextSnapshot, setup: livePacket?.next_trade?.setup || null });
         },
       });
     } else if (action === "executor-cancel-arm") {
@@ -6529,6 +6654,8 @@ async function init() {
     saveActivePatternVersionId(activePatternVersionId);
   }
   notes = loadNotes();
+  journalTrades = loadJournalTrades();
+  brainTradeJournal.hydrate(journalTrades);
   if (!Object.keys(botCompilerState.patternMeta || {}).length) {
     BOT_DEMO_PATTERNS.forEach((entry) => {
       const definition = buildPatternDefinition(state.signals, { patternName: entry.name, patternVersion: entry.version });

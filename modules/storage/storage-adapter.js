@@ -9,6 +9,7 @@ const STORAGE_KEYS = [
   "patternVersions",
   "activePatternVersionId",
   "notes",
+  "journalTrades",
   "lastImportReport",
   "metaFeedback",
   "botCompiler",
@@ -44,7 +45,7 @@ let backend = "localStorage";
 let writeQueue = Promise.resolve();
 let migrationStatus = readMigrationFlag() || { status: "pending" };
 let cache = {
-  signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [],
+  signals: [], sessions: [], patternVersions: [], activePatternVersionId: "", notes: [], journalTrades: [],
   lastImportReport: null, metaFeedback: { ...defaultMetaFeedback }, botCompiler: { patternMeta: {} }, backup: null, backupMeta: null,
   marketData: [], marketDataMeta: { lastSyncAt: null, lastCandleTimestamp: null, source: "yahoo", selectedSymbol: "EURUSD=X", selectedTimeframe: "5m", liveStatus: { connected: false, reconnectAttempts: 0, lastMessageAt: null, statusType: "idle" }, lastLiveCandleCloseAt: null }, promotedPatterns: [], seededPatterns: [], seededPatternResults: [], livePatternSignals: [], livePatternSummary: [], futuresPolicyConfig: { enabled: true, maxLeverage: 3, defaultRiskPct: 0.5, minRiskReward: 1.5, stopMode: "hybrid", tpMode: "hybrid", noTradeOnConflict: true }, futuresPolicySnapshots: [], liveShadowState: { records: [], filters: { symbol: "all", timeframe: "all", action: "all", result: "all" }, latestStats: null, context: { source: "", symbol: "", timeframe: "" }, autoIngestToSignals: true }, strategyRuns: [], strategyLifecycle: { versions: [], validations: [], liveInstances: [], degradationAlerts: [] },
   tradeMemories: [], decisionMemories: [], operatorActions: [], operatorPatternSummary: null, learningModel: null, copilotFeedback: { current: null, history: [] }, syntheticTrades: [],
@@ -67,6 +68,7 @@ function normalizeCache(snapshot = {}) {
     patternVersions: Array.isArray(snapshot.patternVersions) ? snapshot.patternVersions : [],
     activePatternVersionId: String(snapshot.activePatternVersionId || ""),
     notes: Array.isArray(snapshot.notes) ? snapshot.notes : [],
+    journalTrades: Array.isArray(snapshot.journalTrades) ? snapshot.journalTrades : [],
     lastImportReport: snapshot.lastImportReport || null,
     metaFeedback: snapshot.metaFeedback && typeof snapshot.metaFeedback === "object" ? { ...defaultMetaFeedback, ...snapshot.metaFeedback } : { ...defaultMetaFeedback },
     botCompiler: snapshot.botCompiler?.patternMeta && typeof snapshot.botCompiler.patternMeta === "object" ? snapshot.botCompiler : { patternMeta: {} },
@@ -106,6 +108,7 @@ function writeLegacyByDomain(domain) {
     case "patternVersions": writeLegacyValue(LEGACY_KEYS.patternVersions, cache.patternVersions); break;
     case "activePatternVersionId": writeLegacyValue(LEGACY_KEYS.activePatternVersionId, cache.activePatternVersionId); break;
     case "notes": writeLegacyValue(LEGACY_KEYS.notes, cache.notes); break;
+    case "journalTrades": writeLegacyValue(LEGACY_KEYS.journalTrades, cache.journalTrades); break;
     case "lastImportReport": writeLegacyValue(LEGACY_KEYS.lastImportReport, cache.lastImportReport); break;
     case "metaFeedback": writeLegacyValue(LEGACY_KEYS.metaFeedback, cache.metaFeedback); break;
     case "botCompiler": writeLegacyValue(LEGACY_KEYS.botCompiler, cache.botCompiler); break;
@@ -185,6 +188,7 @@ export function getStorageStatus() {
       signals: cache.signals.length,
       sessions: cache.sessions.length,
       patternVersions: cache.patternVersions.length,
+      journalTrades: cache.journalTrades.length,
       promotedPatterns: cache.promotedPatterns.length,
       seededPatterns: cache.seededPatterns.length,
       seededPatternResults: cache.seededPatternResults.length,
@@ -234,6 +238,11 @@ export function loadNotes() { return cache.notes; }
 export function saveNotes(notes) {
   cache.notes = Array.isArray(notes) ? notes : [];
   return enqueueWrite(() => persistDomain("notes"));
+}
+export function loadJournalTrades() { return cache.journalTrades || []; }
+export function saveJournalTrades(rows) {
+  cache.journalTrades = Array.isArray(rows) ? rows : [];
+  return enqueueWrite(() => persistDomain("journalTrades"));
 }
 
 export function loadLastImportReport() { return cache.lastImportReport || null; }
@@ -416,6 +425,7 @@ export function exportMemory() {
         activePatternVersionId: cache.activePatternVersionId || "",
       },
       notes: cache.notes || [],
+      journalTrades: cache.journalTrades || [],
       meta: {
         lastImportReport: cache.lastImportReport || null,
         metaFeedback: cache.metaFeedback || { ...defaultMetaFeedback },
@@ -492,6 +502,7 @@ export async function importMemory(payload, mode = "replace") {
     patternVersions: payload.data.patternVersions || [],
     activePatternVersionId: payload.data.settings?.activePatternVersionId || "",
     notes: payload.data.notes || [],
+    journalTrades: payload.data.journalTrades || [],
     lastImportReport: payload.data.meta?.lastImportReport || null,
     metaFeedback: payload.data.meta?.metaFeedback || defaultMetaFeedback,
     botCompiler: payload.data.meta?.botCompiler || { patternMeta: {} },
@@ -515,7 +526,7 @@ export async function importMemory(payload, mode = "replace") {
     backupMeta: cache.backupMeta,
   });
 
-  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary", "learningModel", "copilotFeedback", "syntheticTrades"].map((key) => persistDomain(key)));
+  await Promise.all(["signals", "sessions", "patternVersions", "activePatternVersionId", "notes", "journalTrades", "lastImportReport", "metaFeedback", "botCompiler", "promotedPatterns", "seededPatterns", "seededPatternResults", "livePatternSignals", "livePatternSummary", "futuresPolicyConfig", "futuresPolicySnapshots", "liveShadowState", "strategyLifecycle", "tradeMemories", "decisionMemories", "operatorActions", "operatorPatternSummary", "learningModel", "copilotFeedback", "syntheticTrades"].map((key) => persistDomain(key)));
   console.info("[Storage] Import success");
 }
 
