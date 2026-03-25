@@ -34,6 +34,7 @@
       <button class="tab-btn" data-tab="seeded-lab">Seeded Pattern Lab</button>
       <button class="tab-btn" data-tab="confidence">Confidence Evolution</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
+      <button class="tab-btn" data-tab="microbot">MicroBot</button>
       <button class="tab-btn" data-tab="hypothesis">Hypothesis Lab</button>
       <button class="tab-btn" data-tab="suggestions">Suggestions</button>
       <button class="tab-btn" data-tab="clusters">Error Clusters</button>
@@ -418,7 +419,7 @@
           <div class="filters journal-filters">
             <select id="journal-trade-filter-status"><option value="">All status</option></select>
             <select id="journal-trade-filter-direction"><option value="">All directions</option><option value="long">Long</option><option value="short">Short</option></select>
-            <select id="journal-trade-filter-source"><option value="">All sources</option><option value="brain_auto">brain_auto</option><option value="operator_adjusted">operator_adjusted</option><option value="operator_manual">operator_manual</option></select>
+            <select id="journal-trade-filter-source"><option value="">All sources</option><option value="brain_auto">brain_auto</option><option value="operator_adjusted">operator_adjusted</option><option value="operator_manual">operator_manual</option><option value="library_trader">library_trader</option></select>
             <select id="journal-trade-filter-setup"><option value="">All setups</option></select>
             <input id="journal-trade-search" placeholder="Search id / notes..." />
           </div>
@@ -445,6 +446,43 @@
             </div>
             <div id="notes-list" class="notes-list"></div>
           </div>
+        </div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="microbot">
+        <h2>MicroBot</h2>
+        <div class="microbot-header">
+          <span>Status: <strong id="microbot-status">idle</strong></span>
+          <span>Symbol: <strong id="microbot-symbol">BTCUSDT</strong></span>
+          <span>TF: <strong id="microbot-timeframe">1m</strong></span>
+          <span>Trades today: <strong id="microbot-trades-count">0</strong></span>
+          <span>Paper PnL: <strong id="microbot-pnl">0.0000</strong></span>
+          <span>Auto: <strong id="microbot-auto-label">ON</strong></span>
+        </div>
+        <div class="button-row compact">
+          <button id="btn-microbot-start" class="primary">Start bot</button>
+          <button id="btn-microbot-pause">Pause bot</button>
+          <button id="btn-microbot-reset" class="ghost">Reset session</button>
+          <button id="btn-microbot-toggle-auto" class="ghost">Toggle auto trade</button>
+          <button id="btn-microbot-refresh-library" class="ghost">Refresh library context</button>
+        </div>
+        <div class="microbot-layout">
+          <article class="panel-soft">
+            <h3>1m Chart (replay-safe)</h3>
+            <div id="microbot-chart" class="microbot-chart"></div>
+          </article>
+          <article class="panel-soft">
+            <h3>Bot State</h3>
+            <p><strong>Library rules:</strong> <span id="microbot-library-rules">-</span></p>
+            <p><strong>Current decision:</strong> <span id="microbot-last-decision">-</span></p>
+            <p><strong>Journal write:</strong> <span id="microbot-journal-status">idle</span></p>
+            <h4>Active trade</h4>
+            <div id="microbot-active-trade" class="mini-list"></div>
+            <h4>Journal preview</h4>
+            <ul id="microbot-journal-preview" class="mini-list"></ul>
+            <h4>Learning preview</h4>
+            <ul id="microbot-learning-preview" class="mini-list"></ul>
+          </article>
         </div>
       </section>
 
