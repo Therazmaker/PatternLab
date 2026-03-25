@@ -533,6 +533,7 @@ const brainExecutor = createBrainExecutor({
   stateStore: executorStateStore,
   brainMemoryStore,
   outcomeLogger: tradeOutcomeLogger,
+  brainTradeJournal,
   learningUpdater: brainLearningUpdater,
   getExecutionPacket: () => getExecutionPacket(executionControlState),
   getLearningProgress: () => learningProgressPacket,
@@ -2270,6 +2271,12 @@ function getJournalBadgeClass(value = "") {
   return "badge-muted";
 }
 
+function isExploratoryPaperTrade(row = {}) {
+  const type = String(row?.tradeMeta?.type || row?.trade_type || "").toLowerCase();
+  const tags = Array.isArray(row?.tags) ? row.tags.map((v) => String(v).toLowerCase()) : [];
+  return type === "exploratory" || tags.includes("exploratory");
+}
+
 function filterJournalTrades(rows = []) {
   const term = String(journalTradeFilters.search || "").trim().toLowerCase();
   return rows.filter((row) => {
@@ -2312,7 +2319,7 @@ function refreshJournalTrades() {
           <td>${row.id}</td>
           <td><span class="${getJournalBadgeClass(row.status)}">${row.status}</span></td>
           <td><span class="badge ${getJournalBadgeClass(row.source)}">${row.source}</span></td>
-          <td>${row.setup || "-"}</td>
+          <td>${row.setup || "-"} ${isExploratoryPaperTrade(row) ? '<span class="badge badge-yellow">Exploratory Paper Trade</span>' : ""}</td>
           <td>${row.direction || "-"}</td>
           <td>${fmtJournalPrice(row.entry)} / ${fmtJournalPrice(row.stopLoss)} / ${fmtJournalPrice(row.takeProfit)}</td>
           <td>${Number.isFinite(Number(row.riskReward)) ? Number(row.riskReward).toFixed(2) : "-"}</td>
