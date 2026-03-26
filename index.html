@@ -421,17 +421,15 @@
           <div class="brain-panel-filter-row">
             <select id="brain-panel-filter-type" class="bp-filter-select">
               <option value="">Todos los tipos</option>
-              <option value="trained">trained</option>
-              <option value="skipped">skipped</option>
-              <option value="error">error</option>
-              <option value="neuron_saved">neuron_saved</option>
+              <option value="training_event">training_event</option>
               <option value="diagnosis">diagnosis</option>
+              <option value="neuron_saved">neuron_saved</option>
             </select>
             <input id="brain-panel-filter-pattern" class="bp-filter-input" placeholder="Filtrar por patrón…" />
           </div>
           <table class="gemini-pattern-table">
             <thead>
-              <tr><th>Timestamp</th><th>Evento</th><th>Patrón</th><th>Motivo</th><th>Resultado</th><th>Detalle</th></tr>
+              <tr><th>Timestamp</th><th>Event Type</th><th>Pattern</th><th>Model Target</th><th>Trade Outcome</th><th>Training Status</th><th>Training Reason</th><th>Detail</th></tr>
             </thead>
             <tbody id="brain-panel-history-body"></tbody>
           </table>
