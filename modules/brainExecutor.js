@@ -626,7 +626,7 @@ function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, context
       takeProfit: plan.target,
     }, [candle], candle);
     logTradeAttempt("pre_execution", { entry: plan.planned_entry, stopLoss: plan.stop, takeProfit: plan.target }, preExecutionValidation);
-    if (!preExecutionValidation.valid && state.mode !== "paper") {
+    if (!preExecutionValidation.valid) { // regenerar niveles en todos los modos, incluyendo paper
       console.warn("[Executor] Blocking trade: invalid levels.", preExecutionValidation.issues);
       const regeneratedPlan = ensureFallbackLevels(plan, candle);
       const regeneratedValidation = validateTradeLevels({
@@ -812,7 +812,7 @@ function validateTradeLevels(trade = {}, candles = [], fallbackCandle = {}) {
     if (Math.abs(stopLoss - currentPrice) > maxDistance) issues.push("stop_too_far_from_price");
     if (Math.abs(takeProfit - currentPrice) > maxDistance) issues.push("target_too_far_from_price");
   } else {
-    issues.push("invalid_price_context");
+    warnings.push("invalid_price_context"); // no hay contexto de velas — warning, no bloqueo
   }
 
   const risk = Number.isFinite(entry) && Number.isFinite(stopLoss) ? Math.abs(entry - stopLoss) : NaN;
