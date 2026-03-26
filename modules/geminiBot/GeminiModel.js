@@ -56,6 +56,16 @@ export class GeminiModel {
     return model;
   }
 
+  #normalizeIndicators(customIndicators) {
+    if (Array.isArray(customIndicators)) {
+      return customIndicators.map((value) => Number(value) || 0);
+    }
+    if (customIndicators && typeof customIndicators === "object") {
+      return Object.values(customIndicators).map((value) => Number(value) || 0);
+    }
+    return [];
+  }
+
   buildFeatureVector(candle, customIndicators = []) {
     const open = Number(candle?.open || 0);
     const high = Number(candle?.high || 0);
@@ -63,7 +73,8 @@ export class GeminiModel {
     const close = Number(candle?.close || 0);
     const volume = Number(candle?.volume || 0);
     const bodyPct = open ? (close - open) / open : 0;
-    return [open, high, low, close, volume, bodyPct, ...customIndicators].slice(0, this.config.featureSize);
+    const normalizedIndicators = this.#normalizeIndicators(customIndicators);
+    return [open, high, low, close, volume, bodyPct, ...normalizedIndicators].slice(0, this.config.featureSize);
   }
 
   async predictDirection(sequence, customIndicatorRows = []) {
