@@ -1,3 +1,5 @@
+import { buildTradeDiagnostics } from "./microBotDiagnosis.js";
+
 function toPrice(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -40,7 +42,7 @@ export function buildSimplePaperTrade({
   if (normalizedDirection === "long" && !(stopLoss < entry && entry < takeProfit)) return null;
   if (normalizedDirection === "short" && !(takeProfit < entry && entry < stopLoss)) return null;
 
-  return {
+  const trade = {
     id: `mb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     mode: "paper",
     status: "planned",
@@ -58,5 +60,9 @@ export function buildSimplePaperTrade({
     libraryContextSnapshot,
     notes: `Simple range-based trade builder (${normalizedDirection})`,
     createdAt: new Date().toISOString(),
+    createdCandleIndex: Math.max(0, candles.length - 1),
   };
+  trade.diagnostics = buildTradeDiagnostics(trade, candles);
+  trade.patternName = trade.diagnostics.patternName;
+  return trade;
 }

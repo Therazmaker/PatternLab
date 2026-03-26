@@ -8,6 +8,7 @@ import {
   downloadJsonFile,
   getMicroBotJournalTrades,
 } from "./microBotJournalExport.js";
+import { buildDiagnosticPerformanceSummary, buildTradeDiagnostics } from "./microBotDiagnosis.js";
 
 const ORIGIN_TAB = "microbot_1m";
 const REPLAY_TICK_MS = 250;
@@ -300,10 +301,13 @@ export function createMicroBotTab({
     }
 
     if (state.activeTrade) {
-      const lifecycle = updateSimpleTradeLifecycle(state.activeTrade, candle, { candleIndex: state.candles.length - 1 });
+      const lifecycle = updateSimpleTradeLifecycle(state.activeTrade, candle, { candleIndex: state.candles.length - 1, candles: state.candles });
       state.activeTrade = lifecycle.trade;
       if (lifecycle.closed) {
         const closedTrade = { ...state.activeTrade, status: "closed", originTab: ORIGIN_TAB };
+        closedTrade.diagnostics = buildTradeDiagnostics(closedTrade, state.candles, candle);
+        closedTrade.patternName = closedTrade.diagnostics.patternName;
+        console.info(`[Diagnosis] ${closedTrade.diagnostics.patternName} ${String(closedTrade.outcome || "unknown").toUpperCase()} -> ${closedTrade.diagnostics.failureReasonCodes.join(", ") || closedTrade.diagnostics.successReasonCodes.join(", ") || "no_reason_code"}`);
         state.closedTrades.unshift(closedTrade);
         state.closedTrades = state.closedTrades.slice(0, 100);
         writeJournal(closedTrade);
@@ -517,6 +521,37 @@ export function createMicroBotTab({
           ${buildEarlyExitLabel(trade) ? `<div class="tiny muted">${buildEarlyExitLabel(trade)}</div>` : ""}
         </li>
       `)).join("") || '<li class="muted tiny">No closed trades yet</li>';
+    }
+
+    if (elements.diagnosticSummary) {
+      const summary = buildDiagnosticPerformanceSummary(state.closedTrades);
+      const topLoss = summary.topLossReasons.slice(0, 5).map((row) => `${row.code} (${row.count})`).join(", ") || "none";
+      const topWin = summary.topWinReasons.slice(0, 5).map((row) => `${row.code} (${row.count})`).join(", ") || "none";
+      const lateEntry = summary.patternsMostAffectedByLateEntry.map((row) => `${row.code} (${row.count})`).join(", ") || "none";
+      const noFollowthrough = summary.patternsMostAffectedByNoFollowthrough.map((row) => `${row.code} (${row.count})`).join(", ") || "none";
+      const byPattern = Object.entries(summary.byPattern)
+        .sort((a, b) => b[1].trades - a[1].trades)
+        .slice(0, 6)
+        .map(([pattern, stats]) => `${pattern}: ${stats.wins}W/${stats.losses}L (${stats.winRate.toFixed(1)}%)`)
+        .join("<br/>") || "none";
+      const byPatternLoss = Object.entries(summary.lossReasonsByPattern)
+        .slice(0, 4)
+        .map(([pattern, map]) => `${pattern}: ${Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([code, count]) => `${code}(${count})`).join(", ")}`)
+        .join("<br/>") || "none";
+      const byPatternWin = Object.entries(summary.winReasonsByPattern)
+        .slice(0, 4)
+        .map(([pattern, map]) => `${pattern}: ${Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([code, count]) => `${code}(${count})`).join(", ")}`)
+        .join("<br/>") || "none";
+
+      elements.diagnosticSummary.innerHTML = `
+        <p class="tiny"><strong>Rendimiento por patrón:</strong><br/>${byPattern}</p>
+        <p class="tiny"><strong>Top razones de pérdida:</strong> ${topLoss}</p>
+        <p class="tiny"><strong>Top razones de win:</strong> ${topWin}</p>
+        <p class="tiny"><strong>Razones de pérdida por patrón:</strong><br/>${byPatternLoss}</p>
+        <p class="tiny"><strong>Razones de win por patrón:</strong><br/>${byPatternWin}</p>
+        <p class="tiny"><strong>Más afectados por late_entry:</strong> ${lateEntry}</p>
+        <p class="tiny"><strong>Más afectados por no_followthrough:</strong> ${noFollowthrough}</p>
+      `;
     }
 
     if (elements.autoTradeLabel) elements.autoTradeLabel.textContent = state.autoTrade ? "ON" : "OFF";
