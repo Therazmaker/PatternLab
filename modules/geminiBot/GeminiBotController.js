@@ -411,6 +411,11 @@ export function createGeminiBotController(elements = {}) {
     logBrainEvent(event = {}) {
       persistBrainEvent(event).catch((error) => console.error("[BrainPanel] event logging failed", error));
     },
+    async refreshBrainPanel() {
+      if (!brainPanelStore) return;
+      const hydrated = await brainPanelStore.hydrate();
+      pushBrainSnapshot(hydrated);
+    },
     getChartData(timeframe) {
       return {
         candles: streamer.getRecentCandles(timeframe),
