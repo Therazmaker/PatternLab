@@ -1,6 +1,6 @@
 const COLORS = {
-  bg: "#0b1118",
-  grid: "#273241",
+  bg: "#0b1422",
+  grid: "rgba(148, 163, 184, 0.2)",
   bullish: "#33c58d",
   bearish: "#ff6b7a",
   ema9: "#f2b84b",
@@ -33,6 +33,7 @@ export class GeminiBotChart {
     this.ctx = canvas?.getContext?.("2d") || null;
     this.config = {
       maxCandles: Number(config.maxCandles) > 10 ? Number(config.maxCandles) : 60,
+      countdownEl: config.countdownEl || null,
       ...config,
     };
     this.timeframe = "5m";
@@ -43,6 +44,7 @@ export class GeminiBotChart {
     this.tooltip = null;
     this.boundMouseMove = this.#onMouseMove.bind(this);
     this.boundMouseLeave = this.#onMouseLeave.bind(this);
+    this.countdownTimer = setInterval(() => this.#updateCountdownLabel(), 1000);
     if (this.canvas) {
       this.canvas.addEventListener("mousemove", this.boundMouseMove);
       this.canvas.addEventListener("mouseleave", this.boundMouseLeave);
@@ -51,6 +53,7 @@ export class GeminiBotChart {
 
   setTimeframe(tf) {
     this.timeframe = tf || "5m";
+    this.#updateCountdownLabel();
   }
 
   update(candles, patterns = [], indicators = []) {
@@ -68,43 +71,88 @@ export class GeminiBotChart {
     this.tooltip?.remove();
     this.tooltip = null;
     this.hoverMarkers = [];
+    clearInterval(this.countdownTimer);
   }
 
   #render() {
     if (!this.ctx || !this.canvas) return;
     const { width, height } = this.canvas;
-    const rsiHeight = Math.floor(height * 0.2);
-    const priceHeight = height - rsiHeight - 30;
+    const topHudHeight = 26;
+    const rsiHeight = Math.floor(height * 0.19);
+    const priceHeight = height - rsiHeight - 44;
+    const padTop = topHudHeight + 6;
+    const padLeft = 12;
+    const padRight = 64;
 
     this.ctx.clearRect(0, 0, width, height);
-    this.ctx.fillStyle = COLORS.bg;
-    this.ctx.fillRect(0, 0, width, height);
+    this.#drawBackground(width, height);
 
-    if (!this.candles.length) return;
+    if (!this.candles.length) {
+      this.#updateCountdownLabel();
+      return;
+    }
 
     const prices = this.candles.flatMap((row) => [toNum(row.low), toNum(row.high)]);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
     const priceRange = Math.max(1e-9, maxPrice - minPrice);
-    const padTop = 10;
-    const padLeft = 10;
-    const padRight = 60;
     const chartWidth = width - padLeft - padRight;
+    const right = width - padRight;
 
     const xStep = chartWidth / Math.max(1, this.candles.length);
     const xAt = (idx) => padLeft + (idx + 0.5) * xStep;
     const yPrice = (price) => padTop + ((maxPrice - price) / priceRange) * (priceHeight - padTop);
+    const lastCandle = this.candles[this.candles.length - 1];
 
-    this.#drawPriceAxis({ minPrice, maxPrice, width, padRight, yPrice, priceHeight });
+    this.#drawHud({ width, topHudHeight, lastCandle });
+    this.#drawPriceAxis({ minPrice, maxPrice, width, padRight, yPrice, priceHeight, left: padLeft, right });
     this.#drawCandles({ xAt, xStep, yPrice });
     this.#drawEma({ xAt, yPrice, key: "ema9", color: COLORS.ema9 });
     this.#drawEma({ xAt, yPrice, key: "ema21", color: COLORS.ema21 });
     this.#drawPatternMarkers({ xAt, yPrice });
-    this.#drawTimeAxis({ xAt, priceHeight, height });
-    this.#drawRsi({ xAt, top: priceHeight + 10, height: rsiHeight - 12, width, padRight });
+    this.#drawTimeAxis({ xAt, priceHeight, height, left: padLeft, right });
+    this.#drawRsi({ xAt, top: priceHeight + 12, height: rsiHeight - 12, width, padRight });
+    this.#drawCurrentPriceLine({ yPrice, width, padRight, left: padLeft, lastCandle });
+    this.#drawCurrentCandleHighlight({ xAt, xStep });
+    this.#updateCountdownLabel(lastCandle);
   }
 
-  #drawPriceAxis({ minPrice, maxPrice, width, padRight, yPrice, priceHeight }) {
+  #drawBackground(width, height) {
+    const gradient = this.ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, "#0f2238");
+    gradient.addColorStop(0.55, "#0a1a2d");
+    gradient.addColorStop(1, "#081422");
+    this.ctx.fillStyle = gradient;
+    this.ctx.fillRect(0, 0, width, height);
+  }
+
+  #drawHud({ width, topHudHeight, lastCandle }) {
+    const open = toNum(lastCandle?.open, NaN);
+    const close = toNum(lastCandle?.close, NaN);
+    const high = toNum(lastCandle?.high, NaN);
+    const low = toNum(lastCandle?.low, NaN);
+    const isBull = close >= open;
+    const pct = Number.isFinite(open) && open ? ((close - open) / open) * 100 : NaN;
+    const pctText = Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—";
+
+    this.ctx.fillStyle = "rgba(8, 15, 25, .64)";
+    this.ctx.fillRect(0, 0, width, topHudHeight);
+    this.ctx.strokeStyle = "rgba(148, 163, 184, .24)";
+    this.ctx.beginPath();
+    this.ctx.moveTo(0, topHudHeight + 0.5);
+    this.ctx.lineTo(width, topHudHeight + 0.5);
+    this.ctx.stroke();
+
+    this.ctx.font = "11px sans-serif";
+    this.ctx.fillStyle = "#9fb6cc";
+    this.ctx.fillText(`TF ${this.timeframe}`, 12, 16);
+    this.ctx.fillStyle = "#e5edf7";
+    this.ctx.fillText(`O ${Number.isFinite(open) ? open.toFixed(2) : "—"}  H ${Number.isFinite(high) ? high.toFixed(2) : "—"}  L ${Number.isFinite(low) ? low.toFixed(2) : "—"}  C ${Number.isFinite(close) ? close.toFixed(2) : "—"}`, 82, 16);
+    this.ctx.fillStyle = isBull ? COLORS.bullish : COLORS.bearish;
+    this.ctx.fillText(pctText, width - 56, 16);
+  }
+
+  #drawPriceAxis({ minPrice, maxPrice, width, padRight, yPrice, priceHeight, left, right }) {
     const labels = 5;
     this.ctx.strokeStyle = COLORS.grid;
     this.ctx.fillStyle = COLORS.axis;
@@ -114,8 +162,8 @@ export class GeminiBotChart {
       const price = maxPrice - (maxPrice - minPrice) * t;
       const y = yPrice(price);
       this.ctx.beginPath();
-      this.ctx.moveTo(0, y);
-      this.ctx.lineTo(width - padRight, y);
+      this.ctx.moveTo(left, y);
+      this.ctx.lineTo(right, y);
       this.ctx.stroke();
       this.ctx.fillText(price.toFixed(2), width - padRight + 4, y + 4);
     }
@@ -140,16 +188,26 @@ export class GeminiBotChart {
       const yLow = yPrice(low);
 
       this.ctx.strokeStyle = bullish ? COLORS.bullish : COLORS.bearish;
+      this.ctx.lineWidth = 1.2;
       this.ctx.beginPath();
       this.ctx.moveTo(x, yHigh);
       this.ctx.lineTo(x, yLow);
       this.ctx.stroke();
 
-      this.ctx.fillStyle = bullish ? COLORS.bullish : COLORS.bearish;
+      const grad = this.ctx.createLinearGradient(0, Math.min(yOpen, yClose), 0, Math.max(yOpen, yClose) + 1);
+      if (bullish) {
+        grad.addColorStop(0, "#56e2af");
+        grad.addColorStop(1, "#1f9c73");
+      } else {
+        grad.addColorStop(0, "#ff8b96");
+        grad.addColorStop(1, "#e65664");
+      }
+      this.ctx.fillStyle = grad;
       const top = Math.min(yOpen, yClose);
       const h = Math.max(1, Math.abs(yClose - yOpen));
       this.ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, h);
     });
+    this.ctx.lineWidth = 1;
   }
 
   #drawEma({ xAt, yPrice, key, color }) {
@@ -217,10 +275,15 @@ export class GeminiBotChart {
     });
   }
 
-  #drawTimeAxis({ xAt, priceHeight, height }) {
+  #drawTimeAxis({ xAt, priceHeight, height, left, right }) {
     this.ctx.fillStyle = COLORS.axis;
     this.ctx.font = "10px sans-serif";
     const step = Math.max(1, Math.floor(this.candles.length / 6));
+    this.ctx.strokeStyle = "rgba(148, 163, 184, .2)";
+    this.ctx.beginPath();
+    this.ctx.moveTo(left, priceHeight + 1);
+    this.ctx.lineTo(right, priceHeight + 1);
+    this.ctx.stroke();
     for (let i = 0; i < this.candles.length; i += step) {
       const candle = this.candles[i];
       const date = new Date(candle.closeTime || candle.timestamp || Date.now());
@@ -265,6 +328,51 @@ export class GeminiBotChart {
       }
     });
     this.ctx.lineWidth = 1;
+  }
+
+  #drawCurrentPriceLine({ yPrice, width, padRight, left, lastCandle }) {
+    const close = toNum(lastCandle?.close, NaN);
+    if (!Number.isFinite(close)) return;
+    const y = yPrice(close);
+    this.ctx.setLineDash([6, 4]);
+    this.ctx.strokeStyle = "rgba(96, 165, 250, .8)";
+    this.ctx.beginPath();
+    this.ctx.moveTo(left, y);
+    this.ctx.lineTo(width - padRight, y);
+    this.ctx.stroke();
+    this.ctx.setLineDash([]);
+  }
+
+  #drawCurrentCandleHighlight({ xAt, xStep }) {
+    if (!this.candles.length) return;
+    const idx = this.candles.length - 1;
+    const x = xAt(idx);
+    const w = Math.max(8, xStep * 0.9);
+    this.ctx.fillStyle = "rgba(59, 130, 246, .08)";
+    this.ctx.fillRect(x - w / 2, 26, w, this.canvas.height - 26);
+  }
+
+  #updateCountdownLabel(lastCandle = this.candles[this.candles.length - 1]) {
+    const el = this.config.countdownEl;
+    if (!el) return;
+    const ms = this.#getRemainingMs(lastCandle);
+    if (!Number.isFinite(ms)) {
+      el.textContent = "Candle: --:--";
+      return;
+    }
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+    const ss = String(totalSec % 60).padStart(2, "0");
+    el.textContent = `Candle: ${mm}:${ss}`;
+  }
+
+  #getRemainingMs(lastCandle) {
+    const timeframeMinutes = Number(String(this.timeframe || "5m").replace(/[^\d]/g, "")) || 5;
+    const frameMs = timeframeMinutes * 60 * 1000;
+    const closeTs = new Date(lastCandle?.closeTime || lastCandle?.timestamp || 0).getTime();
+    if (!Number.isFinite(closeTs) || closeTs <= 0) return NaN;
+    const nextBoundary = closeTs + frameMs;
+    return Math.max(0, nextBoundary - Date.now());
   }
 
   #onMouseMove(event) {

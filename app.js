@@ -6996,7 +6996,10 @@ async function init() {
   });
   const geminiBotChart = new GeminiBotChart(
     document.getElementById("gemini-chart"),
-    { maxCandles: 60 },
+    {
+      maxCandles: 60,
+      countdownEl: document.getElementById("gemini-candle-countdown"),
+    },
   );
 
   const geminiBridge = new LibraryBridge({
