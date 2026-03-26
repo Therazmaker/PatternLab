@@ -270,6 +270,120 @@
           </h3>
           <ul id="gemini-log" class="gemini-log"></ul>
         </div>
+
+        <!-- GENETIC OPTIMIZER PANEL -->
+        <div class="genetic-optimizer-section" id="genetic-optimizer-section">
+          <div class="genetic-optimizer-header" id="genetic-optimizer-toggle">
+            <h3>🧬 Evolución Genética <span class="badge">Genetic Optimizer</span></h3>
+            <span class="genetic-expand-icon" id="genetic-expand-icon">▼</span>
+          </div>
+          <div class="genetic-optimizer-body" id="genetic-optimizer-body">
+
+            <!-- A. Execution controls -->
+            <div class="genetic-controls-bar">
+              <button id="btn-genetic-start" class="primary">▶ Iniciar evolución</button>
+              <button id="btn-genetic-stop" disabled>■ Detener</button>
+              <button id="btn-genetic-apply" class="ghost" disabled>✓ Aplicar mejor config</button>
+              <button id="btn-genetic-save" class="ghost" disabled>💾 Guardar versión</button>
+              <button id="btn-genetic-restore" class="ghost">↩ Restaurar config anterior</button>
+            </div>
+
+            <!-- B. GA parameters -->
+            <div class="genetic-params-grid">
+              <label>Población
+                <input id="genetic-pop-size" type="number" min="5" max="100" value="20" />
+              </label>
+              <label>Generaciones
+                <input id="genetic-generations" type="number" min="5" max="200" value="30" />
+              </label>
+              <label>Mutación
+                <input id="genetic-mutation-rate" type="number" min="0.01" max="0.5" step="0.01" value="0.15" />
+              </label>
+              <label>Cruce
+                <input id="genetic-crossover-rate" type="number" min="0.1" max="1.0" step="0.05" value="0.70" />
+              </label>
+              <label>Élite
+                <input id="genetic-elite-count" type="number" min="1" max="10" value="2" />
+              </label>
+              <label>Min muestras
+                <input id="genetic-min-samples" type="number" min="3" max="50" value="5" />
+              </label>
+            </div>
+
+            <!-- C. Current status -->
+            <div class="genetic-status-row">
+              <span>Generación: <strong id="genetic-current-gen">—</strong></span>
+              <span>Mejor fitness: <strong id="genetic-best-fitness">—</strong></span>
+              <span>Avg fitness: <strong id="genetic-avg-fitness">—</strong></span>
+              <span>Estado: <strong id="genetic-status-text">Inactivo</strong></span>
+            </div>
+            <div class="genetic-progress-bar-track">
+              <div class="genetic-progress-bar-fill" id="genetic-progress-bar-fill" style="width:0%"></div>
+            </div>
+
+            <!-- D. Fitness chart -->
+            <div class="genetic-chart-wrap">
+              <canvas id="genetic-fitness-chart"></canvas>
+            </div>
+
+            <!-- E. Top-5 results & diff -->
+            <div id="genetic-results-section" style="display:none">
+              <h4>Mejores individuos</h4>
+              <div class="table-wrap">
+                <table class="gemini-pattern-table">
+                  <thead>
+                    <tr>
+                      <th>Rank</th>
+                      <th>Fitness</th>
+                      <th>W.WinRate</th>
+                      <th>Stability</th>
+                      <th>Coverage</th>
+                      <th>Patrones válidos</th>
+                    </tr>
+                  </thead>
+                  <tbody id="genetic-results-tbody"></tbody>
+                </table>
+              </div>
+
+              <div id="genetic-diff-section" style="margin-top:12px">
+                <h4>Comparación vs config actual <span id="genetic-diff-badge" class="muted"></span></h4>
+                <div class="table-wrap">
+                  <table class="gemini-pattern-table">
+                    <thead>
+                      <tr><th>Parámetro</th><th>Default</th><th>Mejor config</th><th>Δ cambio</th></tr>
+                    </thead>
+                    <tbody id="genetic-diff-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- F. Optimizer log -->
+            <ul id="genetic-log" class="gemini-log genetic-log"></ul>
+
+            <!-- G. Run history -->
+            <div id="genetic-history-section">
+              <h4>Historial de ejecuciones</h4>
+              <div class="table-wrap">
+                <table class="gemini-pattern-table">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Gens</th>
+                      <th>Pob.</th>
+                      <th>Mejor fitness</th>
+                      <th>Baseline</th>
+                      <th>Estado</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="genetic-history-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
       </section>
 
 
