@@ -9,7 +9,7 @@ function toNumber(value, fallback = 0) {
 
 /**
  * Historical futures strategy simulation.
- * Uses futuresReplay intrabar conservative handling (TP/SL same bar resolves as SL).
+ * Uses futuresReplay intrabar policy (default: open-distance proxy when TP/SL touch in same bar).
  */
 export function runStrategyBacktest({ strategyId, candles = [], features = [], strategyConfig = {}, runtimeContext = {} }) {
   const decisions = runStrategyDecisions({ strategyId, candles, features, strategyConfig, runtimeContext });
