@@ -7277,6 +7277,11 @@ async function init() {
     geminiBotChart.setTimeframe(e.target.value);
   });
 
+  // Zoom controls for the Gemini Bot chart
+  document.getElementById("gemini-chart-zoom-in")?.addEventListener("click", () => geminiBotChart.zoomIn());
+  document.getElementById("gemini-chart-zoom-out")?.addEventListener("click", () => geminiBotChart.zoomOut());
+  document.getElementById("gemini-chart-zoom-reset")?.addEventListener("click", () => geminiBotChart.resetZoom());
+
   // Fullscreen toggle for the chart
   document.getElementById("gemini-chart-fullscreen")?.addEventListener("click", () => {
     const wrap = document.getElementById("gemini-chart-wrap");
