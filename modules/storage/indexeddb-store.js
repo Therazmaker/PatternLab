@@ -1,10 +1,13 @@
 const DB_NAME = "patternlab-storage";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE = "kv";
 const BRAIN_EVENTS_STORE = "brain_events";
-const BRAIN_STATS_STORE = "brain_stats";
+const MODEL_STATS_STORE = "model_stats";
 const BRAIN_GROWTH_STORE = "brain_growth_series";
 const BRAIN_STATE_STORE = "brain_state";
+const TRAINING_QUEUE_STATE_STORE = "training_queue_state";
+const MODEL_VERSIONS_STORE = "model_versions";
+const MODEL_RUN_HISTORY_STORE = "model_run_history";
 const GENETIC_RUNS_STORE = "genetic_runs";
 const GENETIC_GENOMES_STORE = "genetic_genomes";
 const GENETIC_STATE_STORE = "genetic_state";
@@ -32,11 +35,13 @@ export async function openIndexedDb() {
     if (!db.objectStoreNames.contains(BRAIN_EVENTS_STORE)) {
       const eventsStore = db.createObjectStore(BRAIN_EVENTS_STORE, { keyPath: "id", autoIncrement: true });
       eventsStore.createIndex("timestamp", "timestamp", { unique: false });
-      eventsStore.createIndex("type", "type", { unique: false });
+      eventsStore.createIndex("eventType", "eventType", { unique: false });
       eventsStore.createIndex("patternName", "patternName", { unique: false });
+      eventsStore.createIndex("modelTarget", "modelTarget", { unique: false });
+      eventsStore.createIndex("trainingStatus", "trainingStatus", { unique: false });
     }
-    if (!db.objectStoreNames.contains(BRAIN_STATS_STORE)) {
-      db.createObjectStore(BRAIN_STATS_STORE, { keyPath: "key" });
+    if (!db.objectStoreNames.contains(MODEL_STATS_STORE)) {
+      db.createObjectStore(MODEL_STATS_STORE, { keyPath: "key" });
     }
     if (!db.objectStoreNames.contains(BRAIN_GROWTH_STORE)) {
       const growthStore = db.createObjectStore(BRAIN_GROWTH_STORE, { keyPath: "id", autoIncrement: true });
@@ -45,7 +50,17 @@ export async function openIndexedDb() {
     if (!db.objectStoreNames.contains(BRAIN_STATE_STORE)) {
       db.createObjectStore(BRAIN_STATE_STORE, { keyPath: "key" });
     }
-    // Genetic optimizer stores (added in DB version 3)
+    if (!db.objectStoreNames.contains(TRAINING_QUEUE_STATE_STORE)) {
+      db.createObjectStore(TRAINING_QUEUE_STATE_STORE, { keyPath: "key" });
+    }
+    if (!db.objectStoreNames.contains(MODEL_VERSIONS_STORE)) {
+      db.createObjectStore(MODEL_VERSIONS_STORE, { keyPath: "key" });
+    }
+    if (!db.objectStoreNames.contains(MODEL_RUN_HISTORY_STORE)) {
+      const runStore = db.createObjectStore(MODEL_RUN_HISTORY_STORE, { keyPath: "id", autoIncrement: true });
+      runStore.createIndex("timestamp", "timestamp", { unique: false });
+      runStore.createIndex("modelTarget", "modelTarget", { unique: false });
+    }
     if (!db.objectStoreNames.contains(GENETIC_RUNS_STORE)) {
       const runsStore = db.createObjectStore(GENETIC_RUNS_STORE, { keyPath: "id", autoIncrement: true });
       runsStore.createIndex("createdAt", "createdAt", { unique: false });
@@ -101,15 +116,15 @@ export async function getBrainEvents(db, limit = 50) {
     .slice(0, safeLimit);
 }
 
-export async function putBrainStats(db, stats = {}) {
-  const tx = db.transaction(BRAIN_STATS_STORE, "readwrite");
-  const store = tx.objectStore(BRAIN_STATS_STORE);
+export async function putModelStats(db, stats = {}) {
+  const tx = db.transaction(MODEL_STATS_STORE, "readwrite");
+  const store = tx.objectStore(MODEL_STATS_STORE);
   return wrapRequest(store.put({ ...stats, key: "global" }));
 }
 
-export async function getBrainStats(db) {
-  const tx = db.transaction(BRAIN_STATS_STORE, "readonly");
-  const store = tx.objectStore(BRAIN_STATS_STORE);
+export async function getModelStats(db) {
+  const tx = db.transaction(MODEL_STATS_STORE, "readonly");
+  const store = tx.objectStore(MODEL_STATS_STORE);
   const row = await wrapRequest(store.get("global"));
   return row || null;
 }
@@ -141,6 +156,46 @@ export async function getBrainState(db) {
   const store = tx.objectStore(BRAIN_STATE_STORE);
   const row = await wrapRequest(store.get("main"));
   return row || null;
+}
+
+export async function putTrainingQueueState(db, state = {}) {
+  const tx = db.transaction(TRAINING_QUEUE_STATE_STORE, "readwrite");
+  const store = tx.objectStore(TRAINING_QUEUE_STATE_STORE);
+  return wrapRequest(store.put({ ...state, key: "main" }));
+}
+
+export async function getTrainingQueueState(db) {
+  const tx = db.transaction(TRAINING_QUEUE_STATE_STORE, "readonly");
+  const store = tx.objectStore(TRAINING_QUEUE_STATE_STORE);
+  const row = await wrapRequest(store.get("main"));
+  return row || null;
+}
+
+export async function putModelVersions(db, versions = {}) {
+  const tx = db.transaction(MODEL_VERSIONS_STORE, "readwrite");
+  const store = tx.objectStore(MODEL_VERSIONS_STORE);
+  return wrapRequest(store.put({ ...versions, key: "main" }));
+}
+
+export async function getModelVersions(db) {
+  const tx = db.transaction(MODEL_VERSIONS_STORE, "readonly");
+  const store = tx.objectStore(MODEL_VERSIONS_STORE);
+  const row = await wrapRequest(store.get("main"));
+  return row || null;
+}
+
+export async function addModelRunHistory(db, row = {}) {
+  const tx = db.transaction(MODEL_RUN_HISTORY_STORE, "readwrite");
+  const store = tx.objectStore(MODEL_RUN_HISTORY_STORE);
+  return wrapRequest(store.add(row));
+}
+
+export async function getModelRunHistory(db, limit = 200) {
+  const tx = db.transaction(MODEL_RUN_HISTORY_STORE, "readonly");
+  const store = tx.objectStore(MODEL_RUN_HISTORY_STORE);
+  const rows = await wrapRequest(store.getAll());
+  const safeLimit = Number(limit) > 0 ? Number(limit) : 200;
+  return rows.sort((a, b) => new Date(b?.timestamp || 0).getTime() - new Date(a?.timestamp || 0).getTime()).slice(0, safeLimit);
 }
 
 // ── Genetic Optimizer stores ──────────────────────────────────────────────────

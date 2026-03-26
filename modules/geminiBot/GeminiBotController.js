@@ -2,12 +2,14 @@ import { BinanceStreamer } from "./BinanceStreamer.js";
 import { GeminiModel } from "./GeminiModel.js";
 import { NeuronStore } from "./NeuronStore.js";
 import { createBrainPanelStore } from "./brainPanelStore.js";
+import { BrainCoordinator } from "./BrainCoordinator.js";
 
 export function createGeminiBotController(elements = {}) {
   let active = false;
   let outcomeTimer = null;
   let statsTimer = null;
   let brainPanelStore = null;
+  let coordinator = null;
   let outcomeLoopRunning = false;
 
   const streamer = new BinanceStreamer({
@@ -73,14 +75,15 @@ export function createGeminiBotController(elements = {}) {
 
   const updateTrainingStats = () => {
     if (!elements.trainingStats) return;
-    const trained = Number(model.stats.trainedCount || model.stats.totalTrained || 0);
-    const skipped = Number(model.stats.skippedCount || 0);
-    const errors = Number(model.stats.errorCount || 0);
+    const panelStats = state.brainPanel?.stats || {};
+    const trained = Number(panelStats.trainedCount || 0);
+    const skipped = Number(panelStats.skippedCount || 0);
+    const errors = Number(panelStats.errorCount || 0);
     elements.trainingStats.total.textContent = String(trained);
     if (elements.trainingStats.skipped) elements.trainingStats.skipped.textContent = String(skipped);
     if (elements.trainingStats.errors) elements.trainingStats.errors.textContent = String(errors);
-    elements.trainingStats.loss.textContent = Number.isFinite(model.stats.lastTrainLoss) ? model.stats.lastTrainLoss.toFixed(4) : "n/a";
-    elements.trainingStats.acc.textContent = Number.isFinite(model.stats.lastTrainAcc) ? `${(model.stats.lastTrainAcc * 100).toFixed(2)}%` : "n/a";
+    elements.trainingStats.loss.textContent = Number.isFinite(Number(panelStats.lastTrainLoss)) ? Number(panelStats.lastTrainLoss).toFixed(4) : "n/a";
+    elements.trainingStats.acc.textContent = Number.isFinite(Number(panelStats.lastTrainAcc)) ? `${(Number(panelStats.lastTrainAcc) * 100).toFixed(2)}%` : "n/a";
     console.info("[NeuralActivity] header updated");
     console.info(`[NeuralActivity] trained=${trained} skipped=${skipped} errors=${errors}`);
   };
@@ -149,68 +152,45 @@ export function createGeminiBotController(elements = {}) {
             appendLog(`⛔ Veto persistente ${resolved.type} (${resolved.timeframe}) · ${resolved.prediction.vetoReason || "sin razón"}`);
             await persistBrainEvent({
               timestamp: new Date().toISOString(),
-              type: "diagnosis",
+              eventType: "diagnosis",
               patternName: resolved.type,
-              outcome: resolved.outcome?.result || null,
-              reasonCode: "bridge_veto",
-              details: resolved.prediction.vetoReason || "veto",
+              modelTarget: "meta",
+              tradeOutcome: resolved.outcome?.result || "n_a",
+              trainingStatus: "skipped",
+              trainingReason: "bridge_veto",
+              detail: resolved.prediction.vetoReason || "veto",
               meta: { timeframe: resolved.timeframe },
             });
           } else {
             const weight = Number(resolved?.prediction?.bridgeWeight || 1);
-            const report = await model.trainOnPattern(resolved.candles, label, customRows, {
-              weight,
-              patternType: resolved.type,
-              timeframe: resolved.timeframe,
-              patternId: resolved.id,
-            });
-            if (report?.skipped) {
-              appendLog(`⚠️ Entrenamiento omitido ${resolved.type} (${resolved.timeframe}) · ${report.reason}`);
-              await persistBrainEvent({
-                timestamp: new Date().toISOString(),
-                type: "skipped",
+            if (coordinator) {
+              await coordinator.submitTrainingSample({
                 patternName: resolved.type,
-                outcome: resolved.outcome?.result || null,
-                reasonCode: report.reason || "insufficient_sequence",
-                details: "training skipped",
-                meta: { timeframe: resolved.timeframe, receivedCandles: report.receivedCandles || null },
+                timeframe: resolved.timeframe,
+                candles: resolved.candles,
+                customRows,
+                tradeOutcome: resolved.outcome?.result || "n_a",
+                weight,
+                indicators: resolved.indicators || {},
               });
-              updateTrainingStats();
-              continue;
+              appendLog(`🧠 Sample enviado al coordinador ${resolved.type} (${resolved.timeframe}) → trade=${resolved.outcome.result}`);
             }
             updateTrainingStats();
-            appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
-            await persistBrainEvent({
-              timestamp: new Date().toISOString(),
-              type: "trained",
-              patternName: resolved.type,
-              outcome: resolved.outcome?.result || null,
-              reasonCode: "fit_success",
-              loss: report.loss,
-              acc: report.accuracy,
-              details: "training completed",
-              meta: { timeframe: resolved.timeframe, weight },
-            });
           }
         } catch (error) {
-          if (model.stats.lastEventType !== "error") {
-            model.stats.errorCount = Number(model.stats.errorCount || 0) + 1;
-            model.stats.lastEventType = "error";
-            model.stats.lastTrainingReason = error?.message || "unknown_error";
-            model.stats.lastTrainLoss = null;
-            model.stats.lastTrainAcc = null;
-          }
           setStatus(`Error entrenando: ${error.message}`);
           appendLog(`❌ Error entrenando ${resolved.type} (${resolved.timeframe}) · ${error.message}`);
           console.error(`[Training] fit failed: ${error.message}`);
           updateTrainingStats();
           await persistBrainEvent({
             timestamp: new Date().toISOString(),
-            type: "error",
+            eventType: "training_event",
             patternName: resolved.type,
-            outcome: resolved.outcome?.result || null,
-            reasonCode: error?.message || "fit_failed",
-            details: error?.message || "training error",
+            modelTarget: "meta",
+            tradeOutcome: resolved.outcome?.result || "n_a",
+            trainingStatus: "error",
+            trainingReason: error?.message || "fit_failed",
+            detail: error?.message || "training error",
             meta: { timeframe: resolved.timeframe },
           });
         }
@@ -285,11 +265,13 @@ export function createGeminiBotController(elements = {}) {
       appendLog(`✅ ${pattern.type} ${pattern.timeframe} → ${prediction.direction} (${(prediction.confidence * 100).toFixed(1)}%)`);
       await persistBrainEvent({
         timestamp: new Date().toISOString(),
-        type: "neuron_saved",
+        eventType: "neuron_saved",
         patternName: pattern.type,
-        outcome: null,
-        reasonCode: "pattern_captured",
-        details: "neuron sample appended",
+        modelTarget: "meta",
+        tradeOutcome: "n_a",
+        trainingStatus: "queued",
+        trainingReason: "pattern_captured",
+        detail: "neuron sample appended",
         meta: { timeframe: pattern.timeframe, eventId: stored.id },
       });
       refreshStats();
@@ -323,6 +305,11 @@ export function createGeminiBotController(elements = {}) {
       } catch {
         await model.init();
         appendLog("🆕 Modelo inicializado");
+      }
+
+      if (coordinator) {
+        await coordinator.init();
+        appendLog("🧭 BrainCoordinator multi-modelo inicializado");
       }
 
       active = true;
@@ -389,6 +376,20 @@ export function createGeminiBotController(elements = {}) {
       brainPanelStore = storeAdapter;
       const hydrated = await brainPanelStore.hydrate();
       pushBrainSnapshot(hydrated);
+      coordinator = new BrainCoordinator({
+        modelConfig: elements.modelConfig || {},
+        onEvent: async (event) => {
+          const snapshot = await brainPanelStore.persistEvent(event, state.brainPanel);
+          pushBrainSnapshot(snapshot);
+          updateTrainingStats();
+        },
+        onQueueState: async (queueState) => {
+          await brainPanelStore.persistQueueState(queueState);
+        },
+        onModelVersions: async (modelVersions) => {
+          await brainPanelStore.persistModelVersions(modelVersions);
+        },
+      });
     })
     .catch((error) => {
       console.error("[BrainPanel] hydration failed", error);
@@ -401,7 +402,7 @@ export function createGeminiBotController(elements = {}) {
           lastTrainLoss: model.stats.lastTrainLoss,
           lastTrainAcc: model.stats.lastTrainAcc,
           patternStats: {},
-          reasonStats: { skip: {}, loss: {}, success: {} },
+          reasonStats: { training: {}, tradeLoss: {}, success: {} },
         },
         state: { brainReady: false, initializedAt: new Date().toISOString(), lastHydratedAt: null },
         events: [],

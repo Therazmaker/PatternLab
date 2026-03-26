@@ -20,8 +20,10 @@ function topReasons(map = {}, limit = 5) {
 }
 
 const EVENT_TYPE_BADGE = {
+  training_event: "bp-badge-trained",
   trained: "bp-badge-trained",
   skipped: "bp-badge-skipped",
+  queued: "bp-badge-neuron",
   error: "bp-badge-error",
   neuron_saved: "bp-badge-neuron",
   diagnosis: "bp-badge-diagnosis",
@@ -224,8 +226,8 @@ export function renderBrainPanel(snapshot = {}, elements = {}) {
       : '<tr><td colspan="8" class="muted">Sin datos por patrón todavía.</td></tr>';
   }
 
-  const skipReasons = topReasons(stats.reasonStats?.skip || {});
-  const lossReasons = topReasons(stats.reasonStats?.loss || {});
+  const skipReasons = topReasons(stats.reasonStats?.training || {});
+  const lossReasons = topReasons(stats.reasonStats?.tradeLoss || {});
   const successReasons = topReasons(stats.reasonStats?.success || {});
   if (elements.reasons) {
     elements.reasons.innerHTML = `
@@ -256,12 +258,14 @@ export function renderBrainPanel(snapshot = {}, elements = {}) {
           <td class="bp-col-ts">${esc(fmtDate(row.timestamp))}</td>
           <td>${eventTypeBadge(row.type)}</td>
           <td>${esc(row.patternName || "n/a")}</td>
-          <td class="muted">${esc(row.reasonCode || "n/a")}</td>
-          <td>${row.outcome === "win" ? '<span class="bp-outcome-win">win</span>' : row.outcome === "loss" ? '<span class="bp-outcome-loss">loss</span>' : esc(row.outcome || "n/a")}</td>
-          <td class="muted">${esc(row.details || row.meta?.message || "")}</td>
+          <td>${esc(row.modelTarget || "n/a")}</td>
+          <td>${row.tradeOutcome === "win" ? '<span class="bp-outcome-win">win</span>' : row.tradeOutcome === "loss" ? '<span class="bp-outcome-loss">loss</span>' : esc(row.tradeOutcome || "n_a")}</td>
+          <td>${esc(row.trainingStatus || "n/a")}</td>
+          <td class="muted">${esc(row.trainingReason || row.reasonCode || "n/a")}</td>
+          <td class="muted">${esc(row.detail || row.details || row.meta?.message || "")}</td>
         </tr>
       `).join("")
-      : `<tr><td colspan="6" class="muted">${filterType || filterPattern ? "Sin eventos para este filtro." : "Sin eventos persistidos."}</td></tr>`;
+      : `<tr><td colspan="8" class="muted">${filterType || filterPattern ? "Sin eventos para este filtro." : "Sin eventos persistidos."}</td></tr>`;
   }
 
   drawGrowthChart(elements.chart, growth);

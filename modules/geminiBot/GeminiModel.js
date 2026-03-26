@@ -225,25 +225,15 @@ export class GeminiModel {
 
     let history;
     try {
-      const models = Array.isArray(this.models) && this.models.length === 3 ? this.models : this.#buildModel();
+      const models = Array.isArray(this.models) && this.models.length > 0 ? this.models : this.#buildModel();
       this.model = models[0];
-      const shouldTrain = [
-        true,
-        Math.random() > 0.2,
-        Math.random() > 0.2,
-      ];
       const fitOptions = {
         epochs: 1,
         batchSize: 1,
         verbose: 0,
         shuffle: false,
       };
-      const fitRuns = models.map(async (model, index) => {
-        if (!shouldTrain[index]) return null;
-        return model.fit(input, target, fitOptions);
-      });
-      const histories = await Promise.all(fitRuns);
-      history = histories[0];
+      history = await this.model.fit(input, target, fitOptions);
       console.info("[Training] fit success", {
         loss: Number(history?.history?.loss?.[0]),
         accuracy: Number(history?.history?.accuracy?.[0]),

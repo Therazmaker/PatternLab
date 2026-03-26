@@ -1,16 +1,21 @@
 import {
   addBrainEvent,
   addBrainGrowthPoint,
+  addModelRunHistory,
   getBrainEvents,
   getBrainGrowthSeries,
   getBrainState,
-  getBrainStats,
+  getModelStats,
+  getModelVersions,
+  getTrainingQueueState,
   openIndexedDb,
   putBrainState,
-  putBrainStats,
+  putModelStats,
+  putModelVersions,
+  putTrainingQueueState,
 } from "../storage/indexeddb-store.js";
 
-const BRAIN_VERSION = 1;
+const BRAIN_VERSION = 2;
 
 function nowIso() {
   return new Date().toISOString();
@@ -21,16 +26,19 @@ function createEmptyStats() {
     key: "global",
     trainedCount: 0,
     skippedCount: 0,
+    queuedCount: 0,
     errorCount: 0,
     neuronsSavedCount: 0,
     lastTrainLoss: null,
     lastTrainAcc: null,
     lastUpdatedAt: null,
     lastActivityAt: null,
+    tradeOutcomeStats: { win: 0, loss: 0, n_a: 0 },
     patternStats: {},
+    modelStats: {},
     reasonStats: {
-      skip: {},
-      loss: {},
+      training: {},
+      tradeLoss: {},
       success: {},
     },
   };
@@ -56,7 +64,19 @@ function normalizePatternBucket(bucket = {}) {
     winRate: Number(bucket.winRate || 0),
     learnedCount: Number(bucket.learnedCount || 0),
     skippedCount: Number(bucket.skippedCount || 0),
+    queuedCount: Number(bucket.queuedCount || 0),
     errorCount: Number(bucket.errorCount || 0),
+  };
+}
+
+function normalizeModelBucket(bucket = {}, modelTarget = "unknown") {
+  return {
+    modelTarget,
+    trainedCount: Number(bucket.trainedCount || 0),
+    skippedCount: Number(bucket.skippedCount || 0),
+    queuedCount: Number(bucket.queuedCount || 0),
+    errorCount: Number(bucket.errorCount || 0),
+    totalSamples: Number(bucket.totalSamples || 0),
   };
 }
 
@@ -64,11 +84,13 @@ export async function createBrainPanelStore() {
   const db = await openIndexedDb();
 
   async function hydrate() {
-    const [statsRow, stateRow, events, growth] = await Promise.all([
-      getBrainStats(db),
+    const [statsRow, stateRow, events, growth, queueState, modelVersions] = await Promise.all([
+      getModelStats(db),
       getBrainState(db),
       getBrainEvents(db, 80),
       getBrainGrowthSeries(db, 300),
+      getTrainingQueueState(db),
+      getModelVersions(db),
     ]);
 
     const hasData = Boolean(statsRow || (events && events.length) || (growth && growth.length));
@@ -80,15 +102,18 @@ export async function createBrainPanelStore() {
         lastHydratedAt: nowIso(),
       };
       await Promise.all([
-        putBrainStats(db, freshStats),
+        putModelStats(db, freshStats),
         putBrainState(db, freshState),
+        putTrainingQueueState(db, { key: "main", queues: {}, processing: {}, updatedAt: nowIso() }),
+        putModelVersions(db, { key: "main", versions: {}, updatedAt: nowIso() }),
       ]);
-      console.info("[BrainPanel] no prior brain data found, initialized empty state");
       return {
         stats: freshStats,
         state: freshState,
         events: [],
         growth: [],
+        queueState: { queues: {}, processing: {}, updatedAt: nowIso() },
+        modelVersions: { versions: {}, updatedAt: nowIso() },
       };
     }
 
@@ -100,66 +125,100 @@ export async function createBrainPanelStore() {
       brainReady: true,
     };
     await putBrainState(db, nextState);
-    console.info("[BrainPanel] hydrated from IndexedDB");
+
     return {
       stats: { ...createEmptyStats(), ...(statsRow || {}) },
       state: nextState,
       events: Array.isArray(events) ? events : [],
       growth: Array.isArray(growth) ? growth : [],
+      queueState: queueState || { queues: {}, processing: {}, updatedAt: nowIso() },
+      modelVersions: modelVersions || { versions: {}, updatedAt: nowIso() },
     };
+  }
+
+  async function persistQueueState(queueState = {}) {
+    await putTrainingQueueState(db, {
+      key: "main",
+      queues: queueState.queues || {},
+      processing: queueState.processing || {},
+      updatedAt: nowIso(),
+    });
+  }
+
+  async function persistModelVersions(modelVersions = {}) {
+    await putModelVersions(db, {
+      key: "main",
+      versions: modelVersions.versions || modelVersions || {},
+      updatedAt: nowIso(),
+    });
   }
 
   async function persistEvent(event = {}, snapshot = {}) {
     const timestamp = event.timestamp || nowIso();
-    const safeType = String(event.type || "diagnosis");
-    const reasonCode = event.reasonCode || null;
-    const outcome = event.outcome || null;
+    const eventType = String(event.eventType || event.type || "training_event");
+    const trainingStatus = String(event.trainingStatus || "queued");
+    const trainingReason = event.trainingReason || event.reasonCode || null;
+    const tradeOutcome = event.tradeOutcome || event.outcome || "n_a";
+    const modelTarget = event.modelTarget || "meta";
 
     const nextStats = {
       ...createEmptyStats(),
       ...(snapshot.stats || {}),
       patternStats: { ...(snapshot.stats?.patternStats || {}) },
+      modelStats: { ...(snapshot.stats?.modelStats || {}) },
       reasonStats: {
-        skip: { ...(snapshot.stats?.reasonStats?.skip || {}) },
-        loss: { ...(snapshot.stats?.reasonStats?.loss || {}) },
+        training: { ...(snapshot.stats?.reasonStats?.training || {}) },
+        tradeLoss: { ...(snapshot.stats?.reasonStats?.tradeLoss || {}) },
         success: { ...(snapshot.stats?.reasonStats?.success || {}) },
+      },
+      tradeOutcomeStats: {
+        win: Number(snapshot.stats?.tradeOutcomeStats?.win || 0),
+        loss: Number(snapshot.stats?.tradeOutcomeStats?.loss || 0),
+        n_a: Number(snapshot.stats?.tradeOutcomeStats?.n_a || 0),
       },
     };
 
-    if (safeType === "trained") nextStats.trainedCount += 1;
-    if (safeType === "skipped") nextStats.skippedCount += 1;
-    if (safeType === "error") nextStats.errorCount += 1;
-    if (safeType === "neuron_saved") nextStats.neuronsSavedCount += 1;
+    if (trainingStatus === "trained") nextStats.trainedCount += 1;
+    if (trainingStatus === "skipped") nextStats.skippedCount += 1;
+    if (trainingStatus === "queued") nextStats.queuedCount += 1;
+    if (trainingStatus === "error") nextStats.errorCount += 1;
 
-    if (safeType === "trained") {
+    if (trainingStatus === "trained") {
       nextStats.lastTrainLoss = Number.isFinite(Number(event.loss)) ? Number(event.loss) : nextStats.lastTrainLoss;
       nextStats.lastTrainAcc = Number.isFinite(Number(event.acc)) ? Number(event.acc) : nextStats.lastTrainAcc;
     }
 
+    if (["win", "loss", "n_a"].includes(tradeOutcome)) nextStats.tradeOutcomeStats[tradeOutcome] += 1;
+
     const patternName = String(event.patternName || "unknown");
     const prevPattern = normalizePatternBucket(nextStats.patternStats[patternName]);
     prevPattern.patternName = patternName;
-    if (["trained", "skipped", "error"].includes(safeType)) prevPattern.totalSamples += 1;
-    if (safeType === "trained") prevPattern.learnedCount += 1;
-    if (safeType === "skipped") prevPattern.skippedCount += 1;
-    if (safeType === "error") prevPattern.errorCount += 1;
-    if (outcome === "win") prevPattern.wins += 1;
-    if (outcome === "loss") prevPattern.losses += 1;
+    prevPattern.totalSamples += 1;
+    if (trainingStatus === "trained") prevPattern.learnedCount += 1;
+    if (trainingStatus === "skipped") prevPattern.skippedCount += 1;
+    if (trainingStatus === "queued") prevPattern.queuedCount += 1;
+    if (trainingStatus === "error") prevPattern.errorCount += 1;
+    if (tradeOutcome === "win") prevPattern.wins += 1;
+    if (tradeOutcome === "loss") prevPattern.losses += 1;
     const resolved = prevPattern.wins + prevPattern.losses;
     prevPattern.winRate = resolved > 0 ? prevPattern.wins / resolved : 0;
     nextStats.patternStats[patternName] = prevPattern;
 
-    if (safeType === "skipped") {
-      const key = String(reasonCode || "unspecified_skip");
-      nextStats.reasonStats.skip[key] = Number(nextStats.reasonStats.skip[key] || 0) + 1;
+    const previousModel = normalizeModelBucket(nextStats.modelStats[modelTarget], modelTarget);
+    previousModel.totalSamples += 1;
+    if (trainingStatus === "trained") previousModel.trainedCount += 1;
+    if (trainingStatus === "skipped") previousModel.skippedCount += 1;
+    if (trainingStatus === "queued") previousModel.queuedCount += 1;
+    if (trainingStatus === "error") previousModel.errorCount += 1;
+    nextStats.modelStats[modelTarget] = previousModel;
+
+    const reasonKey = String(trainingReason || "unspecified");
+    nextStats.reasonStats.training[reasonKey] = Number(nextStats.reasonStats.training[reasonKey] || 0) + 1;
+    if (tradeOutcome === "loss") {
+      nextStats.reasonStats.tradeLoss[patternName] = Number(nextStats.reasonStats.tradeLoss[patternName] || 0) + 1;
     }
-    if (outcome === "loss") {
-      const key = String(reasonCode || "unspecified_loss");
-      nextStats.reasonStats.loss[key] = Number(nextStats.reasonStats.loss[key] || 0) + 1;
-    }
-    if (safeType === "trained" && outcome === "win") {
-      const key = String(reasonCode || "fit_success");
-      nextStats.reasonStats.success[key] = Number(nextStats.reasonStats.success[key] || 0) + 1;
+    if (trainingStatus === "trained") {
+      nextStats.reasonStats.success[reasonKey] = Number(nextStats.reasonStats.success[reasonKey] || 0) + 1;
     }
 
     nextStats.lastUpdatedAt = timestamp;
@@ -175,53 +234,62 @@ export async function createBrainPanelStore() {
 
     const normalizedEvent = {
       timestamp,
-      type: safeType,
+      eventType,
+      type: eventType,
       patternName,
-      outcome,
-      reasonCode,
+      modelTarget,
+      tradeOutcome,
+      trainingStatus,
+      trainingReason,
+      reasonCode: trainingReason,
+      outcome: tradeOutcome,
       loss: Number.isFinite(Number(event.loss)) ? Number(event.loss) : null,
       acc: Number.isFinite(Number(event.acc)) ? Number(event.acc) : null,
+      detail: event.detail || event.details || "",
+      details: event.detail || event.details || "",
       meta: event.meta && typeof event.meta === "object" ? event.meta : {},
-      details: event.details || "",
     };
 
     await addBrainEvent(db, normalizedEvent);
-    await putBrainStats(db, nextStats);
+    await addModelRunHistory(db, {
+      timestamp,
+      modelTarget,
+      patternName,
+      tradeOutcome,
+      trainingStatus,
+      trainingReason,
+      loss: normalizedEvent.loss,
+      acc: normalizedEvent.acc,
+    });
+
+    await putModelStats(db, nextStats);
     await putBrainState(db, currentState);
 
-    if (["trained", "skipped", "error", "neuron_saved"].includes(safeType)) {
+    if (["trained", "skipped", "error", "queued"].includes(trainingStatus)) {
       await addBrainGrowthPoint(db, {
         timestamp,
         trainedTotal: nextStats.trainedCount,
         skippedTotal: nextStats.skippedCount,
         errorTotal: nextStats.errorCount,
+        queuedTotal: nextStats.queuedCount,
         neuronsTotal: nextStats.neuronsSavedCount,
-        learnedPatternsCount: Object.values(nextStats.patternStats || {}).filter((row) => Number(row.learnedCount || 0) > 0).length,
-        optionalAverageWinRate: (() => {
-          const rows = Object.values(nextStats.patternStats || {});
-          if (!rows.length) return null;
-          const valid = rows.filter((row) => Number(row.wins || 0) + Number(row.losses || 0) > 0);
-          if (!valid.length) return null;
-          const avg = valid.reduce((acc, row) => acc + Number(row.winRate || 0), 0) / valid.length;
-          return Number.isFinite(avg) ? avg : null;
-        })(),
       });
-      console.info("[BrainPanel] growth point added");
     }
-
-    console.info(`[BrainPanel] event persisted: ${safeType}`);
-    console.info("[BrainPanel] stats updated");
 
     return {
       stats: nextStats,
       state: currentState,
       events: await getBrainEvents(db, 80),
       growth: await getBrainGrowthSeries(db, 300),
+      queueState: snapshot.queueState || null,
+      modelVersions: snapshot.modelVersions || null,
     };
   }
 
   return {
     hydrate,
     persistEvent,
+    persistQueueState,
+    persistModelVersions,
   };
 }
