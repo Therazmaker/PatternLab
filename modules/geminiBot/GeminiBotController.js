@@ -48,9 +48,16 @@ export function createGeminiBotController(elements = {}) {
 
   const updateTrainingStats = () => {
     if (!elements.trainingStats) return;
-    elements.trainingStats.total.textContent = String(model.stats.totalTrained || 0);
-    elements.trainingStats.loss.textContent = Number.isFinite(model.stats.avgLoss) ? model.stats.avgLoss.toFixed(4) : "—";
-    elements.trainingStats.acc.textContent = Number.isFinite(model.stats.avgAccuracy) ? (model.stats.avgAccuracy * 100).toFixed(2) + "%" : "—";
+    const trained = Number(model.stats.trainedCount || model.stats.totalTrained || 0);
+    const skipped = Number(model.stats.skippedCount || 0);
+    const errors = Number(model.stats.errorCount || 0);
+    elements.trainingStats.total.textContent = String(trained);
+    if (elements.trainingStats.skipped) elements.trainingStats.skipped.textContent = String(skipped);
+    if (elements.trainingStats.errors) elements.trainingStats.errors.textContent = String(errors);
+    elements.trainingStats.loss.textContent = Number.isFinite(model.stats.lastTrainLoss) ? model.stats.lastTrainLoss.toFixed(4) : "n/a";
+    elements.trainingStats.acc.textContent = Number.isFinite(model.stats.lastTrainAcc) ? `${(model.stats.lastTrainAcc * 100).toFixed(2)}%` : "n/a";
+    console.info("[NeuralActivity] header updated");
+    console.info(`[NeuralActivity] trained=${trained} skipped=${skipped} errors=${errors}`);
   };
 
   const refreshStats = () => {
@@ -105,13 +112,24 @@ export function createGeminiBotController(elements = {}) {
           });
           if (report?.skipped) {
             appendLog(`⚠️ Entrenamiento omitido ${resolved.type} (${resolved.timeframe}) · ${report.reason}`);
+            updateTrainingStats();
             continue;
           }
           updateTrainingStats();
           appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
         }
       } catch (error) {
+        if (model.stats.lastEventType !== "error") {
+          model.stats.errorCount = Number(model.stats.errorCount || 0) + 1;
+          model.stats.lastEventType = "error";
+          model.stats.lastTrainingReason = error?.message || "unknown_error";
+          model.stats.lastTrainLoss = null;
+          model.stats.lastTrainAcc = null;
+        }
         setStatus(`Error entrenando: ${error.message}`);
+        appendLog(`❌ Error entrenando ${resolved.type} (${resolved.timeframe}) · ${error.message}`);
+        console.error(`[Training] fit failed: ${error.message}`);
+        updateTrainingStats();
       }
 
       const suggestions = bridge?.suggestNeurons?.(store.getResolvedRecent(20), state.lastIndicators[resolved.timeframe] || {});

@@ -19,6 +19,9 @@ export class GeminiModel {
   constructor(config = {}) {
     this.config = {
       lookback: Number(config.lookback) > 5 ? Number(config.lookback) : 10,  // reducido de 20 → 10
+      minTrainingSequence: Number(config.minTrainingSequence) >= 6
+        ? Number(config.minTrainingSequence)
+        : Math.max(6, Math.ceil((Number(config.lookback) > 5 ? Number(config.lookback) : 10) * 0.7)),
       featureSize: Number(config.featureSize) > 1 ? Number(config.featureSize) : 6,
       lstmUnits: Number(config.lstmUnits) > 4 ? Number(config.lstmUnits) : 16, // reducido de 32 → 16 (matriz: 4*16*22=1408, bajo el límite)
       learningRate: Number(config.learningRate) > 0 ? Number(config.learningRate) : 0.001,
@@ -29,8 +32,16 @@ export class GeminiModel {
     this.ready = false;
     this.stats = {
       totalTrained: 0,
+      trainedCount: 0,
+      skippedCount: 0,
+      errorCount: 0,
       avgLoss: null,
       avgAccuracy: null,
+      lastTrainLoss: null,
+      lastTrainAcc: null,
+      lastTrainingReason: null,
+      lastEventType: "idle",
+      lastSampleWeight: null,
       byPattern: {},
       byTimeframe: {},
       lastTrainingAt: null,
@@ -128,6 +139,14 @@ export class GeminiModel {
     bucket.winRate = bucket.total > 0 ? bucket.wins / bucket.total : 0;
   }
 
+  #prepareSequenceForTraining(sequence = []) {
+    if (!Array.isArray(sequence) || sequence.length < this.config.minTrainingSequence) return null;
+    if (sequence.length >= this.config.lookback) return sequence.slice(-this.config.lookback);
+    const first = sequence[0] || {};
+    const padding = Array.from({ length: this.config.lookback - sequence.length }, () => first);
+    return [...padding, ...sequence];
+  }
+
   async trainOnPattern(patternContext, outcome, customIndicatorRows = [], meta = {}) {
     if (!this.ready) await this.init();
 
@@ -139,24 +158,42 @@ export class GeminiModel {
     const label = this.#normalizeOutcomeLabel(outcome);
     if (label === null) throw new Error("outcome inválido para entrenamiento (usa win/loss o 1/0)");
 
-    if (sequence.length < this.config.lookback) {
+    const preparedSequence = this.#prepareSequenceForTraining(sequence);
+    if (!preparedSequence) {
+      this.stats.skippedCount += 1;
+      this.stats.lastEventType = "skipped";
+      this.stats.lastTrainingReason = "insufficient_sequence";
+      this.stats.lastTrainLoss = null;
+      this.stats.lastTrainAcc = null;
+      console.info("[Training] sample skipped: insufficient_sequence", {
+        receivedCandles: sequence.length,
+        requiredLookback: this.config.lookback,
+        minTrainingSequence: this.config.minTrainingSequence,
+      });
       return {
         skipped: true,
         reason: "insufficient_sequence",
         requiredLookback: this.config.lookback,
+        minTrainingSequence: this.config.minTrainingSequence,
         receivedCandles: sequence.length,
       };
     }
 
-    const recent = sequence.slice(-this.config.lookback);
-    const features = recent.map((candle, index) => this.buildFeatureVector(candle, customIndicatorRows[index] || []));
+    const features = preparedSequence.map((candle, index) => this.buildFeatureVector(candle, customIndicatorRows[index] || []));
+    console.info("[Training] sample created", {
+      receivedCandles: sequence.length,
+      usedCandles: preparedSequence.length,
+      patternType: meta?.patternType || "unknown",
+      timeframe: meta?.timeframe || "unknown",
+    });
 
     const tf = this.tf;
     const input = tf.tensor3d([features], [1, this.config.lookback, this.config.featureSize]);
     const target = tf.tensor2d([[label]], [1, 1]);
     const safeWeight = Number(meta?.weight);
     const weight = Number.isFinite(safeWeight) && safeWeight > 0 ? safeWeight : 1;
-    const sampleWeight = tf.tensor1d([weight]);
+    this.stats.lastSampleWeight = weight;
+    console.info("[Training] sample weight ignored by backend, using fallback", { weight });
 
     let history;
     try {
@@ -165,15 +202,31 @@ export class GeminiModel {
         batchSize: 1,
         verbose: 0,
         shuffle: false,
-        sampleWeight,
       });
+      console.info("[Training] fit success", {
+        loss: Number(history?.history?.loss?.[0]),
+        accuracy: Number(history?.history?.accuracy?.[0]),
+      });
+    } catch (error) {
+      this.stats.errorCount += 1;
+      this.stats.lastEventType = "error";
+      this.stats.lastTrainingReason = error?.message || "fit_failed";
+      this.stats.lastTrainLoss = null;
+      this.stats.lastTrainAcc = null;
+      console.error(`[Training] fit failed: ${error?.message || "unknown_error"}`);
+      throw error;
     } finally {
-      tf.dispose([input, target, sampleWeight]);
+      tf.dispose([input, target]);
     }
 
     const loss = Number(history?.history?.loss?.[0]);
     const accuracy = Number(history?.history?.accuracy?.[0]);
     this.stats.totalTrained += 1;
+    this.stats.trainedCount = this.stats.totalTrained;
+    this.stats.lastEventType = "trained";
+    this.stats.lastTrainingReason = "fit_success";
+    this.stats.lastTrainLoss = Number.isFinite(loss) ? loss : null;
+    this.stats.lastTrainAcc = Number.isFinite(accuracy) ? accuracy : null;
     if (Number.isFinite(loss)) {
       this.stats.avgLoss = Number.isFinite(this.stats.avgLoss)
         ? ((this.stats.avgLoss * (this.stats.totalTrained - 1)) + loss) / this.stats.totalTrained
@@ -193,7 +246,11 @@ export class GeminiModel {
       loss,
       accuracy,
       weight,
+      backendWeightSupported: false,
       totalTrained: this.stats.totalTrained,
+      trainedCount: this.stats.trainedCount,
+      skippedCount: this.stats.skippedCount,
+      errorCount: this.stats.errorCount,
     };
   }
 
