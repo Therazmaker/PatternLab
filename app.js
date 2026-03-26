@@ -247,6 +247,9 @@ import { GeminiBotChart } from "./modules/geminiBot/GeminiBotChart.js";
 import { LibraryBridge } from "./modules/geminiBot/LibraryBridge.js";
 import { NeuronModal } from "./modules/geminiBot/NeuronModal.js";
 import { renderBrainPanel } from "./modules/geminiBot/brainPanelView.js";
+import { createGeneticOptimizer, buildBaselineGenome } from "./modules/geminiBot/geneticOptimizer.js";
+import { createGeneticOptimizerStore } from "./modules/geminiBot/geneticOptimizerStore.js";
+import { createGeneticOptimizerPanel } from "./modules/geminiBot/geneticOptimizerPanel.js";
 
 const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
@@ -7227,6 +7230,268 @@ async function init() {
   });
 
   setupMarketDataEvents();
+  // ── Genetic Optimizer wiring ─────────────────────────────────────────────────
+  {
+    // Collapse/expand toggle
+    const toggleBtn  = document.getElementById("genetic-optimizer-toggle");
+    const body       = document.getElementById("genetic-optimizer-body");
+    const expandIcon = document.getElementById("genetic-expand-icon");
+    if (toggleBtn && body) {
+      toggleBtn.addEventListener("click", () => {
+        const collapsed = body.classList.toggle("hidden");
+        if (expandIcon) expandIcon.classList.toggle("collapsed", collapsed);
+      });
+    }
+
+    const panel = createGeneticOptimizerPanel({
+      fitnessChart:   document.getElementById("genetic-fitness-chart"),
+      resultsTbody:   document.getElementById("genetic-results-tbody"),
+      diffTbody:      document.getElementById("genetic-diff-tbody"),
+      diffBadge:      document.getElementById("genetic-diff-badge"),
+      resultsSection: document.getElementById("genetic-results-section"),
+      historyTbody:   document.getElementById("genetic-history-tbody"),
+      currentGen:     document.getElementById("genetic-current-gen"),
+      bestFitness:    document.getElementById("genetic-best-fitness"),
+      avgFitness:     document.getElementById("genetic-avg-fitness"),
+      statusText:     document.getElementById("genetic-status-text"),
+      progressFill:   document.getElementById("genetic-progress-bar-fill"),
+      log:            document.getElementById("genetic-log"),
+      startBtn:       document.getElementById("btn-genetic-start"),
+      stopBtn:        document.getElementById("btn-genetic-stop"),
+      applyBtn:       document.getElementById("btn-genetic-apply"),
+      saveBtn:        document.getElementById("btn-genetic-save"),
+    });
+
+    let geneticStore = null;
+    let activeOptimizer = null;
+    let lastRunResult = null;
+
+    createGeneticOptimizerStore()
+      .then(async (store) => {
+        geneticStore = store;
+        const runs = await store.getRuns(10);
+        panel.renderHistoryTable(runs, (run) => {
+          if (!run.bestGenome) return;
+          panel.renderDiffTable(run.bestGenome, buildBaselineGenome(), run.baselineFitness);
+          panel.appendLog(`Genome de ejecución ${run.id} cargado para revisión`);
+        });
+      })
+      .catch((err) => {
+        console.error("[GeneticOptimizer] store init failed", err);
+        panel.appendLog("Error inicializando store de persistencia");
+      });
+
+    document.getElementById("btn-genetic-start")?.addEventListener("click", async () => {
+      const patternStats = geminiBotController?.store?.getStats?.()?.byPattern || {};
+      // Also try brain panel stats for richer data
+      const brainSnapshot = geminiBotController?.getChartData?.("1m") || {};
+      const brainStats = document.getElementById("gemini-pattern-tbody") ? (() => {
+        // Extract from live brain panel state via the controller's internal state
+        const rows = document.querySelectorAll("#gemini-pattern-tbody tr");
+        const stats = {};
+        rows.forEach((row) => {
+          const cells = row.querySelectorAll("td");
+          if (cells.length >= 5) {
+            const name   = cells[0]?.textContent?.trim();
+            const total  = Number(cells[1]?.textContent) || 0;
+            const wins   = Number(cells[2]?.textContent) || 0;
+            const losses = Number(cells[3]?.textContent) || 0;
+            const wr     = parseFloat(cells[4]?.textContent) / 100 || 0;
+            if (name && total > 0) stats[name] = { totalSamples: total, wins, losses, winRate: wr };
+          }
+        });
+        return stats;
+      })() : {};
+
+      const combinedStats = Object.keys(brainStats).length ? brainStats : patternStats;
+
+      const config = {
+        populationSize:    Number(document.getElementById("genetic-pop-size")?.value)         || 20,
+        generations:       Number(document.getElementById("genetic-generations")?.value)      || 30,
+        mutationRate:      Number(document.getElementById("genetic-mutation-rate")?.value)    || 0.15,
+        crossoverRate:     Number(document.getElementById("genetic-crossover-rate")?.value)   || 0.70,
+        eliteCount:        Number(document.getElementById("genetic-elite-count")?.value)      || 2,
+        minSampleThreshold:Number(document.getElementById("genetic-min-samples")?.value)      || 5,
+      };
+
+      activeOptimizer = createGeneticOptimizer(config);
+      lastRunResult = null;
+      panel.setButtonStates({ running: true, hasResult: false });
+      panel.updateStatus({ statusText: "Corriendo…" });
+
+      geminiBotController?.logBrainEvent?.({
+        timestamp: new Date().toISOString(),
+        type: "diagnosis",
+        patternName: "genetic_optimizer",
+        reasonCode: "run_started",
+        details: `[GeneticOptimizer] run started — pop=${config.populationSize} gens=${config.generations}`,
+      });
+
+      const result = await activeOptimizer.evolve(combinedStats, {
+        onGeneration: (data) => {
+          panel.updateStatus({
+            generation:       data.generation,
+            totalGenerations: data.totalGenerations,
+            bestFitness:      data.bestFitness,
+            avgFitness:       data.avgFitness,
+            history:          data.history,
+            statusText:       `Gen ${data.generation}/${data.totalGenerations}`,
+          });
+          panel.renderResultsTable(data.top5);
+        },
+        onComplete: async (data) => {
+          lastRunResult = data;
+          panel.setButtonStates({ running: false, hasResult: true });
+          panel.updateStatus({
+            generation:       data.settings.generations,
+            totalGenerations: data.settings.generations,
+            bestFitness:      data.bestFitness,
+            avgFitness:       data.history[data.history.length - 1]?.avgFitness,
+            history:          data.history,
+            statusText:       "Completado",
+          });
+          panel.renderResultsTable(data.top5);
+          panel.renderDiffTable(data.bestGenome, data.baselineGenome, data.baselineFitness);
+
+          geminiBotController?.logBrainEvent?.({
+            timestamp: new Date().toISOString(),
+            type: "diagnosis",
+            patternName: "genetic_optimizer",
+            reasonCode: "run_completed",
+            details: `[GeneticOptimizer] best fitness=${data.bestFitness.toFixed(4)} baseline=${data.baselineFitness.toFixed(4)}`,
+          });
+
+          if (geneticStore) {
+            try {
+              const runId = await geneticStore.saveRun({
+                createdAt:      new Date().toISOString(),
+                generations:    data.settings.generations,
+                populationSize: data.settings.populationSize,
+                bestFitness:    data.bestFitness,
+                bestGenome:     data.bestGenome,
+                baselineGenome: data.baselineGenome,
+                baselineFitness:data.baselineFitness,
+                status:         "completed",
+                metrics:        data.bestMetrics || {},
+                settings:       data.settings,
+              });
+              await geneticStore.saveGenome(runId, {
+                generation: data.settings.generations,
+                fitness:    data.bestFitness,
+                genes:      data.bestGenome,
+                metrics:    data.bestMetrics || {},
+                isBest:     true,
+              });
+              const runs = await geneticStore.getRuns(10);
+              panel.renderHistoryTable(runs, (run) => {
+                if (!run.bestGenome) return;
+                panel.renderDiffTable(run.bestGenome, buildBaselineGenome(), run.baselineFitness);
+              });
+            } catch (err) {
+              console.error("[GeneticOptimizer] save run failed", err);
+              panel.appendLog("Error guardando ejecución en IndexedDB");
+            }
+          }
+        },
+        onAbort: (reason) => {
+          panel.setButtonStates({ running: false, hasResult: Boolean(lastRunResult) });
+          panel.updateStatus({ statusText: reason === "insufficient_data" ? "Sin datos suficientes" : "Detenido" });
+          if (reason === "insufficient_data") {
+            panel.appendLog("Ejecución abortada: no hay suficientes muestras resueltas. Entrena el bot primero.");
+          }
+        },
+        onLog: (msg) => panel.appendLog(msg),
+      });
+
+      activeOptimizer = null;
+    });
+
+    document.getElementById("btn-genetic-stop")?.addEventListener("click", () => {
+      activeOptimizer?.abort();
+    });
+
+    document.getElementById("btn-genetic-apply")?.addEventListener("click", async () => {
+      if (!lastRunResult?.bestGenome) return;
+      if (!confirm("¿Aplicar la mejor configuración genética? La config actual se guardará como respaldo.")) return;
+      if (geneticStore) {
+        try {
+          await geneticStore.applyGenome(lastRunResult.bestGenome, null);
+          panel.appendLog("best genome applied — config guardada en IndexedDB");
+          geminiBotController?.logBrainEvent?.({
+            timestamp: new Date().toISOString(),
+            type: "diagnosis",
+            patternName: "genetic_optimizer",
+            reasonCode: "genome_applied",
+            details: `[GeneticOptimizer] best genome applied (fitness=${lastRunResult.bestFitness.toFixed(4)})`,
+          });
+        } catch (err) {
+          console.error("[GeneticOptimizer] apply genome failed", err);
+          panel.appendLog("Error aplicando genome a IndexedDB");
+        }
+      }
+    });
+
+    document.getElementById("btn-genetic-save")?.addEventListener("click", async () => {
+      if (!lastRunResult?.bestGenome || !geneticStore) return;
+      const notes = prompt("Notas para esta versión (opcional):", "") ?? "";
+      try {
+        await geneticStore.saveRun({
+          createdAt:      new Date().toISOString(),
+          generations:    lastRunResult.settings.generations,
+          populationSize: lastRunResult.settings.populationSize,
+          bestFitness:    lastRunResult.bestFitness,
+          bestGenome:     lastRunResult.bestGenome,
+          baselineGenome: lastRunResult.baselineGenome,
+          baselineFitness:lastRunResult.baselineFitness,
+          status:         "saved",
+          notes,
+          metrics:        lastRunResult.bestMetrics || {},
+          settings:       lastRunResult.settings,
+        });
+        panel.appendLog("genome saved as version in IndexedDB");
+        geminiBotController?.logBrainEvent?.({
+          timestamp: new Date().toISOString(),
+          type: "neuron_saved",
+          patternName: "genetic_optimizer",
+          reasonCode: "genome_version_saved",
+          details: `[GeneticOptimizer] genome saved as version`,
+        });
+        const runs = await geneticStore.getRuns(10);
+        panel.renderHistoryTable(runs, (run) => {
+          if (!run.bestGenome) return;
+          panel.renderDiffTable(run.bestGenome, buildBaselineGenome(), run.baselineFitness);
+        });
+      } catch (err) {
+        console.error("[GeneticOptimizer] save version failed", err);
+        panel.appendLog("Error guardando versión");
+      }
+    });
+
+    document.getElementById("btn-genetic-restore")?.addEventListener("click", async () => {
+      if (!geneticStore) return;
+      if (!confirm("¿Restaurar la configuración anterior?")) return;
+      try {
+        const next = await geneticStore.restoreGenome();
+        if (!next || !next.currentAppliedGenome) {
+          panel.appendLog("No hay configuración anterior para restaurar.");
+          return;
+        }
+        panel.appendLog("Configuración anterior restaurada desde IndexedDB");
+        geminiBotController?.logBrainEvent?.({
+          timestamp: new Date().toISOString(),
+          type: "diagnosis",
+          patternName: "genetic_optimizer",
+          reasonCode: "genome_restored",
+          details: "[GeneticOptimizer] genome restored to previous version",
+        });
+      } catch (err) {
+        console.error("[GeneticOptimizer] restore failed", err);
+        panel.appendLog("Error restaurando configuración");
+      }
+    });
+
+    void activeOptimizer; // referenced in stop/abort callbacks above
+  }
   await refreshMarketDataSymbols();
   if (els.mdAsset && marketDataMeta.selectedSymbol) els.mdAsset.value = marketDataMeta.selectedSymbol;
   await ensureLiveSubscription();
