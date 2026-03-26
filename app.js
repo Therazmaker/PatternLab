@@ -246,6 +246,7 @@ import { createGeminiBotController } from "./modules/geminiBot/GeminiBotControll
 import { GeminiBotChart } from "./modules/geminiBot/GeminiBotChart.js";
 import { LibraryBridge } from "./modules/geminiBot/LibraryBridge.js";
 import { NeuronModal } from "./modules/geminiBot/NeuronModal.js";
+import { renderBrainPanel } from "./modules/geminiBot/brainPanelView.js";
 
 const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
@@ -267,6 +268,7 @@ const els = {
   microBotRoot: document.querySelector('[data-panel="microbot"]'), microBotStatus: document.getElementById("microbot-status"), microBotSymbol: document.getElementById("microbot-symbol"), microBotTimeframe: document.getElementById("microbot-timeframe"), microBotTradesCount: document.getElementById("microbot-trades-count"), microBotPnl: document.getElementById("microbot-pnl"), microBotAutoLabel: document.getElementById("microbot-auto-label"), microBotChart: document.getElementById("microbot-chart"), microBotLibraryRules: document.getElementById("microbot-library-rules"), microBotLastDecision: document.getElementById("microbot-last-decision"), microBotLastNoTrade: document.getElementById("microbot-last-no-trade"), microBotVetoCount: document.getElementById("microbot-veto-count"), microBotNoMatchCount: document.getElementById("microbot-no-match-count"), microBotTradeDecisionCount: document.getElementById("microbot-trade-decision-count"), microBotExecutedTradeCount: document.getElementById("microbot-executed-trade-count"), microBotJournalStatus: document.getElementById("microbot-journal-status"), microBotActiveTrade: document.getElementById("microbot-active-trade"), microBotJournalPreview: document.getElementById("microbot-journal-preview"), microBotLearningPreview: document.getElementById("microbot-learning-preview"), microBotDiagnosticSummary: document.getElementById("microbot-diagnostic-summary"), microBotJournalToolsTradesCount: document.getElementById("microbot-export-trades-count"), microBotJournalToolsWinrate: document.getElementById("microbot-export-winrate"), microBotJournalToolsLastExport: document.getElementById("microbot-export-last"), microBotExportStatus: document.getElementById("microbot-export-status"), microBotStartBtn: document.getElementById("btn-microbot-start"), microBotPauseBtn: document.getElementById("btn-microbot-pause"), microBotResetBtn: document.getElementById("btn-microbot-reset"), microBotToggleAutoBtn: document.getElementById("btn-microbot-toggle-auto"), microBotRefreshLibraryBtn: document.getElementById("btn-microbot-refresh-library"), microBotExportJournalBtn: document.getElementById("btn-microbot-export-journal"),
   sessionReviewerFileInput: document.getElementById("session-reviewer-file"), sessionReviewerInput: document.getElementById("session-reviewer-input"), sessionReviewerLoadPastedBtn: document.getElementById("btn-session-reviewer-load-pasted"), sessionReviewerExportBtn: document.getElementById("btn-session-reviewer-export"), sessionReviewerFileName: document.getElementById("session-reviewer-file-name"), sessionReviewerSchema: document.getElementById("session-reviewer-schema"), sessionReviewerStatus: document.getElementById("session-reviewer-status"), sessionReviewerSummary: document.getElementById("session-reviewer-summary"), sessionReviewerFindings: document.getElementById("session-reviewer-findings"), sessionReviewerSetup: document.getElementById("session-reviewer-setup"), sessionReviewerContext: document.getElementById("session-reviewer-context"), sessionReviewerLearning: document.getElementById("session-reviewer-learning"), sessionReviewerWinningDna: document.getElementById("session-reviewer-winning-dna"), sessionReviewerFixes: document.getElementById("session-reviewer-fixes"),
   geminiSymbol: document.getElementById("gemini-symbol"), geminiStreakSize: document.getElementById("gemini-streak-size"), geminiBearishStreakSize: document.getElementById("gemini-bearish-streak-size"), geminiTfSelector: document.getElementById("gemini-tf-selector"), geminiChartTf: document.getElementById("gemini-chart-tf"), geminiPatternFilter: document.getElementById("gemini-pattern-filter"), geminiStartBtn: document.getElementById("btn-gemini-start"), geminiStopBtn: document.getElementById("btn-gemini-stop"), geminiExportBtn: document.getElementById("btn-gemini-export"), geminiExportTrainingBtn: document.getElementById("btn-gemini-export-training"), geminiSaveModelBtn: document.getElementById("btn-gemini-save-model"), geminiStatus: document.getElementById("gemini-status"), geminiPrediction: document.getElementById("gemini-prediction"), geminiLog: document.getElementById("gemini-log"), geminiIndicatorRow: document.getElementById("gemini-indicator-row"), geminiStatGrid: document.getElementById("gemini-stat-grid"), geminiPatternTbody: document.getElementById("gemini-pattern-tbody"), geminiTfTbody: document.getElementById("gemini-tf-tbody"), geminiTrainingTotal: document.getElementById("gt-total"), geminiTrainingLoss: document.getElementById("gt-loss"), geminiTrainingAcc: document.getElementById("gt-acc"), geminiChart: document.getElementById("gemini-chart"), geminiStatsContainer: document.getElementById("gemini-stats-container"),
+  brainPanelBadges: document.getElementById("brain-panel-badges"), brainPanelSummary: document.getElementById("brain-panel-summary"), brainPanelChart: document.getElementById("brain-panel-growth-chart"), brainPanelReasons: document.getElementById("brain-panel-reasons"), brainPanelPatternBody: document.getElementById("brain-panel-pattern-body"), brainPanelHistoryBody: document.getElementById("brain-panel-history-body"),
   reviewQueue: document.getElementById("review-queue"),
   forwardSplitMode: document.getElementById("forward-split-mode"), forwardRatio: document.getElementById("forward-ratio"), forwardDate: document.getElementById("forward-date"), forwardWrap: document.getElementById("forward-wrap"),
   errorClustersWrap: document.getElementById("error-clusters-wrap"), errorClusterDetails: document.getElementById("error-cluster-details"),
@@ -7023,6 +7025,15 @@ async function init() {
         saveLibraryItems(libraryItems).catch((error) => console.error("[Library] save failed", error));
         geminiBridge.setLibraryItems(libraryItems);
         refreshLibraryPanel();
+        geminiBotController?.logBrainEvent?.({
+          timestamp: new Date().toISOString(),
+          type: "neuron_saved",
+          patternName: item?.patternType || item?.name || "manual_neuron",
+          outcome: null,
+          reasonCode: "manual_save",
+          details: "neuron saved from modal",
+          meta: { neuronId: item?.id || null },
+        });
       },
       onDelete: (id) => {
         const idx = libraryItems.findIndex((i) => i.id === id);
@@ -7146,6 +7157,16 @@ async function init() {
         });
       });
       geminiNeuronModal.updateSuggestions(suggestions);
+    },
+    onBrainPanelUpdate: (snapshot) => {
+      renderBrainPanel(snapshot, {
+        badges: els.brainPanelBadges,
+        summary: els.brainPanelSummary,
+        chart: els.brainPanelChart,
+        reasons: els.brainPanelReasons,
+        patternBody: els.brainPanelPatternBody,
+        historyBody: els.brainPanelHistoryBody,
+      });
     },
   });
 

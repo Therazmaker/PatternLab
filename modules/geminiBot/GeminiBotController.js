@@ -1,11 +1,13 @@
 import { BinanceStreamer } from "./BinanceStreamer.js";
 import { GeminiModel } from "./GeminiModel.js";
 import { NeuronStore } from "./NeuronStore.js";
+import { createBrainPanelStore } from "./brainPanelStore.js";
 
 export function createGeminiBotController(elements = {}) {
   let active = false;
   let outcomeTimer = null;
   let statsTimer = null;
+  let brainPanelStore = null;
 
   const streamer = new BinanceStreamer({
     symbol: elements.symbolInput?.value || "BTCUSDT",
@@ -21,6 +23,12 @@ export function createGeminiBotController(elements = {}) {
     predictions: [],
     lastIndicators: { "1m": null, "5m": null },
     lastBridgeDecision: "none",
+    brainPanel: {
+      stats: null,
+      state: null,
+      events: [],
+      growth: [],
+    },
   };
 
   const setStatus = (message) => {
@@ -33,6 +41,22 @@ export function createGeminiBotController(elements = {}) {
     line.textContent = message;
     elements.log.prepend(line);
     while (elements.log.children.length > 150) elements.log.removeChild(elements.log.lastChild);
+  };
+
+  const pushBrainSnapshot = (snapshot = {}) => {
+    state.brainPanel = {
+      stats: snapshot.stats || state.brainPanel.stats || null,
+      state: snapshot.state || state.brainPanel.state || null,
+      events: Array.isArray(snapshot.events) ? snapshot.events : state.brainPanel.events || [],
+      growth: Array.isArray(snapshot.growth) ? snapshot.growth : state.brainPanel.growth || [],
+    };
+    elements.onBrainPanelUpdate?.(state.brainPanel);
+  };
+
+  const persistBrainEvent = async (event = {}) => {
+    if (!brainPanelStore) return;
+    const snapshot = await brainPanelStore.persistEvent(event, state.brainPanel);
+    pushBrainSnapshot(snapshot);
   };
 
   const updateBridgeStatus = () => {
@@ -102,6 +126,15 @@ export function createGeminiBotController(elements = {}) {
       try {
         if (resolved?.prediction?.vetoed) {
           appendLog(`⛔ Veto persistente ${resolved.type} (${resolved.timeframe}) · ${resolved.prediction.vetoReason || "sin razón"}`);
+          await persistBrainEvent({
+            timestamp: new Date().toISOString(),
+            type: "diagnosis",
+            patternName: resolved.type,
+            outcome: resolved.outcome?.result || null,
+            reasonCode: "bridge_veto",
+            details: resolved.prediction.vetoReason || "veto",
+            meta: { timeframe: resolved.timeframe },
+          });
         } else {
           const weight = Number(resolved?.prediction?.bridgeWeight || 1);
           const report = await model.trainOnPattern(resolved.candles, label, customRows, {
@@ -112,11 +145,31 @@ export function createGeminiBotController(elements = {}) {
           });
           if (report?.skipped) {
             appendLog(`⚠️ Entrenamiento omitido ${resolved.type} (${resolved.timeframe}) · ${report.reason}`);
+            await persistBrainEvent({
+              timestamp: new Date().toISOString(),
+              type: "skipped",
+              patternName: resolved.type,
+              outcome: resolved.outcome?.result || null,
+              reasonCode: report.reason || "insufficient_sequence",
+              details: "training skipped",
+              meta: { timeframe: resolved.timeframe, receivedCandles: report.receivedCandles || null },
+            });
             updateTrainingStats();
             continue;
           }
           updateTrainingStats();
           appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
+          await persistBrainEvent({
+            timestamp: new Date().toISOString(),
+            type: "trained",
+            patternName: resolved.type,
+            outcome: resolved.outcome?.result || null,
+            reasonCode: "fit_success",
+            loss: report.loss,
+            acc: report.accuracy,
+            details: "training completed",
+            meta: { timeframe: resolved.timeframe, weight },
+          });
         }
       } catch (error) {
         if (model.stats.lastEventType !== "error") {
@@ -130,6 +183,15 @@ export function createGeminiBotController(elements = {}) {
         appendLog(`❌ Error entrenando ${resolved.type} (${resolved.timeframe}) · ${error.message}`);
         console.error(`[Training] fit failed: ${error.message}`);
         updateTrainingStats();
+        await persistBrainEvent({
+          timestamp: new Date().toISOString(),
+          type: "error",
+          patternName: resolved.type,
+          outcome: resolved.outcome?.result || null,
+          reasonCode: error?.message || "fit_failed",
+          details: error?.message || "training error",
+          meta: { timeframe: resolved.timeframe },
+        });
       }
 
       const suggestions = bridge?.suggestNeurons?.(store.getResolvedRecent(20), state.lastIndicators[resolved.timeframe] || {});
@@ -197,6 +259,15 @@ export function createGeminiBotController(elements = {}) {
       });
 
       appendLog(`✅ ${pattern.type} ${pattern.timeframe} → ${prediction.direction} (${(prediction.confidence * 100).toFixed(1)}%)`);
+      await persistBrainEvent({
+        timestamp: new Date().toISOString(),
+        type: "neuron_saved",
+        patternName: pattern.type,
+        outcome: null,
+        reasonCode: "pattern_captured",
+        details: "neuron sample appended",
+        meta: { timeframe: pattern.timeframe, eventId: stored.id },
+      });
       refreshStats();
       renderChart(elements.chartTfSelector?.value || pattern.timeframe);
     } catch (error) {
@@ -289,6 +360,30 @@ export function createGeminiBotController(elements = {}) {
   });
 
   updateBridgeStatus();
+  createBrainPanelStore()
+    .then(async (storeAdapter) => {
+      brainPanelStore = storeAdapter;
+      const hydrated = await brainPanelStore.hydrate();
+      pushBrainSnapshot(hydrated);
+    })
+    .catch((error) => {
+      console.error("[BrainPanel] hydration failed", error);
+      pushBrainSnapshot({
+        stats: {
+          trainedCount: Number(model.stats.trainedCount || 0),
+          skippedCount: Number(model.stats.skippedCount || 0),
+          errorCount: Number(model.stats.errorCount || 0),
+          neuronsSavedCount: 0,
+          lastTrainLoss: model.stats.lastTrainLoss,
+          lastTrainAcc: model.stats.lastTrainAcc,
+          patternStats: {},
+          reasonStats: { skip: {}, loss: {}, success: {} },
+        },
+        state: { brainReady: false, initializedAt: new Date().toISOString(), lastHydratedAt: null },
+        events: [],
+        growth: [],
+      });
+    });
 
   return {
     streamer,
@@ -296,6 +391,9 @@ export function createGeminiBotController(elements = {}) {
     store,
     start,
     stop,
+    logBrainEvent(event = {}) {
+      persistBrainEvent(event).catch((error) => console.error("[BrainPanel] event logging failed", error));
+    },
     getChartData(timeframe) {
       return {
         candles: streamer.getRecentCandles(timeframe),
