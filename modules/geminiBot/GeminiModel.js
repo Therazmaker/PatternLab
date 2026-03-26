@@ -1,5 +1,6 @@
 const TFJS_CDN = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js";
 const MODEL_STORAGE_KEY = "indexeddb://gemini-bot-model-v1";
+const ENSEMBLE_SUFFIXES = ["a", "b", "c"];
 
 async function ensureTfReady() {
   if (globalThis.tf) return globalThis.tf;
@@ -29,7 +30,9 @@ export class GeminiModel {
     };
     this.tf = null;
     this.model = null;
+    this.models = [];
     this.ready = false;
+    this.#lastPredictions = [];
     this.stats = {
       totalTrained: 0,
       trainedCount: 0,
@@ -49,14 +52,17 @@ export class GeminiModel {
     this.trainingQueue = Promise.resolve();
   }
 
+  #lastPredictions;
+
   async init() {
     this.tf = await ensureTfReady();
-    this.model = this.#buildModel();
+    this.models = this.#buildModel();
+    this.model = this.models[0];
     this.ready = true;
     return this.model;
   }
 
-  #buildModel() {
+  #buildSingleModel() {
     const tf = this.tf;
     const model = tf.sequential();
     model.add(
@@ -75,6 +81,17 @@ export class GeminiModel {
       metrics: ["accuracy"],
     });
     return model;
+  }
+
+  #buildModel() {
+    const models = ENSEMBLE_SUFFIXES.map(() => this.#buildSingleModel());
+    this.models = models;
+    this.model = models[0] || null;
+    return models;
+  }
+
+  #getModelStorageKeys(baseKey = MODEL_STORAGE_KEY) {
+    return ENSEMBLE_SUFFIXES.map((suffix) => `${baseKey}-${suffix}`);
   }
 
   #normalizeIndicators(customIndicators) {
@@ -109,17 +126,27 @@ export class GeminiModel {
 
     const tf = this.tf;
     const input = tf.tensor3d([features], [1, this.config.lookback, this.config.featureSize]);
-    const output = this.model.predict(input);
-    const [[probability]] = await output.array();
-    tf.dispose([input, output]);
+    const models = Array.isArray(this.models) && this.models.length > 0 ? this.models : [this.model].filter(Boolean);
+    const outputs = models.map((model) => model.predict(input));
+    const probabilities = await Promise.all(outputs.map(async (output) => {
+      const [[value]] = await output.array();
+      return Number(value) || 0;
+    }));
+    const probability = probabilities.length > 0
+      ? probabilities.reduce((sum, value) => sum + value, 0) / probabilities.length
+      : 0;
+    tf.dispose([input, ...outputs]);
 
     const direction = probability >= this.config.threshold ? "up" : probability <= (1 - this.config.threshold) ? "down" : "neutral";
-    return {
+    const prediction = {
       direction,
       confidence: Number(probability.toFixed(4)),
       threshold: this.config.threshold,
       at: new Date().toISOString(),
     };
+    this.#lastPredictions.push(prediction.confidence);
+    if (this.#lastPredictions.length > 3) this.#lastPredictions.shift();
+    return prediction;
   }
 
   #normalizeOutcomeLabel(outcome) {
@@ -198,12 +225,25 @@ export class GeminiModel {
 
     let history;
     try {
-      history = await this.model.fit(input, target, {
+      const models = Array.isArray(this.models) && this.models.length === 3 ? this.models : this.#buildModel();
+      this.model = models[0];
+      const shouldTrain = [
+        true,
+        Math.random() > 0.2,
+        Math.random() > 0.2,
+      ];
+      const fitOptions = {
         epochs: 1,
         batchSize: 1,
         verbose: 0,
         shuffle: false,
+      };
+      const fitRuns = models.map(async (model, index) => {
+        if (!shouldTrain[index]) return null;
+        return model.fit(input, target, fitOptions);
       });
+      const histories = await Promise.all(fitRuns);
+      history = histories[0];
       console.info("[Training] fit success", {
         loss: Number(history?.history?.loss?.[0]),
         accuracy: Number(history?.history?.accuracy?.[0]),
@@ -264,19 +304,42 @@ export class GeminiModel {
 
   async saveModel(storageKey = MODEL_STORAGE_KEY) {
     if (!this.ready) await this.init();
-    await this.model.save(storageKey);
-    return { storageKey };
+    const models = Array.isArray(this.models) && this.models.length > 0 ? this.models : [this.model].filter(Boolean);
+    const keys = this.#getModelStorageKeys(storageKey);
+    await Promise.all(models.map((model, index) => model.save(keys[index])));
+    return { storageKey, keys };
   }
 
   async loadModel(storageKey = MODEL_STORAGE_KEY) {
     this.tf = await ensureTfReady();
-    this.model = await this.tf.loadLayersModel(storageKey);
-    this.model.compile({
-      optimizer: this.tf.train.adam(this.config.learningRate),
-      loss: "binaryCrossentropy",
-      metrics: ["accuracy"],
-    });
+    const keys = this.#getModelStorageKeys(storageKey);
+    const loadedModels = await Promise.all(keys.map(async (key) => {
+      try {
+        const model = await this.tf.loadLayersModel(key);
+        model.compile({
+          optimizer: this.tf.train.adam(this.config.learningRate),
+          loss: "binaryCrossentropy",
+          metrics: ["accuracy"],
+        });
+        return model;
+      } catch (_error) {
+        return this.#buildSingleModel();
+      }
+    }));
+    this.models = loadedModels;
+    this.model = loadedModels[0];
     this.ready = true;
     return this.model;
+  }
+
+  getEnsembleStats() {
+    const avgConfidence = this.#lastPredictions.length > 0
+      ? this.#lastPredictions.reduce((sum, confidence) => sum + confidence, 0) / this.#lastPredictions.length
+      : 0;
+    return {
+      size: 3,
+      avgConfidence: Number(avgConfidence.toFixed(4)),
+      lastPredictions: [...this.#lastPredictions],
+    };
   }
 }
