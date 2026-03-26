@@ -7077,6 +7077,8 @@ async function init() {
     tfTbody: document.getElementById("gemini-tf-tbody"),
     trainingStats: {
       total: document.getElementById("gt-total"),
+      skipped: document.getElementById("gt-skipped"),
+      errors: document.getElementById("gt-errors"),
       loss: document.getElementById("gt-loss"),
       acc: document.getElementById("gt-acc"),
     },
