@@ -242,6 +242,7 @@ import {
 import { LIBRARY_EXAMPLES, normalizeLibraryItem, resolveLibraryMatches } from "./modules/libraryMemory.js";
 import { createMicroBotTab } from "./modules/microBotTab.js";
 import { createSessionReviewerTab } from "./src/ui/sessionReviewerTab.js";
+import { createGeminiBotController } from "./modules/geminiBot/GeminiBotController.js";
 
 const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
@@ -262,6 +263,7 @@ const els = {
   journalTradesList: document.getElementById("journal-trades-list"), journalTradeDetail: document.getElementById("journal-trade-detail"), journalTradeFilterStatus: document.getElementById("journal-trade-filter-status"), journalTradeFilterDirection: document.getElementById("journal-trade-filter-direction"), journalTradeFilterSource: document.getElementById("journal-trade-filter-source"), journalTradeFilterSetup: document.getElementById("journal-trade-filter-setup"), journalTradeSearch: document.getElementById("journal-trade-search"),
   microBotRoot: document.querySelector('[data-panel="microbot"]'), microBotStatus: document.getElementById("microbot-status"), microBotSymbol: document.getElementById("microbot-symbol"), microBotTimeframe: document.getElementById("microbot-timeframe"), microBotTradesCount: document.getElementById("microbot-trades-count"), microBotPnl: document.getElementById("microbot-pnl"), microBotAutoLabel: document.getElementById("microbot-auto-label"), microBotChart: document.getElementById("microbot-chart"), microBotLibraryRules: document.getElementById("microbot-library-rules"), microBotLastDecision: document.getElementById("microbot-last-decision"), microBotLastNoTrade: document.getElementById("microbot-last-no-trade"), microBotVetoCount: document.getElementById("microbot-veto-count"), microBotNoMatchCount: document.getElementById("microbot-no-match-count"), microBotTradeDecisionCount: document.getElementById("microbot-trade-decision-count"), microBotExecutedTradeCount: document.getElementById("microbot-executed-trade-count"), microBotJournalStatus: document.getElementById("microbot-journal-status"), microBotActiveTrade: document.getElementById("microbot-active-trade"), microBotJournalPreview: document.getElementById("microbot-journal-preview"), microBotLearningPreview: document.getElementById("microbot-learning-preview"), microBotJournalToolsTradesCount: document.getElementById("microbot-export-trades-count"), microBotJournalToolsWinrate: document.getElementById("microbot-export-winrate"), microBotJournalToolsLastExport: document.getElementById("microbot-export-last"), microBotExportStatus: document.getElementById("microbot-export-status"), microBotStartBtn: document.getElementById("btn-microbot-start"), microBotPauseBtn: document.getElementById("btn-microbot-pause"), microBotResetBtn: document.getElementById("btn-microbot-reset"), microBotToggleAutoBtn: document.getElementById("btn-microbot-toggle-auto"), microBotRefreshLibraryBtn: document.getElementById("btn-microbot-refresh-library"), microBotExportJournalBtn: document.getElementById("btn-microbot-export-journal"),
   sessionReviewerFileInput: document.getElementById("session-reviewer-file"), sessionReviewerInput: document.getElementById("session-reviewer-input"), sessionReviewerLoadPastedBtn: document.getElementById("btn-session-reviewer-load-pasted"), sessionReviewerExportBtn: document.getElementById("btn-session-reviewer-export"), sessionReviewerFileName: document.getElementById("session-reviewer-file-name"), sessionReviewerSchema: document.getElementById("session-reviewer-schema"), sessionReviewerStatus: document.getElementById("session-reviewer-status"), sessionReviewerSummary: document.getElementById("session-reviewer-summary"), sessionReviewerFindings: document.getElementById("session-reviewer-findings"), sessionReviewerSetup: document.getElementById("session-reviewer-setup"), sessionReviewerContext: document.getElementById("session-reviewer-context"), sessionReviewerLearning: document.getElementById("session-reviewer-learning"), sessionReviewerWinningDna: document.getElementById("session-reviewer-winning-dna"), sessionReviewerFixes: document.getElementById("session-reviewer-fixes"),
+  geminiSymbol: document.getElementById("gemini-symbol"), geminiStreakSize: document.getElementById("gemini-streak-size"), geminiStartBtn: document.getElementById("btn-gemini-start"), geminiStopBtn: document.getElementById("btn-gemini-stop"), geminiExportBtn: document.getElementById("btn-gemini-export"), geminiStatus: document.getElementById("gemini-status"), geminiPrediction: document.getElementById("gemini-prediction"), geminiLog: document.getElementById("gemini-log"),
   reviewQueue: document.getElementById("review-queue"),
   forwardSplitMode: document.getElementById("forward-split-mode"), forwardRatio: document.getElementById("forward-ratio"), forwardDate: document.getElementById("forward-date"), forwardWrap: document.getElementById("forward-wrap"),
   errorClustersWrap: document.getElementById("error-clusters-wrap"), errorClusterDetails: document.getElementById("error-cluster-details"),
@@ -428,6 +430,7 @@ let _lastCopilotEffects = null;
 let _lastBrainVerdict = null;
 let microBotTab = null;
 let sessionReviewerTab = null;
+let geminiBotController = null;
 let manualControlsState = getManualControls();
 const brainMemoryStore = createBrainMemoryStore();
 const brainModeController = createBrainModeController({ mode: "executor", autoExecutionEnabled: true });
@@ -6987,6 +6990,16 @@ async function init() {
       winningDna: els.sessionReviewerWinningDna,
       fixes: els.sessionReviewerFixes,
     },
+  });
+  geminiBotController = createGeminiBotController({
+    symbolInput: els.geminiSymbol,
+    streakInput: els.geminiStreakSize,
+    startBtn: els.geminiStartBtn,
+    stopBtn: els.geminiStopBtn,
+    exportBtn: els.geminiExportBtn,
+    status: els.geminiStatus,
+    prediction: els.geminiPrediction,
+    log: els.geminiLog,
   });
   setupMarketDataEvents();
   await refreshMarketDataSymbols();

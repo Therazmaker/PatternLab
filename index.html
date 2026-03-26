@@ -24,6 +24,7 @@
     <nav class="tabs panel">
       <button class="tab-btn active" data-tab="import">Import</button>
       <button class="tab-btn" data-tab="feed">Feed</button>
+      <button class="tab-btn" data-tab="gemini-bot">Gemini Bot</button>
       <button class="tab-btn" data-tab="library">Library</button>
       <button class="tab-btn" data-tab="review">Review</button>
       <button class="tab-btn" data-tab="stats">Stats</button>
@@ -136,6 +137,28 @@
         <div id="preview" class="preview"></div>
         <div id="import-report" class="preview"></div>
         <div id="synthetic-learning-ratio" class="preview muted">Synthetic vs Real Learning Ratio: 0% synthetic / 100% real</div>
+      </section>
+
+      <section class="panel tab-panel" data-panel="gemini-bot">
+        <h2>Gemini Bot MVP</h2>
+        <p class="muted">Streaming Binance 1m/5m + detección de velas alcistas consecutivas + predicción LSTM base.</p>
+        <div class="filters">
+          <label>Símbolo
+            <input id="gemini-symbol" value="BTCUSDT" />
+          </label>
+          <label>N bullish candles
+            <input id="gemini-streak-size" type="number" min="2" max="10" value="3" />
+          </label>
+          <button id="btn-gemini-start" class="primary">Iniciar</button>
+          <button id="btn-gemini-stop">Detener</button>
+          <button id="btn-gemini-export" class="ghost">Exportar JSON neurona</button>
+        </div>
+        <p id="gemini-status" class="muted">Gemini Bot inactivo.</p>
+        <div class="preview">
+          <strong>Predicción actual:</strong> <span id="gemini-prediction">N/A</span>
+        </div>
+        <h3>Log de velas detectadas</h3>
+        <ul id="gemini-log" class="gemini-log"></ul>
       </section>
 
 
