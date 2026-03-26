@@ -34,6 +34,9 @@ const PATTERN_COLORS = {
 
 const SL_TP_DASH = [4, 3];
 
+const ZOOM_IN_FACTOR  = 0.87;
+const ZOOM_OUT_FACTOR = 1.15;
+
 function toNum(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -61,14 +64,17 @@ export class GeminiBotChart {
     this._layout = null;
     this._prevCandleCount = 0;
     this._newCandleFlash = 0;
+    this._visibleCount = this.config.maxCandles;
 
     this.boundMouseMove = this.#onMouseMove.bind(this);
     this.boundMouseLeave = this.#onMouseLeave.bind(this);
+    this.boundWheel = this.#onWheel.bind(this);
     this.countdownTimer = setInterval(() => this.#updateCountdownLabel(), 1000);
 
     if (this.canvas) {
       this.canvas.addEventListener("mousemove", this.boundMouseMove);
       this.canvas.addEventListener("mouseleave", this.boundMouseLeave);
+      this.canvas.addEventListener("wheel", this.boundWheel, { passive: false });
       this.canvas.style.cursor = "crosshair";
       if (typeof ResizeObserver !== "undefined") {
         this._resizeObserver = new ResizeObserver(() => {
@@ -117,6 +123,7 @@ export class GeminiBotChart {
     if (this.canvas) {
       this.canvas.removeEventListener("mousemove", this.boundMouseMove);
       this.canvas.removeEventListener("mouseleave", this.boundMouseLeave);
+      this.canvas.removeEventListener("wheel", this.boundWheel);
     }
     this._resizeObserver?.disconnect();
     this.tooltip?.remove();
@@ -167,6 +174,15 @@ export class GeminiBotChart {
     this.ctx.clearRect(0, 0, width, height);
     this.#drawBackground(L);
 
+    // Apply zoom: render only the visible slice of candles + matching indicators
+    const _allCandles = this.candles;
+    const _allIndicators = this.indicators;
+    const visCount = Math.max(5, Math.min(this._visibleCount, _allCandles.length > 0 ? _allCandles.length : this._visibleCount));
+    const sliceStart = Math.max(0, _allCandles.length - visCount);
+    this.candles = _allCandles.slice(sliceStart);
+    this.indicators = _allIndicators.slice(sliceStart);
+
+    try {
     if (!this.candles.length) {
       this.#drawEmptyState(L);
       this.#updateCountdownLabel();
@@ -214,6 +230,10 @@ export class GeminiBotChart {
     }
 
     this.#updateCountdownLabel(lastCandle);
+    } finally {
+      this.candles = _allCandles;
+      this.indicators = _allIndicators;
+    }
   }
 
   // ─── Background ──────────────────────────────────────────────────────────────
@@ -846,6 +866,30 @@ export class GeminiBotChart {
   }
 
   // ─── Mouse events ────────────────────────────────────────────────────────────
+
+  #onWheel(e) {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR;
+    this._visibleCount = Math.round(
+      Math.max(5, Math.min(this._visibleCount * factor, this.config.maxCandles)),
+    );
+    this.#render();
+  }
+
+  zoomIn() {
+    this._visibleCount = Math.round(Math.max(5, this._visibleCount * ZOOM_IN_FACTOR));
+    this.#render();
+  }
+
+  zoomOut() {
+    this._visibleCount = Math.round(Math.min(this.config.maxCandles, this._visibleCount * ZOOM_OUT_FACTOR));
+    this.#render();
+  }
+
+  resetZoom() {
+    this._visibleCount = this.config.maxCandles;
+    this.#render();
+  }
 
   #onMouseMove(event) {
     if (!this.canvas) return;
