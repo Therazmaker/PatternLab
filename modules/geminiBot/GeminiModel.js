@@ -80,7 +80,7 @@ export class GeminiModel {
     const wickRatio = clamp(Number(indicators?.wickRatio ?? 0), 0, 1);
     const rsi14 = clamp(Number(indicators?.rsi14 ?? 50) / 100, 0, 1);
     const ema9 = Number(indicators?.ema9 ?? close);
-    const ema21 = Number(indicators?.ema21 ?? close || 1);
+    const ema21 = Number(indicators?.ema21 ?? close);
     const emaRatio = clamp(ema21 ? ema9 / ema21 : 1, 0, 2);
     const atr14 = clamp(close ? Number(indicators?.atr14 ?? 0) / close : 0, 0, 1);
     const volumeRatioRaw = clamp(Number(indicators?.volumeRatio ?? 1), 0, 5);
