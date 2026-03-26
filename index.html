@@ -25,6 +25,7 @@
       <button class="tab-btn active" data-tab="import">Import</button>
       <button class="tab-btn" data-tab="feed">Feed</button>
       <button class="tab-btn" data-tab="gemini-bot">Gemini Bot</button>
+      <button class="tab-btn" data-tab="brain-panel">Panel del Cerebro</button>
       <button class="tab-btn" data-tab="library">Library</button>
       <button class="tab-btn" data-tab="review">Review</button>
       <button class="tab-btn" data-tab="stats">Stats</button>
@@ -256,6 +257,43 @@
       </section>
 
 
+
+      <section class="panel tab-panel" data-panel="brain-panel">
+        <div class="gemini-header">
+          <h2>Panel del Cerebro <span class="badge">Brain Panel</span></h2>
+          <p class="muted">Persistencia real en IndexedDB · Rehidratación al inicio · Historial histórico del aprendizaje.</p>
+        </div>
+        <div id="brain-panel-badges" class="brain-panel-badges"></div>
+        <div id="brain-panel-summary" class="gemini-stat-grid brain-panel-summary"></div>
+        <div class="brain-panel-chart-wrap">
+          <h3>Crecimiento del aprendizaje</h3>
+          <canvas id="brain-panel-growth-chart" class="brain-panel-growth-chart"></canvas>
+        </div>
+        <div class="brain-panel-grid">
+          <section>
+            <h3>Razones frecuentes</h3>
+            <div id="brain-panel-reasons" class="brain-panel-reasons"></div>
+          </section>
+          <section>
+            <h3>Resumen por patrón</h3>
+            <table class="gemini-pattern-table">
+              <thead>
+                <tr><th>Pattern</th><th>Total</th><th>W</th><th>L</th><th>WR</th><th>Learned</th><th>Skipped</th><th>Error</th></tr>
+              </thead>
+              <tbody id="brain-panel-pattern-body"></tbody>
+            </table>
+          </section>
+        </div>
+        <section>
+          <h3>Historial reciente</h3>
+          <table class="gemini-pattern-table">
+            <thead>
+              <tr><th>Timestamp</th><th>Evento</th><th>Patrón</th><th>Motivo</th><th>Resultado</th><th>Detalle</th></tr>
+            </thead>
+            <tbody id="brain-panel-history-body"></tbody>
+          </table>
+        </section>
+      </section>
 
       <section class="panel tab-panel" data-panel="library">
         <h2>Library</h2>

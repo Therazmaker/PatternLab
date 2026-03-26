@@ -784,6 +784,15 @@ canvas#gemini-chart {
   flex-wrap: wrap;
   animation: fadeInStrip 0.3s ease;
 }
+
+.brain-panel-badges { display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0; }
+.brain-panel-summary { margin-bottom: 12px; }
+.brain-panel-chart-wrap { border:1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 12px; background: rgba(15,23,42,.45); }
+.brain-panel-growth-chart { width: 100%; min-height: 260px; display: block; border-radius: 8px; border: 1px solid rgba(71,85,105,.45); }
+.brain-panel-grid { display:grid; gap: 12px; grid-template-columns: 1fr 1.4fr; margin-bottom: 12px; }
+.brain-panel-reasons { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 10px; }
+.brain-panel-reasons h4 { margin: 0 0 6px; font-size: .86rem; color: #93c5fd; }
+.brain-panel-reasons ul { margin: 0; padding-left: 16px; }
 @keyframes fadeInStrip {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
@@ -942,4 +951,5 @@ button.small { padding: 4px 10px; font-size: 0.78rem; }
 }
 @media (max-width: 980px) {
   .gemini-main-grid { grid-template-columns: 1fr; }
+  .brain-panel-grid { grid-template-columns: 1fr; }
 }
