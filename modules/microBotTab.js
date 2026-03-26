@@ -2,6 +2,12 @@ import { readActiveLibraryContext } from "./libraryDecisionAdapter.js";
 import { evaluateMicroBotDecision } from "./microBotEngine.js";
 import { buildSimplePaperTrade } from "./simpleTradeBuilder.js";
 import { updateSimpleTradeLifecycle } from "./simpleExecutionEngine.js";
+import {
+  buildMicroBotExportFilename,
+  buildMicroBotJournalExport,
+  downloadJsonFile,
+  getMicroBotJournalTrades,
+} from "./microBotJournalExport.js";
 
 const ORIGIN_TAB = "microbot_1m";
 
@@ -143,6 +149,7 @@ export function createMicroBotTab({
   elements = {},
   getLibraryItems = () => [],
   onJournalWrite = () => {},
+  getJournalTrades = () => [],
 } = {}) {
   const state = {
     status: "idle",
@@ -158,6 +165,8 @@ export function createMicroBotTab({
     lastDecision: { action: "no_trade", reason: "idle", matchedLibraryItems: [], warnings: [] },
     libraryContext: readActiveLibraryContext(getLibraryItems()),
     journalStatus: "idle",
+    lastExportAt: null,
+    exportStatus: "idle",
   };
 
   let loop = null;
@@ -265,6 +274,35 @@ export function createMicroBotTab({
     render();
   }
 
+  function handleExportJournal() {
+    try {
+      const allTrades = getJournalTrades();
+      const filteredTrades = getMicroBotJournalTrades(allTrades, { originTab: ORIGIN_TAB });
+      const exportData = buildMicroBotJournalExport(filteredTrades, {
+        originTab: ORIGIN_TAB,
+        symbol: state.symbol,
+        timeframe: state.timeframe,
+        mode: "paper",
+        librarySnapshot: {
+          patterns: state.libraryContext?.patterns || [],
+          contexts: state.libraryContext?.contexts || [],
+          lessons: state.learningPreview || [],
+        },
+      });
+      const filename = buildMicroBotExportFilename({
+        symbol: exportData.symbol || state.symbol || null,
+        timeframe: exportData.timeframe || state.timeframe || "1m",
+      });
+      downloadJsonFile(filename, exportData);
+      state.lastExportAt = new Date().toISOString();
+      state.exportStatus = `ok: ${filename}`;
+    } catch (error) {
+      console.error("[MicroBot] Journal export failed", error);
+      state.exportStatus = `warning: ${error?.message || "export failed"}`;
+    }
+    render();
+  }
+
   function bindEvents() {
     elements.startBtn?.addEventListener("click", start);
     elements.pauseBtn?.addEventListener("click", pause);
@@ -277,6 +315,7 @@ export function createMicroBotTab({
       state.libraryContext = readActiveLibraryContext(getLibraryItems());
       render();
     });
+    elements.exportJournalBtn?.addEventListener("click", handleExportJournal);
   }
 
   function render() {
@@ -319,6 +358,16 @@ export function createMicroBotTab({
     }
 
     if (elements.autoTradeLabel) elements.autoTradeLabel.textContent = state.autoTrade ? "ON" : "OFF";
+
+    const allMicroBotTrades = getMicroBotJournalTrades(getJournalTrades(), { originTab: ORIGIN_TAB });
+    const closedMicroBotTrades = allMicroBotTrades.filter((trade) => trade.status === "closed");
+    const winCount = closedMicroBotTrades.filter((trade) => trade.outcome === "win").length;
+    const winRate = closedMicroBotTrades.length ? (winCount / closedMicroBotTrades.length) * 100 : 0;
+
+    if (elements.journalToolsTradesCount) elements.journalToolsTradesCount.textContent = String(allMicroBotTrades.length);
+    if (elements.journalToolsWinrate) elements.journalToolsWinrate.textContent = `${winRate.toFixed(2)}%`;
+    if (elements.journalToolsLastExport) elements.journalToolsLastExport.textContent = state.lastExportAt ? state.lastExportAt.replace("T", " ").slice(0, 19) : "never";
+    if (elements.exportStatus) elements.exportStatus.textContent = state.exportStatus;
   }
 
   bindEvents();
