@@ -179,6 +179,23 @@
           <button id="btn-gemini-save-model" class="ghost">💾 Guardar modelo</button>
         </div>
 
+        <!-- LIBRARY BRIDGE STATUS + NEURON MODAL TRIGGER -->
+        <div class="gemini-bridge-bar">
+          <span class="gemini-bridge-label">🔗 Library Bridge:</span>
+          <span id="gemini-bridge-status" class="muted">Sin reglas activas</span>
+          <button id="btn-gemini-neuron-modal" class="ghost small">🧠 Gestionar Neuronas</button>
+        </div>
+
+        <!-- SUGGESTIONS STRIP (populated dynamically, hidden when empty) -->
+        <div class="gemini-suggestions-strip" id="gemini-suggestions-strip" style="display:none">
+          <span class="strip-label">💡 Sugerencias:</span>
+          <div id="gemini-suggestions-pills" class="suggestions-pills"></div>
+          <button id="btn-gemini-see-all-suggestions" class="ghost small">Ver todas →</button>
+        </div>
+
+        <!-- NEURON MODAL CONTAINER -->
+        <div id="gemini-neuron-modal-container"></div>
+
         <div class="gemini-status-bar">
           <span id="gemini-status" class="muted">Gemini Bot inactivo.</span>
           <span class="gemini-prediction-display">
