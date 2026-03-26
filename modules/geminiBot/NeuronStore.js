@@ -7,8 +7,16 @@ export class NeuronStore {
   }
 
   appendPattern(pattern, prediction = null, sequenceFeatures = []) {
+    const patternId = pattern?.id || pattern?.eventId || `neuron-${Date.now()}`;
+    const existing = this.rows.find((row) => row.id === patternId || (pattern?.eventId && row.eventId === pattern.eventId));
+    if (existing) {
+      console.info("[Training] pattern duplicated, skipping append", { id: patternId, type: existing.type, timeframe: existing.timeframe });
+      return existing;
+    }
+
     const row = {
-      id: pattern?.id || `neuron-${Date.now()}`,
+      id: patternId,
+      eventId: pattern?.eventId || null,
       type: pattern?.type || "unknown_pattern",
       symbol: pattern?.symbol || "UNKNOWN",
       timeframe: pattern?.timeframe || "unknown",
@@ -25,6 +33,7 @@ export class NeuronStore {
 
     this.rows.push(row);
     while (this.rows.length > this.config.maxRows) this.rows.shift();
+    console.info("[Training] sample saved", { id: row.id, type: row.type, timeframe: row.timeframe, features: row.features?.length || 0 });
     return row;
   }
 
@@ -73,6 +82,7 @@ export class NeuronStore {
       resolvedClose: liveClose,
       actualDirection,
     };
+    console.info("[Training] outcome resolved", { id: target.id, result, timeframe: target.timeframe, type: target.type });
     return target;
   }
 

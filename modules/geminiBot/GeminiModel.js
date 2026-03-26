@@ -1,4 +1,5 @@
 const TFJS_CDN = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js";
+const MODEL_STORAGE_KEY = "indexeddb://gemini-bot-model-v1";
 
 async function ensureTfReady() {
   if (globalThis.tf) return globalThis.tf;
@@ -26,6 +27,14 @@ export class GeminiModel {
     this.tf = null;
     this.model = null;
     this.ready = false;
+    this.stats = {
+      totalTrained: 0,
+      avgLoss: null,
+      avgAccuracy: null,
+      byPattern: {},
+      byTimeframe: {},
+      lastTrainingAt: null,
+    };
   }
 
   async init() {
@@ -99,5 +108,110 @@ export class GeminiModel {
       threshold: this.config.threshold,
       at: new Date().toISOString(),
     };
+  }
+
+  #normalizeOutcomeLabel(outcome) {
+    if (typeof outcome === "number") return outcome >= 0.5 ? 1 : 0;
+    const normalized = String(outcome || "").toLowerCase().trim();
+    if (["win", "up", "bullish", "long", "1", "true"].includes(normalized)) return 1;
+    if (["loss", "down", "bearish", "short", "0", "false"].includes(normalized)) return 0;
+    return null;
+  }
+
+  #updateBucketStats(group, key, label) {
+    const bucketKey = key || "unknown";
+    if (!group[bucketKey]) group[bucketKey] = { total: 0, wins: 0, losses: 0, winRate: 0 };
+    const bucket = group[bucketKey];
+    bucket.total += 1;
+    if (label === 1) bucket.wins += 1;
+    if (label === 0) bucket.losses += 1;
+    bucket.winRate = bucket.total > 0 ? bucket.wins / bucket.total : 0;
+  }
+
+  async trainOnPattern(patternContext, outcome, customIndicatorRows = [], meta = {}) {
+    if (!this.ready) await this.init();
+
+    const sequence = Array.isArray(patternContext)
+      ? patternContext
+      : Array.isArray(patternContext?.candles)
+        ? patternContext.candles
+        : [];
+    const label = this.#normalizeOutcomeLabel(outcome);
+    if (label === null) throw new Error("outcome inválido para entrenamiento (usa win/loss o 1/0)");
+
+    if (sequence.length < this.config.lookback) {
+      return {
+        skipped: true,
+        reason: "insufficient_sequence",
+        requiredLookback: this.config.lookback,
+        receivedCandles: sequence.length,
+      };
+    }
+
+    const recent = sequence.slice(-this.config.lookback);
+    const features = recent.map((candle, index) => this.buildFeatureVector(candle, customIndicatorRows[index] || []));
+
+    const tf = this.tf;
+    const input = tf.tensor3d([features], [1, this.config.lookback, this.config.featureSize]);
+    const target = tf.tensor2d([[label]], [1, 1]);
+    const safeWeight = Number(meta?.weight);
+    const weight = Number.isFinite(safeWeight) && safeWeight > 0 ? safeWeight : 1;
+    const sampleWeight = tf.tensor1d([weight]);
+
+    let history;
+    try {
+      history = await this.model.fit(input, target, {
+        epochs: 1,
+        batchSize: 1,
+        verbose: 0,
+        shuffle: false,
+        sampleWeight,
+      });
+    } finally {
+      tf.dispose([input, target, sampleWeight]);
+    }
+
+    const loss = Number(history?.history?.loss?.[0]);
+    const accuracy = Number(history?.history?.accuracy?.[0]);
+    this.stats.totalTrained += 1;
+    if (Number.isFinite(loss)) {
+      this.stats.avgLoss = Number.isFinite(this.stats.avgLoss)
+        ? ((this.stats.avgLoss * (this.stats.totalTrained - 1)) + loss) / this.stats.totalTrained
+        : loss;
+    }
+    if (Number.isFinite(accuracy)) {
+      this.stats.avgAccuracy = Number.isFinite(this.stats.avgAccuracy)
+        ? ((this.stats.avgAccuracy * (this.stats.totalTrained - 1)) + accuracy) / this.stats.totalTrained
+        : accuracy;
+    }
+    this.#updateBucketStats(this.stats.byPattern, meta?.patternType, label);
+    this.#updateBucketStats(this.stats.byTimeframe, meta?.timeframe, label);
+    this.stats.lastTrainingAt = new Date().toISOString();
+
+    return {
+      skipped: false,
+      loss,
+      accuracy,
+      weight,
+      totalTrained: this.stats.totalTrained,
+    };
+  }
+
+  async saveModel(storageKey = MODEL_STORAGE_KEY) {
+    if (!this.ready) await this.init();
+    await this.model.save(storageKey);
+    return { storageKey };
+  }
+
+  async loadModel(storageKey = MODEL_STORAGE_KEY) {
+    this.tf = await ensureTfReady();
+    this.model = await this.tf.loadLayersModel(storageKey);
+    this.model.compile({
+      optimizer: this.tf.train.adam(this.config.learningRate),
+      loss: "binaryCrossentropy",
+      metrics: ["accuracy"],
+    });
+    this.ready = true;
+    return this.model;
   }
 }
