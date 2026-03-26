@@ -604,7 +604,7 @@ export class GeminiBotChart {
       if (!found) return;
       const { idx, candle } = found;
       const x = xAt(idx);
-      const bullish = ["bullish_consecutive_candles", "bullish_engulfing", "momentum_acceleration"].includes(pattern.type);
+      const bullish = (pattern.prediction?.direction || "up") === "up";
       const y = bullish ? yPrice(toNum(candle.high)) - 11 : yPrice(toNum(candle.low)) + 11;
       const size = 5;
       const color = PATTERN_COLORS[pattern.type] || "#ddd";
