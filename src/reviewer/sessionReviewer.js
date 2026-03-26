@@ -7,7 +7,7 @@ import {
 } from "./reviewerMetrics.js";
 import { toArray, toObject } from "./reviewerRules.js";
 
-const SOURCE_SCHEMA = "patternlab_microbot_journal_export_v1";
+const SOURCE_SCHEMAS = new Set(["patternlab_microbot_journal_export_v1", "patternlab_microbot_journal_export_v2"]);
 const REVIEW_SCHEMA = "patternlab_session_review_v1";
 
 export async function loadJournalExport(fileOrJson) {
@@ -46,7 +46,7 @@ export function validateJournalExportSchema(data) {
 
   if (!Object.keys(payload).length) errors.push("Payload is empty.");
   if (!trades.length) warnings.push("No trades found in payload.");
-  if (payload.schema !== SOURCE_SCHEMA) warnings.push(`Unexpected schema: ${payload.schema || "missing"}.`);
+  if (!SOURCE_SCHEMAS.has(payload.schema)) warnings.push(`Unexpected schema: ${payload.schema || "missing"}.`);
   if (!payload.sessionSummary) warnings.push("sessionSummary missing, will be recomputed.");
   if (!payload.exportedAt) warnings.push("exportedAt missing.");
 
@@ -56,7 +56,7 @@ export function validateJournalExportSchema(data) {
     tradesCount: trades.length,
     warnings,
     errors,
-    limitedConfidence: payload.schema !== SOURCE_SCHEMA || warnings.length > 0,
+    limitedConfidence: !SOURCE_SCHEMAS.has(payload.schema) || warnings.length > 0,
   };
 }
 

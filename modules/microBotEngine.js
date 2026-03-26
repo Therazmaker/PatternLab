@@ -86,7 +86,7 @@ export function evaluateMicroBotDecision({ candles = [], libraryContext = null }
   const baseWarnings = Array.isArray(lib.warnings) ? [...lib.warnings] : [];
 
   if (!Array.isArray(candles) || candles.length < 3) {
-    return buildDecision("no_trade", "no_match", { warnings: [...baseWarnings, "insufficient_candles"], blockingReason: ["insufficient_candles"] });
+    return buildDecision("no_trade", "no_match", {});
   }
 
   const last = candles[candles.length - 1];
@@ -100,57 +100,67 @@ export function evaluateMicroBotDecision({ candles = [], libraryContext = null }
 
   const bearishRejection = Number(last.close) < Number(last.open) && upperWick > body * 0.6 && Number(last.high) >= Number(prev.high);
   const bullishRejection = Number(last.close) > Number(last.open) && lowerWick > body * 0.6 && Number(last.low) <= Number(prev.low);
-  const hasPatternMatch = (shortPatterns.length && bearishRejection) || (longPatterns.length && bullishRejection);
+  const shortMatched = Boolean(shortPatterns.length && bearishRejection);
+  const longMatched = Boolean(longPatterns.length && bullishRejection);
+  const hasPatternMatch = shortMatched || longMatched;
 
+  if (!hasPatternMatch) {
+    return buildDecision("no_trade", "no_match", {});
+  }
+
+  const matchedLibraryItems = shortMatched
+    ? shortPatterns.map((item) => item.id)
+    : longPatterns.map((item) => item.id);
+  const setup = shortMatched ? "failed_breakout_short" : "failed_breakout_long";
   const contextFlags = detectContextFlags({ lib, candles });
   const warnings = [...baseWarnings, ...contextFlags.contextWarnings];
-  const contextVeto = resolveContextVeto({ flags: contextFlags, hasPatternMatch: Boolean(hasPatternMatch) });
+  const contextVeto = resolveContextVeto({ flags: contextFlags, hasPatternMatch: true });
 
   if (contextVeto.blocked) {
-    return buildDecision("no_trade", contextVeto.reason, {
+    return buildDecision("no_trade", "context_veto", {
       warnings,
       blockingReason: contextVeto.blockingReason,
-      matchedLibraryItems: [...shortPatterns, ...longPatterns].map((item) => item.id),
-      setup: shortPatterns.length ? "failed_breakout_short" : longPatterns.length ? "failed_breakout_long" : null,
+      matchedLibraryItems,
+      setup,
       confidence: 0.82,
     });
   }
 
-  if (shortPatterns.length && bearishRejection) {
+  if (shortMatched) {
     if (lib.bias?.shortAllowed === false) {
       return buildDecision("no_trade", "blocked_by_library", {
         warnings: [...warnings, "short_not_allowed"],
         blockingReason: ["short_not_allowed"],
-        matchedLibraryItems: shortPatterns.map((item) => item.id),
+        matchedLibraryItems,
         setup: "failed_breakout_short",
         confidence: 0.61,
       });
     }
     return buildDecision("short", "matched_library_pattern", {
-      matchedLibraryItems: shortPatterns.map((item) => item.id),
+      matchedLibraryItems,
       setup: "failed_breakout_short",
       confidence: 0.66,
       warnings,
     });
   }
 
-  if (longPatterns.length && bullishRejection) {
+  if (longMatched) {
     if (lib.bias?.longAllowed === false) {
       return buildDecision("no_trade", "blocked_by_library", {
         warnings: [...warnings, "long_not_allowed"],
         blockingReason: ["long_not_allowed"],
-        matchedLibraryItems: longPatterns.map((item) => item.id),
+        matchedLibraryItems,
         setup: "failed_breakout_long",
         confidence: 0.61,
       });
     }
     return buildDecision("long", "matched_library_pattern", {
-      matchedLibraryItems: longPatterns.map((item) => item.id),
+      matchedLibraryItems,
       setup: "failed_breakout_long",
       confidence: 0.66,
       warnings,
     });
   }
 
-  return buildDecision("no_trade", "no_match", { warnings, blockingReason: ["no_clear_pattern"], confidence: 0.35 });
+  return buildDecision("no_trade", "no_match", {});
 }

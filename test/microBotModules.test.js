@@ -124,7 +124,7 @@ test('engine aplica context_veto cuando high danger y late extension coinciden c
   assert.ok(decision.warnings.includes('late_entry_risk'));
 });
 
-test('engine devuelve no_match con blockingReason cuando no hay patrón claro', () => {
+test('engine devuelve no_match limpio cuando no hay patrón claro', () => {
   const decision = evaluateMicroBotDecision({
     candles: [
       { timestamp: '2026-01-01T10:00:00Z', open: 100, high: 100.4, low: 99.8, close: 100.1, volume: 100 },
@@ -136,5 +136,7 @@ test('engine devuelve no_match con blockingReason cuando no hay patrón claro', 
 
   assert.equal(decision.action, 'no_trade');
   assert.equal(decision.reason, 'no_match');
-  assert.ok(decision.blockingReason.includes('no_clear_pattern'));
+  assert.deepEqual(decision.matchedLibraryItems, []);
+  assert.deepEqual(decision.blockingReason, []);
+  assert.deepEqual(decision.warnings, []);
 });

@@ -165,6 +165,9 @@ export function createMicroBotTab({
     lastDecision: { action: "no_trade", reason: "idle", matchedLibraryItems: [], warnings: [], blockingReason: [] },
     noTradeLog: [],
     vetoCount: 0,
+    noMatchCount: 0,
+    tradeDecisionCount: 0,
+    executedTradeCount: 0,
     libraryContext: readActiveLibraryContext(getLibraryItems()),
     journalStatus: "idle",
     lastExportAt: null,
@@ -214,6 +217,8 @@ export function createMicroBotTab({
       timeframe: state.timeframe,
       action: "no_trade",
       reason: decision.reason || "no_match",
+      matchedLibraryItems: Array.isArray(decision.matchedLibraryItems) ? [...decision.matchedLibraryItems] : [],
+      warnings: Array.isArray(decision.warnings) ? [...decision.warnings] : [],
       blockingReason: Array.isArray(decision.blockingReason) ? [...decision.blockingReason] : [],
       libraryContextSnapshot: { ...state.libraryContext },
       decisionSnapshot: { ...decision },
@@ -224,7 +229,8 @@ export function createMicroBotTab({
     const record = buildNoTradeRecord({ decision, candle });
     state.noTradeLog.unshift(record);
     state.noTradeLog = state.noTradeLog.slice(0, 100);
-    if (decision.reason === "context_veto" || decision.reason === "blocked_by_library") state.vetoCount += 1;
+    if (decision.reason === "context_veto") state.vetoCount += 1;
+    if (decision.reason === "no_match") state.noMatchCount += 1;
   }
 
   function processNewCandle(candle) {
@@ -233,6 +239,9 @@ export function createMicroBotTab({
 
     state.libraryContext = readActiveLibraryContext(getLibraryItems());
     state.lastDecision = evaluateMicroBotDecision({ candles: state.candles, libraryContext: state.libraryContext });
+    if (["long", "short"].includes(state.lastDecision.action) || state.lastDecision.action === "no_trade") {
+      state.tradeDecisionCount += 1;
+    }
 
     if (state.lastDecision.action === "no_trade") {
       registerNoTrade(state.lastDecision, candle);
@@ -249,6 +258,7 @@ export function createMicroBotTab({
       });
       if (trade) {
         state.activeTrade = trade;
+        state.executedTradeCount += 1;
         writeJournal(trade);
       }
     }
@@ -300,6 +310,9 @@ export function createMicroBotTab({
     state.lastDecision = { action: "no_trade", reason: "idle", matchedLibraryItems: [], warnings: [], blockingReason: [] };
     state.noTradeLog = [];
     state.vetoCount = 0;
+    state.noMatchCount = 0;
+    state.tradeDecisionCount = 0;
+    state.executedTradeCount = 0;
     state.journalStatus = "idle";
     render();
   }
@@ -313,6 +326,13 @@ export function createMicroBotTab({
         symbol: state.symbol,
         timeframe: state.timeframe,
         mode: "paper",
+        decisionLog: state.noTradeLog,
+        sessionSummary: {
+          noMatchCount: state.noMatchCount,
+          contextVetoCount: state.vetoCount,
+          tradeDecisionCount: state.tradeDecisionCount,
+          executedTradeCount: state.executedTradeCount,
+        },
         librarySnapshot: {
           patterns: state.libraryContext?.patterns || [],
           contexts: state.libraryContext?.contexts || [],
@@ -375,6 +395,9 @@ export function createMicroBotTab({
     }
 
     if (elements.vetoCount) elements.vetoCount.textContent = String(state.vetoCount);
+    if (elements.noMatchCount) elements.noMatchCount.textContent = String(state.noMatchCount);
+    if (elements.tradeDecisionCount) elements.tradeDecisionCount.textContent = String(state.tradeDecisionCount);
+    if (elements.executedTradeCount) elements.executedTradeCount.textContent = String(state.executedTradeCount);
     if (elements.journalStatus) elements.journalStatus.textContent = state.journalStatus;
     if (elements.learning) {
       elements.learning.innerHTML = state.learningPreview.length
