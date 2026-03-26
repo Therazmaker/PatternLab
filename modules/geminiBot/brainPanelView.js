@@ -156,6 +156,7 @@ function drawGrowthChart(canvas, growth = []) {
 const STAT_CARD_META = [
   { key: "trainedCount", label: "Aprendido / Entrenado", icon: "🧠", metric: "trained" },
   { key: "skippedCount", label: "Omitido", icon: "⚠️", metric: "skipped" },
+  { key: "__learningRate", label: "Learning Rate", icon: "📚", metric: "acc" },
   { key: "errorCount", label: "Errores", icon: "❌", metric: "error" },
   { key: "neuronsSavedCount", label: "Neuronas guardadas", icon: "⚡", metric: "neuron" },
   { key: "__lastActivity", label: "Última actividad", icon: "🕐", metric: "time" },
@@ -175,6 +176,13 @@ function buildStatCardValue(key, stats, state) {
   if (key === "__brainState") {
     if (!state.brainReady) return "inicializado";
     return hasPersistentHistory(stats, state) ? "rehidratado" : "activo";
+  }
+  if (key === "__learningRate") {
+    const trained = Number(stats.trainedCount || 0);
+    const skipped = Number(stats.skippedCount || 0);
+    const base = trained + skipped;
+    const value = base > 0 ? (trained / base) * 100 : 0;
+    return `${value.toFixed(1)}% (${value >= 50 ? "activo" : "bloqueado"})`;
   }
   return String(Number(stats[key] || 0));
 }
@@ -201,6 +209,7 @@ export function renderBrainPanel(snapshot = {}, elements = {}) {
     elements.badges.innerHTML = [
       `<span class="badge ${hydrated ? "health-ok" : "health-warn"}">${brainStatusLabel}</span>`,
       `<span class="badge ${state.brainReady ? "health-ok" : "health-warn"}">${state.brainReady ? "brain ready" : "brain pending"}</span>`,
+      state.statusLabel ? `<span class="badge bp-badge-diagnosis">${esc(state.statusLabel)}</span>` : "",
       state.lastSessionId ? `<span class="badge">session: ${esc(state.lastSessionId)}</span>` : "",
       state.version ? `<span class="badge bp-badge-diagnosis">v${esc(state.version)}</span>` : "",
     ].filter(Boolean).join(" ");

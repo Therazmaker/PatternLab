@@ -79,11 +79,15 @@ export function createGeminiBotController(elements = {}) {
     const trained = Number(panelStats.trainedCount || 0);
     const skipped = Number(panelStats.skippedCount || 0);
     const errors = Number(panelStats.errorCount || 0);
+    const learningRateBase = trained + skipped;
+    const learningRate = learningRateBase > 0 ? trained / learningRateBase : 0;
     elements.trainingStats.total.textContent = String(trained);
     if (elements.trainingStats.skipped) elements.trainingStats.skipped.textContent = String(skipped);
     if (elements.trainingStats.errors) elements.trainingStats.errors.textContent = String(errors);
     elements.trainingStats.loss.textContent = Number.isFinite(Number(panelStats.lastTrainLoss)) ? Number(panelStats.lastTrainLoss).toFixed(4) : "n/a";
     elements.trainingStats.acc.textContent = Number.isFinite(Number(panelStats.lastTrainAcc)) ? `${(Number(panelStats.lastTrainAcc) * 100).toFixed(2)}%` : "n/a";
+    if (elements.trainingStats.learningRate) elements.trainingStats.learningRate.textContent = `${(learningRate * 100).toFixed(1)}%`;
+    if (elements.trainingStats.learningState) elements.trainingStats.learningState.textContent = learningRate >= 0.5 ? "activo" : "bloqueado";
     console.info("[NeuralActivity] header updated");
     console.info(`[NeuralActivity] trained=${trained} skipped=${skipped} errors=${errors}`);
   };
@@ -343,6 +347,41 @@ export function createGeminiBotController(elements = {}) {
     }
   };
 
+  const resetBrain = async ({ mode = "full", safeStartSamples = 30, keepHistory = false } = {}) => {
+    if (!brainPanelStore) throw new Error("brain panel store no disponible");
+    appendLog("[Brain] reset started");
+    if (mode === "full" || mode === "model") {
+      await coordinator?.resetLearningSession({ safeStartSamples });
+      appendLog("[Brain] model weights cleared");
+      appendLog("[Brain] model reset");
+    }
+    if (mode === "full" || mode === "stats") {
+      store.resetLearningData({ keepNeurons: true });
+    }
+    if (mode === "full") {
+      appendLog("[Brain] dataset cleared");
+    }
+    if (mode === "full" || mode === "stats") appendLog("[Brain] stats reset");
+    if (mode === "full" || mode === "model") appendLog("[Brain] safe start mode enabled");
+    const snapshot = await brainPanelStore.resetBrain({ mode, keepHistory, safeStartSamples });
+    pushBrainSnapshot(snapshot);
+    await persistBrainEvent({
+      timestamp: new Date().toISOString(),
+      eventType: "training_event",
+      patternName: "brain_reset",
+      modelTarget: "meta",
+      tradeOutcome: "n_a",
+      trainingStatus: "queued",
+      trainingReason: `brain_reset_${mode}`,
+      detail: `safeStartSamples=${safeStartSamples} keepHistory=${keepHistory}`,
+      meta: { mode, keepHistory, safeStartSamples },
+    });
+    appendLog("[Brain] ready for new learning session");
+    refreshStats();
+    updateTrainingStats();
+    setStatus(`Brain Reset (${mode}) aplicado`);
+  };
+
   elements.startBtn?.addEventListener("click", () => {
     start().catch((error) => setStatus(`Error start: ${error.message}`));
   });
@@ -367,6 +406,25 @@ export function createGeminiBotController(elements = {}) {
       setStatus("Modelo guardado en IndexedDB");
     } catch (error) {
       setStatus(`No se pudo guardar modelo: ${error.message}`);
+    }
+  });
+
+  elements.resetBtn?.addEventListener("click", async () => {
+    const resetMode = window.prompt("Tipo reset: full | model | stats", "full");
+    if (!resetMode || !["full", "model", "stats"].includes(resetMode.trim().toLowerCase())) {
+      setStatus("Reset cancelado o modo inválido");
+      return;
+    }
+    const mode = resetMode.trim().toLowerCase();
+    const keepHistory = window.confirm("¿Conservar historial anterior del panel?");
+    const safeStartRaw = window.prompt("safeStartSamples (ej: 30 o 50)", "30");
+    const safeStartSamples = Number(safeStartRaw || 30);
+    const confirmReset = window.confirm(`Confirmar reset (${mode}). Se reiniciará aprendizaje sin borrar arquitectura ni neuronas.`);
+    if (!confirmReset) return;
+    try {
+      await resetBrain({ mode, keepHistory, safeStartSamples });
+    } catch (error) {
+      setStatus(`Error en reset: ${error.message}`);
     }
   });
 
@@ -423,6 +481,9 @@ export function createGeminiBotController(elements = {}) {
       if (!brainPanelStore) return;
       const hydrated = await brainPanelStore.hydrate();
       pushBrainSnapshot(hydrated);
+    },
+    async resetBrain(opts = {}) {
+      await resetBrain(opts);
     },
     getChartData(timeframe) {
       return {

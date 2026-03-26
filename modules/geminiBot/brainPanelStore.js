@@ -1,6 +1,9 @@
 import {
   addBrainEvent,
   addBrainGrowthPoint,
+  clearBrainEvents,
+  clearBrainGrowthSeries,
+  clearModelRunHistory,
   addModelRunHistory,
   getBrainEvents,
   getBrainGrowthSeries,
@@ -41,6 +44,8 @@ function createEmptyStats() {
       tradeLoss: {},
       success: {},
     },
+    learningRate: 0,
+    learningState: "idle",
   };
 }
 
@@ -52,6 +57,14 @@ function createEmptyState() {
     lastHydratedAt: null,
     lastSessionId: null,
     brainReady: false,
+    lastResetAt: null,
+    resetCounter: 0,
+    statusLabel: "running",
+    safeStart: {
+      enabled: false,
+      sampleLimit: 0,
+      seenSamples: 0,
+    },
   };
 }
 
@@ -223,6 +236,9 @@ export async function createBrainPanelStore() {
 
     nextStats.lastUpdatedAt = timestamp;
     nextStats.lastActivityAt = timestamp;
+    const trainBase = Number(nextStats.trainedCount || 0) + Number(nextStats.skippedCount || 0);
+    nextStats.learningRate = trainBase > 0 ? Number((nextStats.trainedCount / trainBase).toFixed(4)) : 0;
+    nextStats.learningState = nextStats.learningRate >= 0.5 ? "active" : "blocked";
 
     const currentState = {
       ...createEmptyState(),
@@ -286,10 +302,45 @@ export async function createBrainPanelStore() {
     };
   }
 
+  async function resetBrain({ mode = "full", keepHistory = false, safeStartSamples = 30 } = {}) {
+    const timestamp = nowIso();
+    const currentState = (await getBrainState(db)) || createEmptyState();
+    const baseState = {
+      ...createEmptyState(),
+      ...currentState,
+      brainReady: true,
+      lastHydratedAt: timestamp,
+      lastResetAt: timestamp,
+      statusLabel: "Brain Reset",
+      resetCounter: Number(currentState.resetCounter || 0) + 1,
+      lastSessionId: `session_${Date.now()}`,
+      safeStart: {
+        enabled: true,
+        sampleLimit: Number(safeStartSamples) > 0 ? Number(safeStartSamples) : 30,
+        seenSamples: 0,
+      },
+    };
+
+    if (["full", "stats"].includes(mode)) {
+      await putModelStats(db, createEmptyStats());
+      await putTrainingQueueState(db, { key: "main", queues: {}, processing: {}, updatedAt: timestamp });
+      if (!keepHistory) {
+        await Promise.all([clearBrainEvents(db), clearBrainGrowthSeries(db), clearModelRunHistory(db)]);
+      }
+    }
+    if (["full", "model"].includes(mode)) {
+      await putModelVersions(db, { key: "main", versions: {}, updatedAt: timestamp });
+    }
+
+    await putBrainState(db, baseState);
+    return hydrate();
+  }
+
   return {
     hydrate,
     persistEvent,
     persistQueueState,
     persistModelVersions,
+    resetBrain,
   };
 }

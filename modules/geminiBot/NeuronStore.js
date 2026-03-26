@@ -147,6 +147,21 @@ export class NeuronStore {
     };
   }
 
+  resetLearningData({ keepNeurons = true } = {}) {
+    if (!keepNeurons) {
+      this.rows = [];
+      return { keptNeurons: false, totalNeurons: 0 };
+    }
+    this.rows = this.rows.map((row) => ({
+      ...row,
+      outcome: {
+        result: "pending",
+        updatedAt: null,
+      },
+    }));
+    return { keptNeurons: true, totalNeurons: this.rows.length };
+  }
+
   toJson() {
     return {
       schema: "gemini.neuron.v1",

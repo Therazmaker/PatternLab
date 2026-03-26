@@ -33,7 +33,12 @@ export class GeminiModel {
     this.models = [];
     this.ready = false;
     this.#lastPredictions = [];
-    this.stats = {
+    this.stats = this.#createEmptyStats();
+    this.trainingQueue = Promise.resolve();
+  }
+
+  #createEmptyStats() {
+    return {
       totalTrained: 0,
       trainedCount: 0,
       skippedCount: 0,
@@ -49,7 +54,6 @@ export class GeminiModel {
       byTimeframe: {},
       lastTrainingAt: null,
     };
-    this.trainingQueue = Promise.resolve();
   }
 
   #lastPredictions;
@@ -60,6 +64,32 @@ export class GeminiModel {
     this.model = this.models[0];
     this.ready = true;
     return this.model;
+  }
+
+  async resetToBase({ clearPersisted = true } = {}) {
+    if (!this.ready) await this.init();
+    const tf = this.tf;
+    const keys = this.#getModelStorageKeys();
+    if (Array.isArray(this.models)) {
+      this.models.forEach((model) => model?.dispose?.());
+    }
+    this.models = this.#buildModel();
+    this.model = this.models[0];
+    this.stats = this.#createEmptyStats();
+    this.#lastPredictions = [];
+    this.trainingQueue = Promise.resolve();
+    if (clearPersisted) {
+      await Promise.all(keys.map(async (key) => {
+        try {
+          const handlers = await tf.io.listModels();
+          if (handlers?.[key]) await tf.io.removeModel(key);
+        } catch (error) {
+          console.warn("[Brain] unable to clear persisted model", { key, error: error?.message || error });
+        }
+      }));
+    }
+    console.info("[Brain] model reset");
+    return { reset: true, clearedPersisted: clearPersisted };
   }
 
   #buildSingleModel() {
@@ -167,8 +197,11 @@ export class GeminiModel {
     bucket.winRate = bucket.total > 0 ? bucket.wins / bucket.total : 0;
   }
 
-  #prepareSequenceForTraining(sequence = []) {
-    if (!Array.isArray(sequence) || sequence.length < this.config.minTrainingSequence) return null;
+  #prepareSequenceForTraining(sequence = [], minTrainingSequenceOverride = null) {
+    const minTrainingSequence = Number.isFinite(Number(minTrainingSequenceOverride))
+      ? Math.max(3, Number(minTrainingSequenceOverride))
+      : this.config.minTrainingSequence;
+    if (!Array.isArray(sequence) || sequence.length < minTrainingSequence) return null;
     if (sequence.length >= this.config.lookback) return sequence.slice(-this.config.lookback);
     const first = sequence[0] || {};
     const padding = Array.from({ length: this.config.lookback - sequence.length }, () => first);
@@ -186,7 +219,7 @@ export class GeminiModel {
     const label = this.#normalizeOutcomeLabel(outcome);
     if (label === null) throw new Error("outcome inválido para entrenamiento (usa win/loss o 1/0)");
 
-    const preparedSequence = this.#prepareSequenceForTraining(sequence);
+    const preparedSequence = this.#prepareSequenceForTraining(sequence, meta?.forceMinTrainingSequence);
     if (!preparedSequence) {
       this.stats.skippedCount += 1;
       this.stats.lastEventType = "skipped";
@@ -196,7 +229,9 @@ export class GeminiModel {
       console.info("[Training] sample skipped: insufficient_sequence", {
         receivedCandles: sequence.length,
         requiredLookback: this.config.lookback,
-        minTrainingSequence: this.config.minTrainingSequence,
+        minTrainingSequence: Number.isFinite(Number(meta?.forceMinTrainingSequence))
+          ? Number(meta.forceMinTrainingSequence)
+          : this.config.minTrainingSequence,
       });
       return {
         skipped: true,
