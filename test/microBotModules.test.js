@@ -74,6 +74,117 @@ test('lifecycle planned -> active -> closed se cumple', () => {
   assert.equal(trade.outcome, 'win');
 });
 
+test('lifecycle cierra por early_rejection cuando MAE supera MFE en primeras 2 velas', () => {
+  let trade = buildSimplePaperTrade({ direction: 'long', candles: candles(), symbol: 'BTCUSDT' });
+  assert.ok(trade);
+
+  trade = updateSimpleTradeLifecycle(
+    trade,
+    { timestamp: '2026-01-01T10:04:00Z', low: trade.entry - 0.01, high: trade.entry + 0.01, close: trade.entry },
+    { candleIndex: 5 },
+  ).trade;
+  assert.equal(trade.status, 'active');
+
+  trade = updateSimpleTradeLifecycle(
+    trade,
+    {
+      timestamp: '2026-01-01T10:05:00Z',
+      low: trade.entry - 0.45,
+      high: trade.entry + 0.08,
+      close: trade.entry - 0.2,
+    },
+    { candleIndex: 6 },
+  ).trade;
+  assert.equal(trade.status, 'active');
+
+  trade = updateSimpleTradeLifecycle(
+    trade,
+    {
+      timestamp: '2026-01-01T10:06:00Z',
+      low: trade.entry - 0.45,
+      high: trade.entry + 0.08,
+      close: trade.entry - 0.2,
+    },
+    { candleIndex: 7 },
+  ).trade;
+
+  assert.equal(trade.status, 'closed');
+  assert.equal(trade.closeReason, 'early_rejection');
+  assert.equal(trade.earlyCloseReason, 'early_rejection');
+  assert.ok(Number.isFinite(trade.earlyCloseMfe));
+  assert.ok(Number.isFinite(trade.earlyCloseMae));
+  assert.ok(Number.isFinite(trade.earlyCloseCandlesInTrade));
+});
+
+test('lifecycle cierra por no_followthrough entre velas 2-3 cuando MFE es bajo', () => {
+  let trade = buildSimplePaperTrade({ direction: 'long', candles: candles(), symbol: 'BTCUSDT' });
+  assert.ok(trade);
+
+  trade = updateSimpleTradeLifecycle(
+    trade,
+    { timestamp: '2026-01-01T10:04:00Z', low: trade.entry - 0.01, high: trade.entry + 0.01, close: trade.entry },
+    { candleIndex: 5 },
+  ).trade;
+  assert.equal(trade.status, 'active');
+
+  trade = updateSimpleTradeLifecycle(
+    trade,
+    {
+      timestamp: '2026-01-01T10:05:00Z',
+      low: trade.entry - 0.02,
+      high: trade.entry + 0.03,
+      close: trade.entry + 0.01,
+    },
+    { candleIndex: 6 },
+  ).trade;
+  assert.equal(trade.status, 'active');
+
+  trade = updateSimpleTradeLifecycle(
+    trade,
+    {
+      timestamp: '2026-01-01T10:06:00Z',
+      low: trade.entry - 0.02,
+      high: trade.entry + 0.04,
+      close: trade.entry + 0.01,
+    },
+    { candleIndex: 7 },
+  ).trade;
+
+  assert.equal(trade.status, 'closed');
+  assert.equal(trade.closeReason, 'no_followthrough');
+  assert.equal(trade.earlyCloseReason, 'no_followthrough');
+});
+
+test('lifecycle marca trade débil cuando ratio mfe/mae es menor a 1.2', () => {
+  const trade = {
+    id: 'weak_quality_trade',
+    status: 'active',
+    direction: 'long',
+    entry: 100,
+    stopLoss: 98,
+    takeProfit: 105,
+    justActivated: false,
+    candlesInTrade: 3,
+    mfe: 0,
+    mae: 0,
+  };
+
+  const next = updateSimpleTradeLifecycle(
+    trade,
+    {
+      timestamp: '2026-01-01T10:06:00Z',
+      low: 99.8,
+      high: 100.2,
+      close: 100.05,
+    },
+    { candleIndex: 7, noFollowThroughPct: 0.01 },
+  ).trade;
+
+  assert.equal(next.status, 'active');
+  assert.equal(next.isWeakTradeQuality, true);
+  assert.ok(next.favorableDominanceRatio < 1.2);
+});
+
 test('al cerrar trade se puede crear output de aprendizaje y journal payload', () => {
   const trade = {
     id: 'mb_test_1',
