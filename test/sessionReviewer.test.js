@@ -62,6 +62,8 @@ test('reviewSessionExport produce estructura completa', () => {
   assert.ok(Array.isArray(review.criticalFindings));
   assert.ok(Array.isArray(review.recommendedFixes));
   assert.ok(typeof review.scores.contextDiscipline === 'number');
+  assert.equal(review.winningDNA.schema, 'patternlab_positive_qualifiers_v1');
+  assert.ok(Array.isArray(review.winningDNA.positiveQualifiers));
 });
 
 test('buildRecommendedFixes prioriza contexto y aprendizaje', () => {
