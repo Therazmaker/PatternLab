@@ -7100,7 +7100,6 @@ async function init() {
     exportBtn: els.geminiExportBtn,
     exportTrainingBtn: document.getElementById("btn-gemini-export-training"),
     saveModelBtn: document.getElementById("btn-gemini-save-model"),
-    resetBtn: document.getElementById("btn-gemini-reset-brain"),
     status: els.geminiStatus,
     prediction: els.geminiPrediction,
     log: els.geminiLog,
@@ -7114,8 +7113,6 @@ async function init() {
       errors: document.getElementById("gt-errors"),
       loss: document.getElementById("gt-loss"),
       acc: document.getElementById("gt-acc"),
-      learningRate: document.getElementById("gt-learning-rate"),
-      learningState: document.getElementById("gt-learning-state"),
     },
     onStatsUpdate: (stats, modelStats) => {
       const statGrid = document.getElementById("gemini-stat-grid");
@@ -7137,14 +7134,10 @@ async function init() {
         const trained = Number(modelStats.trainedCount || modelStats.totalTrained || 0);
         const skipped = Number(modelStats.skippedCount || 0);
         const errors = Number(modelStats.errorCount || 0);
-        const learningRateBase = trained + skipped;
-        const learningRate = learningRateBase > 0 ? (trained / learningRateBase) : 0;
         brainGrid.innerHTML = [
           ["Entrenados", trained],
           ["Omitidos", skipped],
           ["Errores", errors],
-          ["Learning", `${(learningRate * 100).toFixed(1)}%`],
-          ["Estado", learningRate >= 0.5 ? "activo" : "bloqueado"],
           ["Loss", loss],
           ["Accuracy", acc],
           ["Pending", stats.pending],
@@ -7175,6 +7168,27 @@ async function init() {
     onChartUpdate: (timeframe, candles, patterns, indicators, trades) => {
       geminiBotChart.setTimeframe(timeframe);
       geminiBotChart.update(candles, patterns, indicators, trades);
+
+      // Update status dot
+      document.getElementById("gb-status-dot")?.classList.add("is-active");
+
+      // Update trades panel
+      const tradesBody = document.getElementById("gb-trades-body");
+      if (tradesBody) {
+        const openTrades = (trades || []).filter(t => t.status === "pending" || t.entry);
+        if (!openTrades.length) {
+          tradesBody.innerHTML = '<div class="gb-trades-empty">No open trades</div>';
+        } else {
+          tradesBody.innerHTML = openTrades.slice(-5).reverse().map(t => `
+            <div class="gb-trade-row">
+              <span class="gb-trade-dir ${t.direction === "up" ? "long" : "short"}">${t.direction === "up" ? "LONG" : "SHORT"}</span>
+              <span class="gb-trade-label">ENTRY</span><span class="gb-trade-entry">${t.entry != null ? Number(t.entry).toFixed(2) : "—"}</span>
+              <span class="gb-trade-label">TP</span><span class="gb-trade-tp">${t.tp != null ? Number(t.tp).toFixed(2) : "—"}</span>
+              <span class="gb-trade-label">SL</span><span class="gb-trade-sl">${t.sl != null ? Number(t.sl).toFixed(2) : "—"}</span>
+              <span class="gb-trade-pat">${t.type ?? ""}</span>
+            </div>`).join("");
+        }
+      }
     },
     onIndicatorUpdate: (indicators) => {
       document.getElementById("gi-rsi").textContent = `RSI ${indicators.rsi14?.toFixed(1) ?? "—"}`;

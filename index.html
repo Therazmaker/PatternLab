@@ -141,245 +141,296 @@
       </section>
 
       <section class="panel tab-panel" data-panel="gemini-bot">
-        <div class="gemini-header">
-          <h2>Gemini Bot <span class="badge">Neural Trainer</span></h2>
-          <p class="muted">Live Binance 1m/5m · LSTM neural pattern trainer · Online learning from outcomes</p>
+
+        <!-- ═══ TOP COMMAND BAR ═══════════════════════════════════════════════ -->
+        <div class="gb-commandbar">
+          <div class="gb-commandbar-left">
+            <div class="gb-logo-mark">
+              <span class="gb-logo-pulse"></span>
+              <span class="gb-logo-text">NEURAL<em>BOT</em></span>
+            </div>
+            <div class="gb-sep"></div>
+            <div class="gb-field-group">
+              <label class="gb-field-label">SYMBOL</label>
+              <input id="gemini-symbol" class="gb-input gb-input--symbol" value="BTCUSDT" />
+            </div>
+            <div class="gb-field-group">
+              <label class="gb-field-label">TIMEFRAME</label>
+              <select id="gemini-tf-selector" class="gb-select">
+                <option value="both" selected>1m + 5m</option>
+                <option value="1m">1m</option>
+                <option value="5m">5m</option>
+              </select>
+            </div>
+            <div class="gb-field-group">
+              <label class="gb-field-label">BULL N</label>
+              <input id="gemini-streak-size" class="gb-input gb-input--num" type="number" min="2" max="10" value="3" />
+            </div>
+            <div class="gb-field-group">
+              <label class="gb-field-label">BEAR N</label>
+              <input id="gemini-bearish-streak-size" class="gb-input gb-input--num" type="number" min="2" max="10" value="3" />
+            </div>
+            <div class="gb-field-group">
+              <label class="gb-field-label">PATTERN</label>
+              <select id="gemini-pattern-filter" class="gb-select">
+                <option value="all" selected>All</option>
+                <option value="bullish_consecutive_candles">Bull Streak</option>
+                <option value="bearish_consecutive_candles">Bear Streak</option>
+                <option value="bullish_engulfing">Bull Engulfing</option>
+                <option value="bearish_engulfing">Bear Engulfing</option>
+                <option value="doji">Doji</option>
+                <option value="volume_spike">Vol Spike</option>
+                <option value="momentum_acceleration">Momentum</option>
+              </select>
+            </div>
+          </div>
+          <div class="gb-commandbar-right">
+            <button id="btn-gemini-start" class="gb-btn gb-btn--start">▶ START</button>
+            <button id="btn-gemini-stop" class="gb-btn gb-btn--stop">■ STOP</button>
+            <div class="gb-btn-group">
+              <button id="btn-gemini-save-model" class="gb-btn gb-btn--ghost" title="Guardar modelo">💾</button>
+              <button id="btn-gemini-export" class="gb-btn gb-btn--ghost" title="Exportar neuronas">⬇ Neurons</button>
+              <button id="btn-gemini-export-training" class="gb-btn gb-btn--ghost" title="Dataset entrenamiento">⬇ Dataset</button>
+              <button id="btn-gemini-neuron-modal" class="gb-btn gb-btn--ghost">🧠 Neurons</button>
+            </div>
+          </div>
         </div>
 
-        <div class="gemini-controls filters">
-          <label>Símbolo <input id="gemini-symbol" value="BTCUSDT" /></label>
-          <label>N bullish
-            <input id="gemini-streak-size" type="number" min="2" max="10" value="3" />
-          </label>
-          <label>N bearish
-            <input id="gemini-bearish-streak-size" type="number" min="2" max="10" value="3" />
-          </label>
-          <label>Timeframe
-            <select id="gemini-tf-selector">
-              <option value="both" selected>1m + 5m</option>
-              <option value="1m">Solo 1m</option>
-              <option value="5m">Solo 5m</option>
-            </select>
-          </label>
-          <label>Patrón
-            <select id="gemini-pattern-filter">
-              <option value="all" selected>Todos</option>
-              <option value="bullish_consecutive_candles">Bullish streak</option>
-              <option value="bearish_consecutive_candles">Bearish streak</option>
-              <option value="bullish_engulfing">Engulfing alcista</option>
-              <option value="bearish_engulfing">Engulfing bajista</option>
-              <option value="doji">Doji</option>
-              <option value="volume_spike">Volume Spike</option>
-              <option value="momentum_acceleration">Momentum Acc.</option>
-            </select>
-          </label>
-          <button id="btn-gemini-start" class="primary">▶ Iniciar</button>
-          <button id="btn-gemini-stop">■ Detener</button>
-          <button id="btn-gemini-export" class="ghost">⬇ Exportar neuronas</button>
-          <button id="btn-gemini-export-training" class="ghost">⬇ Dataset entrenamiento</button>
-          <button id="btn-gemini-save-model" class="ghost">💾 Guardar modelo</button>
-          <button id="btn-gemini-reset-brain" class="ghost">♻️ Reset Brain</button>
+        <!-- ═══ STATUS TICKER BAR ═════════════════════════════════════════════ -->
+        <div class="gb-ticker-bar">
+          <div class="gb-ticker-status">
+            <span class="gb-status-dot" id="gb-status-dot"></span>
+            <span id="gemini-status" class="gb-ticker-text">OFFLINE</span>
+          </div>
+          <div class="gb-ticker-divider"></div>
+          <div class="gb-ticker-prediction">
+            SIGNAL <strong id="gemini-prediction" class="gb-prediction-val">—</strong>
+          </div>
+          <div class="gb-ticker-divider"></div>
+          <div class="gb-ticker-neural">
+            TRAINED <strong id="gt-total" class="gb-neural-val">0</strong>
+            <span class="gb-ticker-sep">·</span>
+            SKIP <strong id="gt-skipped" class="gb-neural-val-warn">0</strong>
+            <span class="gb-ticker-sep">·</span>
+            ERR <strong id="gt-errors" class="gb-neural-val-err">0</strong>
+            <span class="gb-ticker-sep">·</span>
+            LOSS <strong id="gt-loss" class="gb-neural-val">—</strong>
+            <span class="gb-ticker-sep">·</span>
+            ACC <strong id="gt-acc" class="gb-neural-val">—</strong>
+          </div>
+          <div class="gb-ticker-divider"></div>
+          <div class="gb-ticker-bridge">
+            <span class="gb-bridge-icon">⬡</span>
+            <span id="gemini-bridge-status" class="gb-ticker-text">Bridge offline</span>
+          </div>
+          <div id="gemini-suggestions-strip" class="gb-suggestions-strip" style="display:none">
+            <span class="gb-sugg-label">SUGGESTIONS</span>
+            <div id="gemini-suggestions-pills" class="gb-suggestions-pills"></div>
+            <button id="btn-gemini-see-all-suggestions" class="gb-btn gb-btn--pill">All →</button>
+          </div>
         </div>
 
-        <!-- LIBRARY BRIDGE STATUS + NEURON MODAL TRIGGER -->
-        <div class="gemini-bridge-bar">
-          <span class="gemini-bridge-label">🔗 Library Bridge:</span>
-          <span id="gemini-bridge-status" class="muted">Sin reglas activas</span>
-          <button id="btn-gemini-neuron-modal" class="ghost small">🧠 Gestionar Neuronas</button>
-        </div>
-
-        <!-- SUGGESTIONS STRIP (populated dynamically, hidden when empty) -->
-        <div class="gemini-suggestions-strip" id="gemini-suggestions-strip" style="display:none">
-          <span class="strip-label">💡 Sugerencias:</span>
-          <div id="gemini-suggestions-pills" class="suggestions-pills"></div>
-          <button id="btn-gemini-see-all-suggestions" class="ghost small">Ver todas →</button>
-        </div>
-
-        <!-- NEURON MODAL CONTAINER -->
+        <!-- NEURON MODAL CONTAINER (unchanged) -->
         <div id="gemini-neuron-modal-container"></div>
 
-        <div class="gemini-status-bar">
-          <span id="gemini-status" class="muted">Gemini Bot inactivo.</span>
-          <span class="gemini-prediction-display">
-            Predicción: <strong id="gemini-prediction">N/A</strong>
-          </span>
-        </div>
+        <!-- ═══ MAIN WORKSPACE ════════════════════════════════════════════════ -->
+        <div class="gb-workspace">
 
-        <div class="gemini-main-grid">
-          <div class="gemini-chart-col">
-            <div class="gemini-chart-header">
-              <div class="gemini-chart-title-wrap">
-                <span id="gemini-chart-label">Gráfico en vivo</span>
-                <span id="gemini-candle-countdown" class="gemini-candle-countdown">Candle: --:--</span>
+          <!-- LEFT: CHART COLUMN -->
+          <div class="gb-chart-col">
+            <!-- Chart header -->
+            <div class="gb-chart-topbar">
+              <div class="gb-chart-topbar-left">
+                <span class="gb-chart-symbol-display" id="gemini-chart-label">BTCUSDT · LIVE</span>
+                <div class="gb-indicator-chips" id="gemini-indicator-row">
+                  <span class="gb-chip" id="gi-rsi">RSI —</span>
+                  <span class="gb-chip gb-chip--ema9" id="gi-ema9">EMA9 —</span>
+                  <span class="gb-chip gb-chip--ema21" id="gi-ema21">EMA21 —</span>
+                  <span class="gb-chip" id="gi-atr">ATR —</span>
+                  <span class="gb-chip" id="gi-vol">Vol ×—</span>
+                </div>
               </div>
-              <div class="gemini-chart-header-controls">
-                <button id="gemini-chart-fullscreen" class="gemini-chart-fullscreen-btn" title="Pantalla completa">⛶</button>
-                <select id="gemini-chart-tf">
+              <div class="gb-chart-topbar-right">
+                <span id="gemini-candle-countdown" class="gb-countdown">— : —</span>
+                <select id="gemini-chart-tf" class="gb-select gb-select--sm">
                   <option value="1m">1m</option>
                   <option value="5m" selected>5m</option>
                 </select>
+                <button id="gemini-chart-fullscreen" class="gb-btn gb-btn--icon gemini-chart-fullscreen-btn" title="Fullscreen">⛶</button>
               </div>
             </div>
-            <div class="gemini-chart-wrap" id="gemini-chart-wrap">
+
+            <!-- Chart canvas -->
+            <div class="gb-chart-wrap" id="gemini-chart-wrap">
               <canvas id="gemini-chart"></canvas>
             </div>
-            <div class="gemini-indicator-row" id="gemini-indicator-row">
-              <span id="gi-rsi">RSI —</span>
-              <span id="gi-ema9">EMA9 —</span>
-              <span id="gi-ema21">EMA21 —</span>
-              <span id="gi-atr">ATR —</span>
-              <span id="gi-vol">Vol ×—</span>
-            </div>
-          </div>
 
-          <div class="gemini-stats-col" id="gemini-stats-container">
-            <h3>Estadísticas</h3>
-            <div class="gemini-stat-grid" id="gemini-stat-grid"></div>
-            <div class="gemini-brain-dashboard" id="gemini-brain-dashboard">
-              <h4 class="gemini-brain-title">🧠 Cerebro Neural</h4>
-              <div class="gemini-brain-grid" id="gemini-brain-grid"></div>
-              <div class="gemini-winrate-bar-wrap">
-                <div class="gemini-winrate-bar-label">Win Rate</div>
-                <div class="gemini-winrate-bar-track">
-                  <div class="gemini-winrate-bar-fill" id="gemini-winrate-bar-fill"></div>
-                </div>
-                <div class="gemini-winrate-bar-pct" id="gemini-winrate-bar-pct">0%</div>
+            <!-- Trade table below chart -->
+            <div class="gb-trades-panel">
+              <div class="gb-trades-header">
+                <span class="gb-section-label">OPEN TRADES  ·  TP / SL</span>
               </div>
-              <button class="ghost small bp-brain-shortcut" data-tab-link="brain-panel">📊 Ver Panel del Cerebro →</button>
+              <div class="gb-trades-body" id="gb-trades-body">
+                <div class="gb-trades-empty">No open trades</div>
+              </div>
             </div>
-            <h4>Por patrón</h4>
-            <table class="gemini-pattern-table" id="gemini-pattern-table">
-              <thead><tr><th>Patrón</th><th>N</th><th>W</th><th>L</th><th>WR%</th></tr></thead>
-              <tbody id="gemini-pattern-tbody"></tbody>
-            </table>
-            <h4>Por timeframe</h4>
-            <table class="gemini-pattern-table" id="gemini-tf-table">
-              <thead><tr><th>TF</th><th>N</th><th>W</th><th>L</th><th>WR%</th></tr></thead>
-              <tbody id="gemini-tf-tbody"></tbody>
-            </table>
+          </div>
+
+          <!-- RIGHT: STATS COLUMN -->
+          <div class="gb-stats-col" id="gemini-stats-container">
+
+            <!-- Neural KPIs -->
+            <div class="gb-kpi-grid" id="gemini-stat-grid"></div>
+
+            <!-- Brain dashboard -->
+            <div class="gb-brain-card" id="gemini-brain-dashboard">
+              <div class="gb-brain-card-header">
+                <span class="gb-section-label">NEURAL CORE</span>
+                <button class="gb-btn gb-btn--pill bp-brain-shortcut" data-tab-link="brain-panel">Brain Panel →</button>
+              </div>
+              <div class="gb-brain-metrics" id="gemini-brain-grid"></div>
+              <div class="gb-winrate-row">
+                <span class="gb-winrate-label">WIN RATE</span>
+                <div class="gb-winrate-track">
+                  <div class="gb-winrate-fill" id="gemini-winrate-bar-fill"></div>
+                </div>
+                <span class="gb-winrate-pct" id="gemini-winrate-bar-pct">0%</span>
+              </div>
+            </div>
+
+            <!-- Pattern stats -->
+            <div class="gb-table-card">
+              <div class="gb-table-card-header">
+                <span class="gb-section-label">BY PATTERN</span>
+              </div>
+              <table class="gb-table gemini-pattern-table" id="gemini-pattern-table">
+                <thead><tr><th>Pattern</th><th>N</th><th>W</th><th>L</th><th>WR%</th></tr></thead>
+                <tbody id="gemini-pattern-tbody"></tbody>
+              </table>
+            </div>
+
+            <!-- Timeframe stats -->
+            <div class="gb-table-card">
+              <div class="gb-table-card-header">
+                <span class="gb-section-label">BY TIMEFRAME</span>
+              </div>
+              <table class="gb-table gemini-pattern-table" id="gemini-tf-table">
+                <thead><tr><th>TF</th><th>N</th><th>W</th><th>L</th><th>WR%</th></tr></thead>
+                <tbody id="gemini-tf-tbody"></tbody>
+              </table>
+            </div>
+
           </div>
         </div>
 
-        <div class="gemini-training-section">
-          <h3>Actividad neural
-            <span class="gemini-training-stats" id="gemini-training-stats">
-              Entrenado: <strong id="gt-total">0</strong> |
-              Omitidos: <strong id="gt-skipped">0</strong> |
-              Errores: <strong id="gt-errors">0</strong> |
-              Loss: <strong id="gt-loss">n/a</strong> |
-              Acc: <strong id="gt-acc">n/a</strong> |
-              Learning rate: <strong id="gt-learning-rate">0%</strong> |
-              Estado: <strong id="gt-learning-state">idle</strong>
-            </span>
-          </h3>
-          <ul id="gemini-log" class="gemini-log"></ul>
+        <!-- ═══ NEURAL ACTIVITY LOG ══════════════════════════════════════════ -->
+        <div class="gb-log-section">
+          <div class="gb-log-header">
+            <span class="gb-section-label">NEURAL ACTIVITY</span>
+            <span class="gb-training-stats" id="gemini-training-stats"></span>
+          </div>
+          <ul id="gemini-log" class="gb-log gemini-log"></ul>
         </div>
 
-        <!-- GENETIC OPTIMIZER PANEL -->
-        <div class="genetic-optimizer-section" id="genetic-optimizer-section">
-          <div class="genetic-optimizer-header" id="genetic-optimizer-toggle">
-            <h3>🧬 Evolución Genética <span class="badge">Genetic Optimizer</span></h3>
+        <!-- ═══ GENETIC OPTIMIZER (collapsible) ══════════════════════════════ -->
+        <div class="gb-genetic-section genetic-optimizer-section" id="genetic-optimizer-section">
+          <div class="gb-genetic-header genetic-optimizer-header" id="genetic-optimizer-toggle">
+            <div class="gb-genetic-header-left">
+              <span class="gb-section-label">GENETIC OPTIMIZER</span>
+              <span class="gb-badge-pill">GA v1</span>
+            </div>
             <span class="genetic-expand-icon" id="genetic-expand-icon">▼</span>
           </div>
           <div class="genetic-optimizer-body" id="genetic-optimizer-body">
 
-            <!-- A. Execution controls -->
-            <div class="genetic-controls-bar">
-              <button id="btn-genetic-start" class="primary">▶ Iniciar evolución</button>
-              <button id="btn-genetic-stop" disabled>■ Detener</button>
-              <button id="btn-genetic-apply" class="ghost" disabled>✓ Aplicar mejor config</button>
-              <button id="btn-genetic-save" class="ghost" disabled>💾 Guardar versión</button>
-              <button id="btn-genetic-restore" class="ghost">↩ Restaurar config anterior</button>
+            <div class="gb-genetic-toolbar genetic-controls-bar">
+              <button id="btn-genetic-start" class="gb-btn gb-btn--start">▶ Evolve</button>
+              <button id="btn-genetic-stop" class="gb-btn gb-btn--stop" disabled>■ Stop</button>
+              <button id="btn-genetic-apply" class="gb-btn gb-btn--ghost" disabled>✓ Apply best</button>
+              <button id="btn-genetic-save" class="gb-btn gb-btn--ghost" disabled>💾 Save version</button>
+              <button id="btn-genetic-restore" class="gb-btn gb-btn--ghost">↩ Restore</button>
             </div>
 
-            <!-- B. GA parameters -->
-            <div class="genetic-params-grid">
-              <label>Población
-                <input id="genetic-pop-size" type="number" min="5" max="100" value="20" />
+            <div class="gb-genetic-params genetic-params-grid">
+              <label class="gb-field-group">
+                <span class="gb-field-label">Population</span>
+                <input id="genetic-pop-size" class="gb-input" type="number" min="5" max="100" value="20" />
               </label>
-              <label>Generaciones
-                <input id="genetic-generations" type="number" min="5" max="200" value="30" />
+              <label class="gb-field-group">
+                <span class="gb-field-label">Generations</span>
+                <input id="genetic-generations" class="gb-input" type="number" min="5" max="200" value="30" />
               </label>
-              <label>Mutación
-                <input id="genetic-mutation-rate" type="number" min="0.01" max="0.5" step="0.01" value="0.15" />
+              <label class="gb-field-group">
+                <span class="gb-field-label">Mutation</span>
+                <input id="genetic-mutation-rate" class="gb-input" type="number" min="0.01" max="0.5" step="0.01" value="0.15" />
               </label>
-              <label>Cruce
-                <input id="genetic-crossover-rate" type="number" min="0.1" max="1.0" step="0.05" value="0.70" />
+              <label class="gb-field-group">
+                <span class="gb-field-label">Crossover</span>
+                <input id="genetic-crossover-rate" class="gb-input" type="number" min="0.1" max="1.0" step="0.05" value="0.70" />
               </label>
-              <label>Élite
-                <input id="genetic-elite-count" type="number" min="1" max="10" value="2" />
+              <label class="gb-field-group">
+                <span class="gb-field-label">Elite</span>
+                <input id="genetic-elite-count" class="gb-input" type="number" min="1" max="10" value="2" />
               </label>
-              <label>Min muestras
-                <input id="genetic-min-samples" type="number" min="3" max="50" value="5" />
+              <label class="gb-field-group">
+                <span class="gb-field-label">Min samples</span>
+                <input id="genetic-min-samples" class="gb-input" type="number" min="3" max="50" value="5" />
               </label>
             </div>
 
-            <!-- C. Current status -->
-            <div class="genetic-status-row">
-              <span>Generación: <strong id="genetic-current-gen">—</strong></span>
-              <span>Mejor fitness: <strong id="genetic-best-fitness">—</strong></span>
-              <span>Avg fitness: <strong id="genetic-avg-fitness">—</strong></span>
-              <span>Estado: <strong id="genetic-status-text">Inactivo</strong></span>
+            <div class="gb-genetic-status genetic-status-row">
+              <span>Gen <strong id="genetic-current-gen">—</strong></span>
+              <span>Best <strong id="genetic-best-fitness">—</strong></span>
+              <span>Avg <strong id="genetic-avg-fitness">—</strong></span>
+              <span>State <strong id="genetic-status-text">Idle</strong></span>
             </div>
-            <div class="genetic-progress-bar-track">
-              <div class="genetic-progress-bar-fill" id="genetic-progress-bar-fill" style="width:0%"></div>
+            <div class="gb-progress-track genetic-progress-bar-track">
+              <div class="gb-progress-fill genetic-progress-bar-fill" id="genetic-progress-bar-fill" style="width:0%"></div>
             </div>
 
-            <!-- D. Fitness chart -->
-            <div class="genetic-chart-wrap">
+            <div class="genetic-chart-wrap gb-genetic-chart">
               <canvas id="genetic-fitness-chart"></canvas>
             </div>
 
-            <!-- E. Top-5 results & diff -->
             <div id="genetic-results-section" style="display:none">
-              <h4>Mejores individuos</h4>
+              <div class="gb-table-card-header" style="margin-top:12px">
+                <span class="gb-section-label">TOP INDIVIDUALS</span>
+              </div>
               <div class="table-wrap">
-                <table class="gemini-pattern-table">
+                <table class="gb-table gemini-pattern-table">
                   <thead>
-                    <tr>
-                      <th>Rank</th>
-                      <th>Fitness</th>
-                      <th>W.WinRate</th>
-                      <th>Stability</th>
-                      <th>Coverage</th>
-                      <th>Patrones válidos</th>
-                    </tr>
+                    <tr><th>Rank</th><th>Fitness</th><th>W.WR</th><th>Stability</th><th>Coverage</th><th>Valid patterns</th></tr>
                   </thead>
                   <tbody id="genetic-results-tbody"></tbody>
                 </table>
               </div>
-
               <div id="genetic-diff-section" style="margin-top:12px">
-                <h4>Comparación vs config actual <span id="genetic-diff-badge" class="muted"></span></h4>
+                <div class="gb-table-card-header">
+                  <span class="gb-section-label">DIFF vs CURRENT</span>
+                  <span id="genetic-diff-badge" class="gb-badge-pill"></span>
+                </div>
                 <div class="table-wrap">
-                  <table class="gemini-pattern-table">
-                    <thead>
-                      <tr><th>Parámetro</th><th>Default</th><th>Mejor config</th><th>Δ cambio</th></tr>
-                    </thead>
+                  <table class="gb-table gemini-pattern-table">
+                    <thead><tr><th>Param</th><th>Default</th><th>Best</th><th>Δ</th></tr></thead>
                     <tbody id="genetic-diff-tbody"></tbody>
                   </table>
                 </div>
               </div>
             </div>
 
-            <!-- F. Optimizer log -->
-            <ul id="genetic-log" class="gemini-log genetic-log"></ul>
+            <div class="gb-log-header" style="margin-top:12px">
+              <span class="gb-section-label">EVOLUTION LOG</span>
+            </div>
+            <ul id="genetic-log" class="gb-log gemini-log genetic-log"></ul>
 
-            <!-- G. Run history -->
             <div id="genetic-history-section">
-              <h4>Historial de ejecuciones</h4>
+              <div class="gb-table-card-header" style="margin-top:12px">
+                <span class="gb-section-label">RUN HISTORY</span>
+              </div>
               <div class="table-wrap">
-                <table class="gemini-pattern-table">
+                <table class="gb-table gemini-pattern-table">
                   <thead>
-                    <tr>
-                      <th>Fecha</th>
-                      <th>Gens</th>
-                      <th>Pob.</th>
-                      <th>Mejor fitness</th>
-                      <th>Baseline</th>
-                      <th>Estado</th>
-                      <th>Acción</th>
-                    </tr>
+                    <tr><th>Date</th><th>Gens</th><th>Pop</th><th>Best fitness</th><th>Baseline</th><th>Status</th><th>Action</th></tr>
                   </thead>
                   <tbody id="genetic-history-tbody"></tbody>
                 </table>
@@ -388,7 +439,10 @@
 
           </div>
         </div>
+
       </section>
+
+
 
 
 
@@ -424,15 +478,17 @@
           <div class="brain-panel-filter-row">
             <select id="brain-panel-filter-type" class="bp-filter-select">
               <option value="">Todos los tipos</option>
-              <option value="training_event">training_event</option>
-              <option value="diagnosis">diagnosis</option>
+              <option value="trained">trained</option>
+              <option value="skipped">skipped</option>
+              <option value="error">error</option>
               <option value="neuron_saved">neuron_saved</option>
+              <option value="diagnosis">diagnosis</option>
             </select>
             <input id="brain-panel-filter-pattern" class="bp-filter-input" placeholder="Filtrar por patrón…" />
           </div>
           <table class="gemini-pattern-table">
             <thead>
-              <tr><th>Timestamp</th><th>Event Type</th><th>Pattern</th><th>Model Target</th><th>Trade Outcome</th><th>Training Status</th><th>Training Reason</th><th>Detail</th></tr>
+              <tr><th>Timestamp</th><th>Evento</th><th>Patrón</th><th>Motivo</th><th>Resultado</th><th>Detalle</th></tr>
             </thead>
             <tbody id="brain-panel-history-body"></tbody>
           </table>

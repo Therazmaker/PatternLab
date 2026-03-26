@@ -2,14 +2,12 @@ import { BinanceStreamer } from "./BinanceStreamer.js";
 import { GeminiModel } from "./GeminiModel.js";
 import { NeuronStore } from "./NeuronStore.js";
 import { createBrainPanelStore } from "./brainPanelStore.js";
-import { BrainCoordinator } from "./BrainCoordinator.js";
 
 export function createGeminiBotController(elements = {}) {
   let active = false;
   let outcomeTimer = null;
   let statsTimer = null;
   let brainPanelStore = null;
-  let coordinator = null;
   let outcomeLoopRunning = false;
 
   const streamer = new BinanceStreamer({
@@ -75,19 +73,14 @@ export function createGeminiBotController(elements = {}) {
 
   const updateTrainingStats = () => {
     if (!elements.trainingStats) return;
-    const panelStats = state.brainPanel?.stats || {};
-    const trained = Number(panelStats.trainedCount || 0);
-    const skipped = Number(panelStats.skippedCount || 0);
-    const errors = Number(panelStats.errorCount || 0);
-    const learningRateBase = trained + skipped;
-    const learningRate = learningRateBase > 0 ? trained / learningRateBase : 0;
+    const trained = Number(model.stats.trainedCount || model.stats.totalTrained || 0);
+    const skipped = Number(model.stats.skippedCount || 0);
+    const errors = Number(model.stats.errorCount || 0);
     elements.trainingStats.total.textContent = String(trained);
     if (elements.trainingStats.skipped) elements.trainingStats.skipped.textContent = String(skipped);
     if (elements.trainingStats.errors) elements.trainingStats.errors.textContent = String(errors);
-    elements.trainingStats.loss.textContent = Number.isFinite(Number(panelStats.lastTrainLoss)) ? Number(panelStats.lastTrainLoss).toFixed(4) : "n/a";
-    elements.trainingStats.acc.textContent = Number.isFinite(Number(panelStats.lastTrainAcc)) ? `${(Number(panelStats.lastTrainAcc) * 100).toFixed(2)}%` : "n/a";
-    if (elements.trainingStats.learningRate) elements.trainingStats.learningRate.textContent = `${(learningRate * 100).toFixed(1)}%`;
-    if (elements.trainingStats.learningState) elements.trainingStats.learningState.textContent = learningRate >= 0.5 ? "activo" : "bloqueado";
+    elements.trainingStats.loss.textContent = Number.isFinite(model.stats.lastTrainLoss) ? model.stats.lastTrainLoss.toFixed(4) : "n/a";
+    elements.trainingStats.acc.textContent = Number.isFinite(model.stats.lastTrainAcc) ? `${(model.stats.lastTrainAcc * 100).toFixed(2)}%` : "n/a";
     console.info("[NeuralActivity] header updated");
     console.info(`[NeuralActivity] trained=${trained} skipped=${skipped} errors=${errors}`);
   };
@@ -156,45 +149,68 @@ export function createGeminiBotController(elements = {}) {
             appendLog(`⛔ Veto persistente ${resolved.type} (${resolved.timeframe}) · ${resolved.prediction.vetoReason || "sin razón"}`);
             await persistBrainEvent({
               timestamp: new Date().toISOString(),
-              eventType: "diagnosis",
+              type: "diagnosis",
               patternName: resolved.type,
-              modelTarget: "meta",
-              tradeOutcome: resolved.outcome?.result || "n_a",
-              trainingStatus: "skipped",
-              trainingReason: "bridge_veto",
-              detail: resolved.prediction.vetoReason || "veto",
+              outcome: resolved.outcome?.result || null,
+              reasonCode: "bridge_veto",
+              details: resolved.prediction.vetoReason || "veto",
               meta: { timeframe: resolved.timeframe },
             });
           } else {
             const weight = Number(resolved?.prediction?.bridgeWeight || 1);
-            if (coordinator) {
-              await coordinator.submitTrainingSample({
+            const report = await model.trainOnPattern(resolved.candles, label, customRows, {
+              weight,
+              patternType: resolved.type,
+              timeframe: resolved.timeframe,
+              patternId: resolved.id,
+            });
+            if (report?.skipped) {
+              appendLog(`⚠️ Entrenamiento omitido ${resolved.type} (${resolved.timeframe}) · ${report.reason}`);
+              await persistBrainEvent({
+                timestamp: new Date().toISOString(),
+                type: "skipped",
                 patternName: resolved.type,
-                timeframe: resolved.timeframe,
-                candles: resolved.candles,
-                customRows,
-                tradeOutcome: resolved.outcome?.result || "n_a",
-                weight,
-                indicators: resolved.indicators || {},
+                outcome: resolved.outcome?.result || null,
+                reasonCode: report.reason || "insufficient_sequence",
+                details: "training skipped",
+                meta: { timeframe: resolved.timeframe, receivedCandles: report.receivedCandles || null },
               });
-              appendLog(`🧠 Sample enviado al coordinador ${resolved.type} (${resolved.timeframe}) → trade=${resolved.outcome.result}`);
+              updateTrainingStats();
+              continue;
             }
             updateTrainingStats();
+            appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
+            await persistBrainEvent({
+              timestamp: new Date().toISOString(),
+              type: "trained",
+              patternName: resolved.type,
+              outcome: resolved.outcome?.result || null,
+              reasonCode: "fit_success",
+              loss: report.loss,
+              acc: report.accuracy,
+              details: "training completed",
+              meta: { timeframe: resolved.timeframe, weight },
+            });
           }
         } catch (error) {
+          if (model.stats.lastEventType !== "error") {
+            model.stats.errorCount = Number(model.stats.errorCount || 0) + 1;
+            model.stats.lastEventType = "error";
+            model.stats.lastTrainingReason = error?.message || "unknown_error";
+            model.stats.lastTrainLoss = null;
+            model.stats.lastTrainAcc = null;
+          }
           setStatus(`Error entrenando: ${error.message}`);
           appendLog(`❌ Error entrenando ${resolved.type} (${resolved.timeframe}) · ${error.message}`);
           console.error(`[Training] fit failed: ${error.message}`);
           updateTrainingStats();
           await persistBrainEvent({
             timestamp: new Date().toISOString(),
-            eventType: "training_event",
+            type: "error",
             patternName: resolved.type,
-            modelTarget: "meta",
-            tradeOutcome: resolved.outcome?.result || "n_a",
-            trainingStatus: "error",
-            trainingReason: error?.message || "fit_failed",
-            detail: error?.message || "training error",
+            outcome: resolved.outcome?.result || null,
+            reasonCode: error?.message || "fit_failed",
+            details: error?.message || "training error",
             meta: { timeframe: resolved.timeframe },
           });
         }
@@ -269,13 +285,11 @@ export function createGeminiBotController(elements = {}) {
       appendLog(`✅ ${pattern.type} ${pattern.timeframe} → ${prediction.direction} (${(prediction.confidence * 100).toFixed(1)}%)`);
       await persistBrainEvent({
         timestamp: new Date().toISOString(),
-        eventType: "neuron_saved",
+        type: "neuron_saved",
         patternName: pattern.type,
-        modelTarget: "meta",
-        tradeOutcome: "n_a",
-        trainingStatus: "queued",
-        trainingReason: "pattern_captured",
-        detail: "neuron sample appended",
+        outcome: null,
+        reasonCode: "pattern_captured",
+        details: "neuron sample appended",
         meta: { timeframe: pattern.timeframe, eventId: stored.id },
       });
       refreshStats();
@@ -311,11 +325,6 @@ export function createGeminiBotController(elements = {}) {
         appendLog("🆕 Modelo inicializado");
       }
 
-      if (coordinator) {
-        await coordinator.init();
-        appendLog("🧭 BrainCoordinator multi-modelo inicializado");
-      }
-
       active = true;
       streamer.start();
       if (outcomeTimer) clearInterval(outcomeTimer);
@@ -347,47 +356,13 @@ export function createGeminiBotController(elements = {}) {
     }
   };
 
-  const resetBrain = async ({ mode = "full", safeStartSamples = 30, keepHistory = false } = {}) => {
-    if (!brainPanelStore) throw new Error("brain panel store no disponible");
-    appendLog("[Brain] reset started");
-    if (mode === "full" || mode === "model") {
-      await coordinator?.resetLearningSession({ safeStartSamples });
-      appendLog("[Brain] model weights cleared");
-      appendLog("[Brain] model reset");
-    }
-    if (mode === "full" || mode === "stats") {
-      store.resetLearningData({ keepNeurons: true });
-    }
-    if (mode === "full") {
-      appendLog("[Brain] dataset cleared");
-    }
-    if (mode === "full" || mode === "stats") appendLog("[Brain] stats reset");
-    if (mode === "full" || mode === "model") appendLog("[Brain] safe start mode enabled");
-    const snapshot = await brainPanelStore.resetBrain({ mode, keepHistory, safeStartSamples });
-    pushBrainSnapshot(snapshot);
-    await persistBrainEvent({
-      timestamp: new Date().toISOString(),
-      eventType: "training_event",
-      patternName: "brain_reset",
-      modelTarget: "meta",
-      tradeOutcome: "n_a",
-      trainingStatus: "queued",
-      trainingReason: `brain_reset_${mode}`,
-      detail: `safeStartSamples=${safeStartSamples} keepHistory=${keepHistory}`,
-      meta: { mode, keepHistory, safeStartSamples },
-    });
-    appendLog("[Brain] ready for new learning session");
-    refreshStats();
-    updateTrainingStats();
-    setStatus(`Brain Reset (${mode}) aplicado`);
-  };
-
   elements.startBtn?.addEventListener("click", () => {
     start().catch((error) => setStatus(`Error start: ${error.message}`));
   });
 
   elements.stopBtn?.addEventListener("click", () => {
     stop().catch((error) => setStatus(`Error stop: ${error.message}`));
+    document.getElementById("gb-status-dot")?.classList.remove("is-active");
   });
 
   elements.exportBtn?.addEventListener("click", () => {
@@ -409,45 +384,12 @@ export function createGeminiBotController(elements = {}) {
     }
   });
 
-  elements.resetBtn?.addEventListener("click", async () => {
-    const resetMode = window.prompt("Tipo reset: full | model | stats", "full");
-    if (!resetMode || !["full", "model", "stats"].includes(resetMode.trim().toLowerCase())) {
-      setStatus("Reset cancelado o modo inválido");
-      return;
-    }
-    const mode = resetMode.trim().toLowerCase();
-    const keepHistory = window.confirm("¿Conservar historial anterior del panel?");
-    const safeStartRaw = window.prompt("safeStartSamples (ej: 30 o 50)", "30");
-    const safeStartSamples = Number(safeStartRaw || 30);
-    const confirmReset = window.confirm(`Confirmar reset (${mode}). Se reiniciará aprendizaje sin borrar arquitectura ni neuronas.`);
-    if (!confirmReset) return;
-    try {
-      await resetBrain({ mode, keepHistory, safeStartSamples });
-    } catch (error) {
-      setStatus(`Error en reset: ${error.message}`);
-    }
-  });
-
   updateBridgeStatus();
   createBrainPanelStore()
     .then(async (storeAdapter) => {
       brainPanelStore = storeAdapter;
       const hydrated = await brainPanelStore.hydrate();
       pushBrainSnapshot(hydrated);
-      coordinator = new BrainCoordinator({
-        modelConfig: elements.modelConfig || {},
-        onEvent: async (event) => {
-          const snapshot = await brainPanelStore.persistEvent(event, state.brainPanel);
-          pushBrainSnapshot(snapshot);
-          updateTrainingStats();
-        },
-        onQueueState: async (queueState) => {
-          await brainPanelStore.persistQueueState(queueState);
-        },
-        onModelVersions: async (modelVersions) => {
-          await brainPanelStore.persistModelVersions(modelVersions);
-        },
-      });
     })
     .catch((error) => {
       console.error("[BrainPanel] hydration failed", error);
@@ -460,7 +402,7 @@ export function createGeminiBotController(elements = {}) {
           lastTrainLoss: model.stats.lastTrainLoss,
           lastTrainAcc: model.stats.lastTrainAcc,
           patternStats: {},
-          reasonStats: { training: {}, tradeLoss: {}, success: {} },
+          reasonStats: { skip: {}, loss: {}, success: {} },
         },
         state: { brainReady: false, initializedAt: new Date().toISOString(), lastHydratedAt: null },
         events: [],
@@ -481,9 +423,6 @@ export function createGeminiBotController(elements = {}) {
       if (!brainPanelStore) return;
       const hydrated = await brainPanelStore.hydrate();
       pushBrainSnapshot(hydrated);
-    },
-    async resetBrain(opts = {}) {
-      await resetBrain(opts);
     },
     getChartData(timeframe) {
       return {
