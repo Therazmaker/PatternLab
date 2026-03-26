@@ -68,6 +68,12 @@ function fmtPrice(value) {
   return n.toFixed(4);
 }
 
+function buildEarlyExitLabel(trade = {}) {
+  const reason = trade.earlyCloseReason || trade.closeReason;
+  if (!reason || !["early_rejection", "no_followthrough", "weak_favorable_dominance"].includes(reason)) return "";
+  return `Early exit: ${reason}`;
+}
+
 function computePaperPnl(trades = []) {
   return trades.reduce((sum, trade) => {
     if (trade?.status !== "closed") return sum;
@@ -416,6 +422,7 @@ export function createMicroBotTab({
         <li>
           <strong>${trade.outcome || "open"}</strong> · ${trade.setup || "setup"} · ${trade.direction}
           <span class="muted tiny">${String(trade.resolvedAt || trade.createdAt || "").slice(11, 16)}</span>
+          ${buildEarlyExitLabel(trade) ? `<div class="tiny muted">${buildEarlyExitLabel(trade)}</div>` : ""}
         </li>
       `)).join("") || '<li class="muted tiny">No closed trades yet</li>';
     }

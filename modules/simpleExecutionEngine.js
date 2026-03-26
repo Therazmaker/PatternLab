@@ -1,3 +1,5 @@
+import { evaluateEarlyTradeQuality } from "./earlyTradeQualityLayer.js";
+
 function cloneTrade(trade = {}) {
   return { ...trade };
 }
@@ -60,11 +62,19 @@ export function updateSimpleTradeLifecycle(trade = {}, candle = {}, context = {}
     return { trade: next, events, closed: false };
   }
 
+  const qualityEvaluation = evaluateEarlyTradeQuality(next, { ...context, candle });
+  if (qualityEvaluation.closed) {
+    return qualityEvaluation;
+  }
+  const qualityEvents = Array.isArray(qualityEvaluation.events) ? qualityEvaluation.events : [];
+  const qualityTrade = qualityEvaluation.trade || next;
+  events.push(...qualityEvents);
+
   const low = Number(candle.low);
   const high = Number(candle.high);
-  const sl = Number(next.stopLoss);
-  const tp = Number(next.takeProfit);
-  const direction = next.direction === "short" ? "short" : "long";
+  const sl = Number(qualityTrade.stopLoss);
+  const tp = Number(qualityTrade.takeProfit);
+  const direction = qualityTrade.direction === "short" ? "short" : "long";
 
   const hitsTp = Number.isFinite(low) && Number.isFinite(high)
     ? (direction === "long" ? high >= tp : low <= tp)
@@ -74,37 +84,37 @@ export function updateSimpleTradeLifecycle(trade = {}, candle = {}, context = {}
     : false;
 
   if (hitsTp && hitsSl) {
-    next.status = "closed";
-    next.outcome = "ambiguous";
-    next.closeReason = "ambiguous_intrabar";
-    next.resolvedAt = candleTs;
-    next.resolvedCandleIndex = candleIndex;
-    next.exitPrice = Number(next.entry);
+    qualityTrade.status = "closed";
+    qualityTrade.outcome = "ambiguous";
+    qualityTrade.closeReason = "ambiguous_intrabar";
+    qualityTrade.resolvedAt = candleTs;
+    qualityTrade.resolvedCandleIndex = candleIndex;
+    qualityTrade.exitPrice = Number(qualityTrade.entry);
     events.push("closed_ambiguous");
-    return { trade: next, events, closed: true };
+    return { trade: qualityTrade, events, closed: true };
   }
 
   if (hitsTp) {
-    next.status = "closed";
-    next.outcome = "win";
-    next.closeReason = "take_profit";
-    next.resolvedAt = candleTs;
-    next.resolvedCandleIndex = candleIndex;
-    next.exitPrice = tp;
+    qualityTrade.status = "closed";
+    qualityTrade.outcome = "win";
+    qualityTrade.closeReason = "take_profit";
+    qualityTrade.resolvedAt = candleTs;
+    qualityTrade.resolvedCandleIndex = candleIndex;
+    qualityTrade.exitPrice = tp;
     events.push("closed_tp");
-    return { trade: next, events, closed: true };
+    return { trade: qualityTrade, events, closed: true };
   }
 
   if (hitsSl) {
-    next.status = "closed";
-    next.outcome = "loss";
-    next.closeReason = "stop_loss";
-    next.resolvedAt = candleTs;
-    next.resolvedCandleIndex = candleIndex;
-    next.exitPrice = sl;
+    qualityTrade.status = "closed";
+    qualityTrade.outcome = "loss";
+    qualityTrade.closeReason = "stop_loss";
+    qualityTrade.resolvedAt = candleTs;
+    qualityTrade.resolvedCandleIndex = candleIndex;
+    qualityTrade.exitPrice = sl;
     events.push("closed_sl");
-    return { trade: next, events, closed: true };
+    return { trade: qualityTrade, events, closed: true };
   }
 
-  return { trade: next, events, closed: false };
+  return { trade: qualityTrade, events, closed: false };
 }
