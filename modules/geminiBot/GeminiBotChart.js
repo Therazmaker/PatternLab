@@ -32,6 +32,8 @@ const PATTERN_COLORS = {
   momentum_acceleration: "#38bdf8",
 };
 
+const SL_TP_DASH = [4, 3];
+
 function toNum(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -199,6 +201,7 @@ export class GeminiBotChart {
     this.#drawCurrentCandleGlow(L, xAt, xStep);
     this.#drawVolume(L, xAt, xStep, yVol);
     this.#drawCandles(L, xAt, xStep, yPrice);
+    this.#drawCandleSlTp(L, xAt, xStep, yPrice);
     this.#drawEma(L, xAt, yPrice, "ema9", COLORS.ema9);
     this.#drawEma(L, xAt, yPrice, "ema21", COLORS.ema21);
     this.#drawPatternMarkers(L, xAt, yPrice);
@@ -451,6 +454,102 @@ export class GeminiBotChart {
 
     this.ctx.restore();
     this.ctx.lineWidth = 1;
+  }
+
+  // ─── Per-candle SL / TP ticks ────────────────────────────────────────────────
+
+  #drawCandleSlTp(L, xAt, xStep, yPrice) {
+    if (!this.patterns?.length) return;
+
+    const byCloseTime = new Map();
+    this.candles.forEach((c, idx) => byCloseTime.set(c.closeTime, { idx, candle: c }));
+
+    const tickHalfWidth = Math.max(4, xStep * 0.8);
+    const inPrice = (y) => y >= L.priceTop - 2 && y <= L.priceTop + L.priceH + 2;
+
+    this.patterns.forEach((pattern) => {
+      const closeTime = pattern?.candles?.[pattern.candles.length - 1]?.closeTime;
+      const found = byCloseTime.get(closeTime);
+      if (!found) return;
+
+      const { idx } = found;
+      const entry = toNum(pattern.candles?.[pattern.candles.length - 1]?.close, 0);
+      const atr = toNum(pattern.indicators?.atr14, 0);
+      if (!entry || !atr) return;
+
+      const isBullish = (pattern.prediction?.direction || "up") === "up";
+      const tp = isBullish ? entry + atr * 2 : entry - atr * 2;
+      const sl = isBullish ? entry - atr : entry + atr;
+      const x = xAt(idx);
+
+      const outcome = pattern.outcome?.result ?? "pending";
+      // Pending trades are fully opaque; settled ones are dimmed
+      const alpha = outcome === "pending" ? 0.85 : 0.45;
+
+      this.ctx.save();
+      this.ctx.globalAlpha = alpha;
+      this.ctx.lineWidth = 1.5;
+      this.ctx.setLineDash(SL_TP_DASH);
+
+      const yEntry = yPrice(entry);
+      const yTp = yPrice(tp);
+      const ySl = yPrice(sl);
+
+      // Thin vertical connector from entry to TP and SL (only within chart area)
+      if (inPrice(yEntry)) {
+        this.ctx.strokeStyle = "rgba(168, 180, 200, 0.25)";
+        this.ctx.lineWidth = 1;
+        if (inPrice(yTp)) {
+          this.ctx.beginPath();
+          this.ctx.moveTo(x, Math.min(yEntry, yTp));
+          this.ctx.lineTo(x, Math.max(yEntry, yTp));
+          this.ctx.stroke();
+        }
+        if (inPrice(ySl)) {
+          this.ctx.beginPath();
+          this.ctx.moveTo(x, Math.min(yEntry, ySl));
+          this.ctx.lineTo(x, Math.max(yEntry, ySl));
+          this.ctx.stroke();
+        }
+      }
+
+      this.ctx.lineWidth = 1.5;
+
+      // TP tick (green)
+      if (inPrice(yTp)) {
+        this.ctx.strokeStyle = COLORS.tp;
+        this.ctx.setLineDash(SL_TP_DASH);
+        this.ctx.beginPath();
+        this.ctx.moveTo(x - tickHalfWidth, yTp);
+        this.ctx.lineTo(x + tickHalfWidth, yTp);
+        this.ctx.stroke();
+        // "T" label
+        this.ctx.setLineDash([]);
+        this.ctx.font = "bold 8px 'Courier New', monospace";
+        this.ctx.fillStyle = COLORS.tp;
+        this.ctx.textAlign = "center";
+        this.ctx.fillText("T", x, yTp - 3);
+      }
+
+      // SL tick (red)
+      if (inPrice(ySl)) {
+        this.ctx.setLineDash(SL_TP_DASH);
+        this.ctx.strokeStyle = COLORS.sl;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x - tickHalfWidth, ySl);
+        this.ctx.lineTo(x + tickHalfWidth, ySl);
+        this.ctx.stroke();
+        // "S" label
+        this.ctx.setLineDash([]);
+        this.ctx.font = "bold 8px 'Courier New', monospace";
+        this.ctx.fillStyle = COLORS.sl;
+        this.ctx.textAlign = "center";
+        this.ctx.fillText("S", x, ySl + 9);
+      }
+
+      this.ctx.setLineDash([]);
+      this.ctx.restore();
+    });
   }
 
   // ─── EMA lines ───────────────────────────────────────────────────────────────
