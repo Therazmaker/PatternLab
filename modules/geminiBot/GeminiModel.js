@@ -46,6 +46,7 @@ export class GeminiModel {
       byTimeframe: {},
       lastTrainingAt: null,
     };
+    this.trainingQueue = Promise.resolve();
   }
 
   async init() {
@@ -147,7 +148,7 @@ export class GeminiModel {
     return [...padding, ...sequence];
   }
 
-  async trainOnPattern(patternContext, outcome, customIndicatorRows = [], meta = {}) {
+  async #trainOnPatternInternal(patternContext, outcome, customIndicatorRows = [], meta = {}) {
     if (!this.ready) await this.init();
 
     const sequence = Array.isArray(patternContext)
@@ -252,6 +253,13 @@ export class GeminiModel {
       skippedCount: this.stats.skippedCount,
       errorCount: this.stats.errorCount,
     };
+  }
+
+  async trainOnPattern(patternContext, outcome, customIndicatorRows = [], meta = {}) {
+    const run = async () => this.#trainOnPatternInternal(patternContext, outcome, customIndicatorRows, meta);
+    const next = this.trainingQueue.then(run, run);
+    this.trainingQueue = next.catch(() => {});
+    return next;
   }
 
   async saveModel(storageKey = MODEL_STORAGE_KEY) {
