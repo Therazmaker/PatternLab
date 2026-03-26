@@ -221,6 +221,10 @@ export class NeuronModal {
         .replace("{{TRAINING_COUNT}}", String(trainingDataset.rows?.length || 0))
         .replace("{{LOSING_CONTEXTS}}", this.buildLosingContexts(neuronStoreJson.rows || [])),
     };
+    console.info("[Training] export rows count:", {
+      neuronStoreRows: neuronStoreJson.rows?.length || 0,
+      trainingRows: trainingDataset.rows?.length || 0,
+    });
 
     this.config.onExportSchema?.(payload);
 

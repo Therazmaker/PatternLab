@@ -56,6 +56,7 @@ export function createGeminiBotController(elements = {}) {
   const refreshStats = () => {
     const stats = store.getStats();
     elements.onStatsUpdate?.(stats);
+    console.info("[Training] stats updated", { total: stats.total, wins: stats.wins, losses: stats.losses, pending: stats.pending });
   };
 
   const toIndicatorRows = (sequence, indicator) => sequence.map(() => ({ ...indicator }));
@@ -96,7 +97,16 @@ export function createGeminiBotController(elements = {}) {
           appendLog(`⛔ Veto persistente ${resolved.type} (${resolved.timeframe}) · ${resolved.prediction.vetoReason || "sin razón"}`);
         } else {
           const weight = Number(resolved?.prediction?.bridgeWeight || 1);
-          const report = await model.trainOnPattern(resolved.candles, label, customRows, { weight });
+          const report = await model.trainOnPattern(resolved.candles, label, customRows, {
+            weight,
+            patternType: resolved.type,
+            timeframe: resolved.timeframe,
+            patternId: resolved.id,
+          });
+          if (report?.skipped) {
+            appendLog(`⚠️ Entrenamiento omitido ${resolved.type} (${resolved.timeframe}) · ${report.reason}`);
+            continue;
+          }
           updateTrainingStats();
           appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
         }
@@ -125,6 +135,7 @@ export function createGeminiBotController(elements = {}) {
     if (!active) return;
     if (!selectedTimeframes().includes(pattern.timeframe)) return;
     if (!patternAllowed(pattern.type)) return;
+    console.info("[Training] pattern detected", { id: pattern?.id || pattern?.eventId || null, type: pattern?.type, timeframe: pattern?.timeframe });
 
     const sequence = streamer.getRecentCandles(pattern.timeframe);
     const indicatorRows = toIndicatorRows(sequence.slice(-model.config.lookback), pattern.indicators || {});
