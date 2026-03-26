@@ -8,6 +8,7 @@ export function createGeminiBotController(elements = {}) {
   let outcomeTimer = null;
   let statsTimer = null;
   let brainPanelStore = null;
+  let outcomeLoopRunning = false;
 
   const streamer = new BinanceStreamer({
     symbol: elements.symbolInput?.value || "BTCUSDT",
@@ -133,88 +134,94 @@ export function createGeminiBotController(elements = {}) {
 
   const runOutcomeLoop = async () => {
     if (!active) return;
-    const pending = store.getPendingOutcomes();
-    for (const row of pending) {
-      const currentClose = streamer.getLastClose(row.timeframe);
-      const resolved = store.resolveOutcome(row.id, currentClose);
-      if (!resolved || resolved.outcome?.result === "pending") continue;
-      const label = resolved.outcome?.result === "win" ? 1 : 0;
-      const customRows = resolved.features.map(() => resolved.indicators || {});
-      try {
-        if (resolved?.prediction?.vetoed) {
-          appendLog(`⛔ Veto persistente ${resolved.type} (${resolved.timeframe}) · ${resolved.prediction.vetoReason || "sin razón"}`);
-          await persistBrainEvent({
-            timestamp: new Date().toISOString(),
-            type: "diagnosis",
-            patternName: resolved.type,
-            outcome: resolved.outcome?.result || null,
-            reasonCode: "bridge_veto",
-            details: resolved.prediction.vetoReason || "veto",
-            meta: { timeframe: resolved.timeframe },
-          });
-        } else {
-          const weight = Number(resolved?.prediction?.bridgeWeight || 1);
-          const report = await model.trainOnPattern(resolved.candles, label, customRows, {
-            weight,
-            patternType: resolved.type,
-            timeframe: resolved.timeframe,
-            patternId: resolved.id,
-          });
-          if (report?.skipped) {
-            appendLog(`⚠️ Entrenamiento omitido ${resolved.type} (${resolved.timeframe}) · ${report.reason}`);
+    if (outcomeLoopRunning) return;
+    outcomeLoopRunning = true;
+    try {
+      const pending = store.getPendingOutcomes();
+      for (const row of pending) {
+        const currentClose = streamer.getLastClose(row.timeframe);
+        const resolved = store.resolveOutcome(row.id, currentClose);
+        if (!resolved || resolved.outcome?.result === "pending") continue;
+        const label = resolved.outcome?.result === "win" ? 1 : 0;
+        const customRows = resolved.features.map(() => resolved.indicators || {});
+        try {
+          if (resolved?.prediction?.vetoed) {
+            appendLog(`⛔ Veto persistente ${resolved.type} (${resolved.timeframe}) · ${resolved.prediction.vetoReason || "sin razón"}`);
             await persistBrainEvent({
               timestamp: new Date().toISOString(),
-              type: "skipped",
+              type: "diagnosis",
               patternName: resolved.type,
               outcome: resolved.outcome?.result || null,
-              reasonCode: report.reason || "insufficient_sequence",
-              details: "training skipped",
-              meta: { timeframe: resolved.timeframe, receivedCandles: report.receivedCandles || null },
+              reasonCode: "bridge_veto",
+              details: resolved.prediction.vetoReason || "veto",
+              meta: { timeframe: resolved.timeframe },
             });
+          } else {
+            const weight = Number(resolved?.prediction?.bridgeWeight || 1);
+            const report = await model.trainOnPattern(resolved.candles, label, customRows, {
+              weight,
+              patternType: resolved.type,
+              timeframe: resolved.timeframe,
+              patternId: resolved.id,
+            });
+            if (report?.skipped) {
+              appendLog(`⚠️ Entrenamiento omitido ${resolved.type} (${resolved.timeframe}) · ${report.reason}`);
+              await persistBrainEvent({
+                timestamp: new Date().toISOString(),
+                type: "skipped",
+                patternName: resolved.type,
+                outcome: resolved.outcome?.result || null,
+                reasonCode: report.reason || "insufficient_sequence",
+                details: "training skipped",
+                meta: { timeframe: resolved.timeframe, receivedCandles: report.receivedCandles || null },
+              });
+              updateTrainingStats();
+              continue;
+            }
             updateTrainingStats();
-            continue;
+            appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
+            await persistBrainEvent({
+              timestamp: new Date().toISOString(),
+              type: "trained",
+              patternName: resolved.type,
+              outcome: resolved.outcome?.result || null,
+              reasonCode: "fit_success",
+              loss: report.loss,
+              acc: report.accuracy,
+              details: "training completed",
+              meta: { timeframe: resolved.timeframe, weight },
+            });
           }
+        } catch (error) {
+          if (model.stats.lastEventType !== "error") {
+            model.stats.errorCount = Number(model.stats.errorCount || 0) + 1;
+            model.stats.lastEventType = "error";
+            model.stats.lastTrainingReason = error?.message || "unknown_error";
+            model.stats.lastTrainLoss = null;
+            model.stats.lastTrainAcc = null;
+          }
+          setStatus(`Error entrenando: ${error.message}`);
+          appendLog(`❌ Error entrenando ${resolved.type} (${resolved.timeframe}) · ${error.message}`);
+          console.error(`[Training] fit failed: ${error.message}`);
           updateTrainingStats();
-          appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
           await persistBrainEvent({
             timestamp: new Date().toISOString(),
-            type: "trained",
+            type: "error",
             patternName: resolved.type,
             outcome: resolved.outcome?.result || null,
-            reasonCode: "fit_success",
-            loss: report.loss,
-            acc: report.accuracy,
-            details: "training completed",
-            meta: { timeframe: resolved.timeframe, weight },
+            reasonCode: error?.message || "fit_failed",
+            details: error?.message || "training error",
+            meta: { timeframe: resolved.timeframe },
           });
         }
-      } catch (error) {
-        if (model.stats.lastEventType !== "error") {
-          model.stats.errorCount = Number(model.stats.errorCount || 0) + 1;
-          model.stats.lastEventType = "error";
-          model.stats.lastTrainingReason = error?.message || "unknown_error";
-          model.stats.lastTrainLoss = null;
-          model.stats.lastTrainAcc = null;
-        }
-        setStatus(`Error entrenando: ${error.message}`);
-        appendLog(`❌ Error entrenando ${resolved.type} (${resolved.timeframe}) · ${error.message}`);
-        console.error(`[Training] fit failed: ${error.message}`);
-        updateTrainingStats();
-        await persistBrainEvent({
-          timestamp: new Date().toISOString(),
-          type: "error",
-          patternName: resolved.type,
-          outcome: resolved.outcome?.result || null,
-          reasonCode: error?.message || "fit_failed",
-          details: error?.message || "training error",
-          meta: { timeframe: resolved.timeframe },
-        });
-      }
 
-      const suggestions = bridge?.suggestNeurons?.(store.getResolvedRecent(20), state.lastIndicators[resolved.timeframe] || {});
-      if (Array.isArray(suggestions)) elements.onSuggestionsUpdate?.(suggestions);
+        const suggestions = bridge?.suggestNeurons?.(store.getResolvedRecent(20), state.lastIndicators[resolved.timeframe] || {});
+        if (Array.isArray(suggestions)) elements.onSuggestionsUpdate?.(suggestions);
+      }
+      refreshStats();
+    } finally {
+      outcomeLoopRunning = false;
     }
-    refreshStats();
   };
 
   streamer.on("status", (status) => {
