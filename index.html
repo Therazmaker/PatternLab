@@ -140,25 +140,97 @@
       </section>
 
       <section class="panel tab-panel" data-panel="gemini-bot">
-        <h2>Gemini Bot MVP</h2>
-        <p class="muted">Streaming Binance 1m/5m + detección de velas alcistas consecutivas + predicción LSTM base.</p>
-        <div class="filters">
-          <label>Símbolo
-            <input id="gemini-symbol" value="BTCUSDT" />
-          </label>
-          <label>N bullish candles
+        <div class="gemini-header">
+          <h2>Gemini Bot <span class="badge">Neural Trainer</span></h2>
+          <p class="muted">Live Binance 1m/5m · LSTM neural pattern trainer · Online learning from outcomes</p>
+        </div>
+
+        <div class="gemini-controls filters">
+          <label>Símbolo <input id="gemini-symbol" value="BTCUSDT" /></label>
+          <label>N bullish
             <input id="gemini-streak-size" type="number" min="2" max="10" value="3" />
           </label>
-          <button id="btn-gemini-start" class="primary">Iniciar</button>
-          <button id="btn-gemini-stop">Detener</button>
-          <button id="btn-gemini-export" class="ghost">Exportar JSON neurona</button>
+          <label>N bearish
+            <input id="gemini-bearish-streak-size" type="number" min="2" max="10" value="3" />
+          </label>
+          <label>Timeframe
+            <select id="gemini-tf-selector">
+              <option value="both" selected>1m + 5m</option>
+              <option value="1m">Solo 1m</option>
+              <option value="5m">Solo 5m</option>
+            </select>
+          </label>
+          <label>Patrón
+            <select id="gemini-pattern-filter">
+              <option value="all" selected>Todos</option>
+              <option value="bullish_consecutive_candles">Bullish streak</option>
+              <option value="bearish_consecutive_candles">Bearish streak</option>
+              <option value="bullish_engulfing">Engulfing alcista</option>
+              <option value="bearish_engulfing">Engulfing bajista</option>
+              <option value="doji">Doji</option>
+              <option value="volume_spike">Volume Spike</option>
+              <option value="momentum_acceleration">Momentum Acc.</option>
+            </select>
+          </label>
+          <button id="btn-gemini-start" class="primary">▶ Iniciar</button>
+          <button id="btn-gemini-stop">■ Detener</button>
+          <button id="btn-gemini-export" class="ghost">⬇ Exportar neuronas</button>
+          <button id="btn-gemini-export-training" class="ghost">⬇ Dataset entrenamiento</button>
+          <button id="btn-gemini-save-model" class="ghost">💾 Guardar modelo</button>
         </div>
-        <p id="gemini-status" class="muted">Gemini Bot inactivo.</p>
-        <div class="preview">
-          <strong>Predicción actual:</strong> <span id="gemini-prediction">N/A</span>
+
+        <div class="gemini-status-bar">
+          <span id="gemini-status" class="muted">Gemini Bot inactivo.</span>
+          <span class="gemini-prediction-display">
+            Predicción: <strong id="gemini-prediction">N/A</strong>
+          </span>
         </div>
-        <h3>Log de velas detectadas</h3>
-        <ul id="gemini-log" class="gemini-log"></ul>
+
+        <div class="gemini-main-grid">
+          <div class="gemini-chart-col">
+            <div class="gemini-chart-header">
+              <span id="gemini-chart-label">Gráfico en vivo</span>
+              <select id="gemini-chart-tf">
+                <option value="1m">1m</option>
+                <option value="5m" selected>5m</option>
+              </select>
+            </div>
+            <canvas id="gemini-chart" width="800" height="360"></canvas>
+            <div class="gemini-indicator-row" id="gemini-indicator-row">
+              <span id="gi-rsi">RSI —</span>
+              <span id="gi-ema9">EMA9 —</span>
+              <span id="gi-ema21">EMA21 —</span>
+              <span id="gi-atr">ATR —</span>
+              <span id="gi-vol">Vol ×—</span>
+            </div>
+          </div>
+
+          <div class="gemini-stats-col" id="gemini-stats-container">
+            <h3>Estadísticas</h3>
+            <div class="gemini-stat-grid" id="gemini-stat-grid"></div>
+            <h4>Por patrón</h4>
+            <table class="gemini-pattern-table" id="gemini-pattern-table">
+              <thead><tr><th>Patrón</th><th>N</th><th>W</th><th>L</th><th>WR%</th></tr></thead>
+              <tbody id="gemini-pattern-tbody"></tbody>
+            </table>
+            <h4>Por timeframe</h4>
+            <table class="gemini-pattern-table" id="gemini-tf-table">
+              <thead><tr><th>TF</th><th>N</th><th>W</th><th>L</th><th>WR%</th></tr></thead>
+              <tbody id="gemini-tf-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="gemini-training-section">
+          <h3>Actividad neural
+            <span class="gemini-training-stats" id="gemini-training-stats">
+              Entrenado: <strong id="gt-total">0</strong> |
+              Loss: <strong id="gt-loss">—</strong> |
+              Acc: <strong id="gt-acc">—</strong>
+            </span>
+          </h3>
+          <ul id="gemini-log" class="gemini-log"></ul>
+        </div>
       </section>
 
 
