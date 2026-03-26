@@ -99,3 +99,42 @@ test('al cerrar trade se puede crear output de aprendizaje y journal payload', (
   assert.equal(journalPayload.contextSnapshot.originTab, 'microbot_1m');
   assert.equal(journalPayload.decisionSnapshot.reason, 'matched_library_pattern');
 });
+
+
+test('engine aplica context_veto cuando high danger y late extension coinciden con patrón', () => {
+  const libraryContext = readActiveLibraryContext([
+    { id: 'failed_breakout_short', type: 'pattern', name: 'failed breakout short', active: true, data: {} },
+    { id: 'ctx_high_danger', type: 'context', name: 'high danger context', active: true, data: {} },
+  ]);
+
+  const decision = evaluateMicroBotDecision({
+    candles: [
+      { timestamp: '2026-01-01T10:00:00Z', open: 100, high: 100.4, low: 99.8, close: 100.2, volume: 100 },
+      { timestamp: '2026-01-01T10:01:00Z', open: 100.2, high: 100.6, low: 100.0, close: 100.4, volume: 130 },
+      { timestamp: '2026-01-01T10:02:00Z', open: 100.4, high: 100.8, low: 100.2, close: 100.55, volume: 250 },
+      { timestamp: '2026-01-01T10:03:00Z', open: 101.5, high: 102.5, low: 100.1, close: 100.2, volume: 260 },
+    ],
+    libraryContext,
+  });
+
+  assert.equal(decision.action, 'no_trade');
+  assert.equal(decision.reason, 'context_veto');
+  assert.ok(decision.blockingReason.includes('high_danger_late_extension'));
+  assert.ok(decision.warnings.includes('high_danger_context'));
+  assert.ok(decision.warnings.includes('late_entry_risk'));
+});
+
+test('engine devuelve no_match con blockingReason cuando no hay patrón claro', () => {
+  const decision = evaluateMicroBotDecision({
+    candles: [
+      { timestamp: '2026-01-01T10:00:00Z', open: 100, high: 100.4, low: 99.8, close: 100.1, volume: 100 },
+      { timestamp: '2026-01-01T10:01:00Z', open: 100.1, high: 100.5, low: 99.9, close: 100.2, volume: 110 },
+      { timestamp: '2026-01-01T10:02:00Z', open: 100.2, high: 100.6, low: 100.0, close: 100.3, volume: 120 },
+    ],
+    libraryContext: readActiveLibraryContext([]),
+  });
+
+  assert.equal(decision.action, 'no_trade');
+  assert.equal(decision.reason, 'no_match');
+  assert.ok(decision.blockingReason.includes('no_clear_pattern'));
+});
