@@ -48,6 +48,13 @@ export class NeuronStore {
     });
   }
 
+
+  getResolvedRecent(limit = 20) {
+    const resolved = this.rows.filter((row) => ["win", "loss"].includes(row?.outcome?.result));
+    if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) return resolved;
+    return resolved.slice(-Number(limit));
+  }
+
   resolveOutcome(id, currentClose) {
     const target = this.rows.find((row) => row.id === id);
     if (!target) return null;

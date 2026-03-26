@@ -14,11 +14,13 @@ export function createGeminiBotController(elements = {}) {
   });
   const model = new GeminiModel(elements.modelConfig || {});
   const store = new NeuronStore();
+  const bridge = elements.bridge || null;
 
   const state = {
     patterns: [],
     predictions: [],
     lastIndicators: { "1m": null, "5m": null },
+    lastBridgeDecision: "none",
   };
 
   const setStatus = (message) => {
@@ -31,6 +33,12 @@ export function createGeminiBotController(elements = {}) {
     line.textContent = message;
     elements.log.prepend(line);
     while (elements.log.children.length > 150) elements.log.removeChild(elements.log.lastChild);
+  };
+
+  const updateBridgeStatus = () => {
+    if (!elements.bridgeStatusEl) return;
+    const activeCount = typeof bridge?.getActiveItemsCount === "function" ? bridge.getActiveItemsCount() : 0;
+    elements.bridgeStatusEl.textContent = `Library: ${activeCount} reglas activas · last: ${state.lastBridgeDecision}`;
   };
 
   const setPrediction = (prediction) => {
@@ -84,12 +92,20 @@ export function createGeminiBotController(elements = {}) {
       const label = resolved.outcome?.result === "win" ? 1 : 0;
       const customRows = resolved.features.map(() => resolved.indicators || {});
       try {
-        const report = await model.trainOnPattern(resolved.candles, label, customRows);
-        updateTrainingStats();
-        appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | loss=${Number(report.loss || 0).toFixed(4)}`);
+        if (resolved?.prediction?.vetoed) {
+          appendLog(`⛔ Veto persistente ${resolved.type} (${resolved.timeframe}) · ${resolved.prediction.vetoReason || "sin razón"}`);
+        } else {
+          const weight = Number(resolved?.prediction?.bridgeWeight || 1);
+          const report = await model.trainOnPattern(resolved.candles, label, customRows, { weight });
+          updateTrainingStats();
+          appendLog(`🧠 Entrenado ${resolved.type} (${resolved.timeframe}) → ${resolved.outcome.result} | w=${weight.toFixed(2)} | loss=${Number(report.loss || 0).toFixed(4)}`);
+        }
       } catch (error) {
         setStatus(`Error entrenando: ${error.message}`);
       }
+
+      const suggestions = bridge?.suggestNeurons?.(store.getResolvedRecent(20), state.lastIndicators[resolved.timeframe] || {});
+      if (Array.isArray(suggestions)) elements.onSuggestionsUpdate?.(suggestions);
     }
     refreshStats();
   };
@@ -117,6 +133,15 @@ export function createGeminiBotController(elements = {}) {
       const prediction = await model.predictDirection(sequence, indicatorRows);
       setPrediction(prediction);
 
+      const bridgeResult = bridge?.evaluate?.(pattern, pattern.indicators || {}) || {
+        decision: "approve",
+        weight: 1,
+        reason: "Bridge no configurado",
+      };
+      state.lastBridgeDecision = bridgeResult.decision || "approve";
+      updateBridgeStatus();
+      appendLog(`[Bridge] ${(bridgeResult.decision || "approve").toUpperCase()} · ${bridgeResult.reason} (w=${Number(bridgeResult.weight || 1).toFixed(2)})`);
+
       const featureSequence = sequence.slice(-model.config.lookback).map((candle) =>
         model.buildFeatureVector(candle, pattern.indicators || {}, {
           maxPrice: Math.max(...sequence.slice(-model.config.lookback).map((row) => Number(row.high || row.close || 1)), 1),
@@ -124,13 +149,22 @@ export function createGeminiBotController(elements = {}) {
         }),
       );
 
-      const stored = store.appendPattern(pattern, prediction, featureSequence);
+      const enrichedPrediction = {
+        ...prediction,
+        bridgeDecision: bridgeResult.decision,
+        bridgeWeight: Number(bridgeResult.weight || 1),
+        bridgeReason: bridgeResult.reason || "",
+        vetoed: bridgeResult.decision === "veto",
+        vetoReason: bridgeResult.decision === "veto" ? bridgeResult.reason : null,
+      };
+
+      const stored = store.appendPattern(pattern, enrichedPrediction, featureSequence);
       state.patterns.push(stored);
       state.predictions.push({
         id: stored.id,
         timeframe: pattern.timeframe,
         type: pattern.type,
-        prediction,
+        prediction: enrichedPrediction,
       });
 
       appendLog(`✅ ${pattern.type} ${pattern.timeframe} → ${prediction.direction} (${(prediction.confidence * 100).toFixed(1)}%)`);
@@ -176,6 +210,7 @@ export function createGeminiBotController(elements = {}) {
       }, 30_000);
       statsTimer = setInterval(refreshStats, 10_000);
       updateTrainingStats();
+      updateBridgeStatus();
       setStatus("Gemini Bot activo");
     } catch (error) {
       setStatus(`Error iniciando Gemini Bot: ${error.message}`);
@@ -223,6 +258,8 @@ export function createGeminiBotController(elements = {}) {
       setStatus(`No se pudo guardar modelo: ${error.message}`);
     }
   });
+
+  updateBridgeStatus();
 
   return {
     streamer,

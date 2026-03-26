@@ -244,6 +244,8 @@ import { createMicroBotTab } from "./modules/microBotTab.js";
 import { createSessionReviewerTab } from "./src/ui/sessionReviewerTab.js";
 import { createGeminiBotController } from "./modules/geminiBot/GeminiBotController.js";
 import { GeminiBotChart } from "./modules/geminiBot/GeminiBotChart.js";
+import { LibraryBridge } from "./modules/geminiBot/LibraryBridge.js";
+import { NeuronModal } from "./modules/geminiBot/NeuronModal.js";
 
 const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
@@ -6997,6 +6999,57 @@ async function init() {
     { maxCandles: 60 },
   );
 
+  const geminiBridge = new LibraryBridge({
+    libraryItems,
+    onVeto: (pattern, matched) => {
+      console.log("[Bridge] Vetoed:", pattern.type, matched.map((m) => m.id));
+    },
+    onApprove: (pattern, matched, weight) => {
+      console.log("[Bridge] Approved:", pattern.type, "weight:", weight, matched.map((m) => m.id));
+    },
+  });
+
+  const geminiNeuronModal = new NeuronModal(
+    document.getElementById("gemini-neuron-modal-container"),
+    {
+      onSave: (item) => {
+        const existing = libraryItems.findIndex((i) => i.id === item.id);
+        if (existing >= 0) libraryItems[existing] = item;
+        else libraryItems.push(item);
+        saveLibraryItems(libraryItems).catch((error) => console.error("[Library] save failed", error));
+        geminiBridge.setLibraryItems(libraryItems);
+        refreshLibraryPanel();
+      },
+      onDelete: (id) => {
+        const idx = libraryItems.findIndex((i) => i.id === id);
+        if (idx >= 0) libraryItems.splice(idx, 1);
+        saveLibraryItems(libraryItems).catch((error) => console.error("[Library] save failed", error));
+        geminiBridge.setLibraryItems(libraryItems);
+        refreshLibraryPanel();
+      },
+      onToggle: (id, active) => {
+        const item = libraryItems.find((i) => i.id === id);
+        if (item) {
+          item.active = active;
+          saveLibraryItems(libraryItems).catch((error) => console.error("[Library] save failed", error));
+          geminiBridge.setLibraryItems(libraryItems);
+          refreshLibraryPanel();
+        }
+      },
+      onExportSchema: () => {},
+      getLibraryItems: () => libraryItems,
+    },
+  );
+
+  document.getElementById("btn-gemini-neuron-modal")?.addEventListener("click", () => {
+    geminiNeuronModal.open();
+  });
+
+  document.getElementById("btn-gemini-see-all-suggestions")?.addEventListener("click", () => {
+    geminiNeuronModal.open();
+    geminiNeuronModal.switchTab("suggested");
+  });
+
   geminiBotController = createGeminiBotController({
     symbolInput: els.geminiSymbol,
     streakInput: els.geminiStreakSize,
@@ -7061,7 +7114,36 @@ async function init() {
       document.getElementById("gi-atr").textContent = `ATR ${indicators.atr14?.toFixed(4) ?? "—"}`;
       document.getElementById("gi-vol").textContent = `Vol ×${indicators.volumeRatio?.toFixed(2) ?? "—"}`;
     },
+    bridge: geminiBridge,
+    bridgeStatusEl: document.getElementById("gemini-bridge-status"),
+    onSuggestionsUpdate: (suggestions) => {
+      const strip = document.getElementById("gemini-suggestions-strip");
+      const pillsContainer = document.getElementById("gemini-suggestions-pills");
+      if (!strip || !pillsContainer) return;
+      if (!suggestions.length) {
+        strip.style.display = "none";
+        geminiNeuronModal.updateSuggestions([]);
+        return;
+      }
+      strip.style.display = "flex";
+      strip.classList.remove("fresh");
+      void strip.offsetWidth;
+      strip.classList.add("fresh");
+      pillsContainer.innerHTML = suggestions.slice(0, 3).map((sg) => {
+        const shortReason = sg.reason.length > 40 ? `${sg.reason.slice(0, 37)}…` : sg.reason;
+        return `<span class="suggestion-pill" data-id="${sg.id}" title="${sg.reason}">${shortReason}</span>`;
+      }).join("");
+      pillsContainer.querySelectorAll(".suggestion-pill").forEach((pill) => {
+        pill.addEventListener("click", () => {
+          geminiNeuronModal.open();
+          geminiNeuronModal.switchTab("suggested");
+        });
+      });
+      geminiNeuronModal.updateSuggestions(suggestions);
+    },
   });
+
+  geminiNeuronModal.setStoreGetter(() => geminiBotController?.store);
 
   document.getElementById("gemini-chart-tf")?.addEventListener("change", (e) => {
     geminiBotChart.setTimeframe(e.target.value);
