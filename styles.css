@@ -799,10 +799,12 @@ canvas#gemini-chart {
   width: min(680px, 95vw);
   max-height: 85vh;
   overflow: hidden;
-  display: flex;
   flex-direction: column;
   background: var(--panel);
   color: var(--text);
+}
+#gemini-neuron-modal-container dialog[open] {
+  display: flex;
 }
 #gemini-neuron-modal-container dialog::backdrop {
   background: color-mix(in oklab, var(--bg) 72%, transparent);
