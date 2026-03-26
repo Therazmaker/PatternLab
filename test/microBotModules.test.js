@@ -25,13 +25,35 @@ test('readActiveLibraryContext carga patrones y bias', () => {
   assert.equal(context.bias.avoidChase, true);
 });
 
-test('engine emite short cuando patrón y rechazo están presentes', () => {
+test('engine bloquea short prematuro en strong_uptrend sin ruptura confirmada', () => {
   const libraryContext = readActiveLibraryContext([
     { id: 'failed_breakout_short', type: 'pattern', name: 'failed breakout short', active: true, data: {} },
   ]);
   const decision = evaluateMicroBotDecision({ candles: candles(), libraryContext });
+  assert.equal(decision.action, 'no_trade');
+  assert.equal(decision.reason, 'context_veto');
+  assert.equal(decision.blockedReason, 'short_blocked_strong_uptrend');
+  assert.equal(decision.contextState, 'strong_uptrend');
+});
+
+test('engine permite short cuando hay breakdown y followthrough bajista', () => {
+  const libraryContext = readActiveLibraryContext([
+    { id: 'failed_breakout_short', type: 'pattern', name: 'failed breakout short', active: true, data: {} },
+  ]);
+  const decision = evaluateMicroBotDecision({
+    candles: [
+      { timestamp: '2026-01-01T10:00:00Z', open: 105.2, high: 105.4, low: 103.8, close: 104.1, volume: 120 },
+      { timestamp: '2026-01-01T10:01:00Z', open: 104.1, high: 104.3, low: 102.6, close: 103.0, volume: 145 },
+      { timestamp: '2026-01-01T10:02:00Z', open: 103.0, high: 103.2, low: 101.1, close: 101.6, volume: 165 },
+      { timestamp: '2026-01-01T10:03:00Z', open: 102.2, high: 103.3, low: 100.8, close: 100.9, volume: 190 },
+    ],
+    libraryContext,
+  });
+
   assert.equal(decision.action, 'short');
   assert.equal(decision.reason, 'matched_library_pattern');
+  assert.ok(decision.reversalEvidenceScore >= 0.55);
+  assert.equal(decision.blockedReason, null);
 });
 
 test('trade builder crea trade válido con precios coherentes', () => {
