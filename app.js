@@ -7100,6 +7100,7 @@ async function init() {
     exportBtn: els.geminiExportBtn,
     exportTrainingBtn: document.getElementById("btn-gemini-export-training"),
     saveModelBtn: document.getElementById("btn-gemini-save-model"),
+    resetBtn: document.getElementById("btn-gemini-reset-brain"),
     status: els.geminiStatus,
     prediction: els.geminiPrediction,
     log: els.geminiLog,
@@ -7113,6 +7114,8 @@ async function init() {
       errors: document.getElementById("gt-errors"),
       loss: document.getElementById("gt-loss"),
       acc: document.getElementById("gt-acc"),
+      learningRate: document.getElementById("gt-learning-rate"),
+      learningState: document.getElementById("gt-learning-state"),
     },
     onStatsUpdate: (stats, modelStats) => {
       const statGrid = document.getElementById("gemini-stat-grid");
@@ -7134,10 +7137,14 @@ async function init() {
         const trained = Number(modelStats.trainedCount || modelStats.totalTrained || 0);
         const skipped = Number(modelStats.skippedCount || 0);
         const errors = Number(modelStats.errorCount || 0);
+        const learningRateBase = trained + skipped;
+        const learningRate = learningRateBase > 0 ? (trained / learningRateBase) : 0;
         brainGrid.innerHTML = [
           ["Entrenados", trained],
           ["Omitidos", skipped],
           ["Errores", errors],
+          ["Learning", `${(learningRate * 100).toFixed(1)}%`],
+          ["Estado", learningRate >= 0.5 ? "activo" : "bloqueado"],
           ["Loss", loss],
           ["Accuracy", acc],
           ["Pending", stats.pending],

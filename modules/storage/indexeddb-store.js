@@ -198,6 +198,24 @@ export async function getModelRunHistory(db, limit = 200) {
   return rows.sort((a, b) => new Date(b?.timestamp || 0).getTime() - new Date(a?.timestamp || 0).getTime()).slice(0, safeLimit);
 }
 
+export async function clearBrainEvents(db) {
+  const tx = db.transaction(BRAIN_EVENTS_STORE, "readwrite");
+  const store = tx.objectStore(BRAIN_EVENTS_STORE);
+  return wrapRequest(store.clear());
+}
+
+export async function clearBrainGrowthSeries(db) {
+  const tx = db.transaction(BRAIN_GROWTH_STORE, "readwrite");
+  const store = tx.objectStore(BRAIN_GROWTH_STORE);
+  return wrapRequest(store.clear());
+}
+
+export async function clearModelRunHistory(db) {
+  const tx = db.transaction(MODEL_RUN_HISTORY_STORE, "readwrite");
+  const store = tx.objectStore(MODEL_RUN_HISTORY_STORE);
+  return wrapRequest(store.clear());
+}
+
 // ── Genetic Optimizer stores ──────────────────────────────────────────────────
 
 export async function addGeneticRun(db, run = {}) {

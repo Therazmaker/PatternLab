@@ -79,6 +79,8 @@ export class BrainCoordinator {
       [MODEL_TARGETS.CONTEXT]: false,
       [MODEL_TARGETS.META]: false,
     };
+    this.safeStartSamples = Number(modelConfig.safeStartSamples) > 0 ? Number(modelConfig.safeStartSamples) : 30;
+    this.sessionSampleCount = 0;
   }
 
   async init() {
@@ -104,6 +106,7 @@ export class BrainCoordinator {
     const modelTarget = this.resolveModelTarget(sample.patternName);
     const queue = this.queues[modelTarget];
     const trainingItem = { ...sample, modelTarget, enqueuedAt: new Date().toISOString() };
+    this.sessionSampleCount += 1;
 
     if (this.processing[modelTarget]) {
       queue.push(trainingItem);
@@ -155,6 +158,7 @@ export class BrainCoordinator {
         timeframe: item.timeframe,
         weight: item.weight,
         indicators: item.indicators || {},
+        forceMinTrainingSequence: this.sessionSampleCount <= this.safeStartSamples ? 3 : null,
       });
       if (report?.skipped) {
         return this.#buildEvent(item, {
@@ -182,6 +186,27 @@ export class BrainCoordinator {
         detail: message,
       });
     }
+  }
+
+  async resetLearningSession({ safeStartSamples = 30 } = {}) {
+    this.safeStartSamples = Number(safeStartSamples) > 0 ? Number(safeStartSamples) : 30;
+    this.sessionSampleCount = 0;
+    Object.keys(this.queues).forEach((key) => { this.queues[key] = []; });
+    Object.keys(this.processing).forEach((key) => { this.processing[key] = false; });
+    await this.#persistQueue();
+    await Promise.all([
+      this.models[MODEL_TARGETS.MOMENTUM].resetToBase({ clearPersisted: true }),
+      this.models[MODEL_TARGETS.REVERSAL].resetToBase({ clearPersisted: true }),
+    ]);
+    this.models[MODEL_TARGETS.CONTEXT].stats = { trainedCount: 0, skippedCount: 0, errorCount: 0, lastReason: null };
+    await this.onModelVersions({
+      versions: {
+        momentum: "tf-lstm-v1",
+        reversal: "tf-lstm-v1",
+        context: "heuristic-v1",
+        meta: this.metaCombiner.version,
+      },
+    });
   }
 
   #buildEvent(sample, data = {}) {

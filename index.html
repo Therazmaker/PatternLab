@@ -178,6 +178,7 @@
           <button id="btn-gemini-export" class="ghost">⬇ Exportar neuronas</button>
           <button id="btn-gemini-export-training" class="ghost">⬇ Dataset entrenamiento</button>
           <button id="btn-gemini-save-model" class="ghost">💾 Guardar modelo</button>
+          <button id="btn-gemini-reset-brain" class="ghost">♻️ Reset Brain</button>
         </div>
 
         <!-- LIBRARY BRIDGE STATUS + NEURON MODAL TRIGGER -->
@@ -266,7 +267,9 @@
               Omitidos: <strong id="gt-skipped">0</strong> |
               Errores: <strong id="gt-errors">0</strong> |
               Loss: <strong id="gt-loss">n/a</strong> |
-              Acc: <strong id="gt-acc">n/a</strong>
+              Acc: <strong id="gt-acc">n/a</strong> |
+              Learning rate: <strong id="gt-learning-rate">0%</strong> |
+              Estado: <strong id="gt-learning-state">idle</strong>
             </span>
           </h3>
           <ul id="gemini-log" class="gemini-log"></ul>
