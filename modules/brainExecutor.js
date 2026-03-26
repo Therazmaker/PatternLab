@@ -91,12 +91,12 @@ export function createBrainExecutor({
     return brainMemoryStore?.getSnapshot?.().contexts?.[signature] || null;
   }
 
-function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, contextRow = {}, state = {} } = {}) {
-  const learningMode = String(brainVerdict?.learning_mode || "").toLowerCase();
-  if (learningMode === "blocked") return false;
-  if (learningMode !== "exploration") return false;
-  const profile = state?.learningProfile || {};
-  if (state.mode !== "paper" || !profile.enabled || !profile.exploration_mode) return false;
+  function shouldAllowExplorationTrade({ brainVerdict = {}, scenario = {}, contextRow = {}, state = {} } = {}) {
+    const learningMode = String(brainVerdict?.learning_mode || "").toLowerCase();
+    if (learningMode === "blocked") return false;
+    if (learningMode !== "exploration") return false;
+    const profile = state?.learningProfile || {};
+    if (state.mode !== "paper" || !profile.enabled || !profile.exploration_mode) return false;
     if (brainVerdict?.exploration_override_applied === false) return false;
     if (brainVerdict?.exploration_trade_allowed === false) return false;
     const samples = Number(contextRow?.samples || contextRow?.counts || 0);
