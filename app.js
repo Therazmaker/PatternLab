@@ -241,6 +241,7 @@ import {
 } from "./modules/ui.js";
 import { LIBRARY_EXAMPLES, normalizeLibraryItem, resolveLibraryMatches } from "./modules/libraryMemory.js";
 import { createMicroBotTab } from "./modules/microBotTab.js";
+import { createSessionReviewerTab } from "./src/ui/sessionReviewerTab.js";
 
 const els = {
   quickAddPattern: document.getElementById("quick-add-pattern"), quickAddVersion: document.getElementById("quick-add-version"), quickAddInput: document.getElementById("quick-add-input"), quickAddBtn: document.getElementById("btn-quick-add"), quickAddFeedback: document.getElementById("quick-add-feedback"), quickAddNearSupport: document.getElementById("quick-add-near-support"), quickAddNearResistance: document.getElementById("quick-add-near-resistance"), quickAddSrComment: document.getElementById("quick-add-sr-comment"), quickAddV3Toggle: document.getElementById("quick-add-v3-toggle"), quickAddOpen: document.getElementById("quick-add-open"), quickAddHigh: document.getElementById("quick-add-high"), quickAddLow: document.getElementById("quick-add-low"), quickAddClose: document.getElementById("quick-add-close"), quickAddMfe: document.getElementById("quick-add-mfe"), quickAddMae: document.getElementById("quick-add-mae"), quickAddExcursionUnit: document.getElementById("quick-add-excursion-unit"), quickAddAttachSession: document.getElementById("quick-add-attach-session"), quickAddSessionCandle: document.getElementById("quick-add-session-candle"), quickAddAutoExcursion: document.getElementById("btn-quick-add-auto-excursion"),
@@ -260,6 +261,7 @@ const els = {
   noteSearch: document.getElementById("note-search"), noteFilterTag: document.getElementById("note-filter-tag"), noteFilterPattern: document.getElementById("note-filter-pattern"), noteFilterAsset: document.getElementById("note-filter-asset"), notesList: document.getElementById("notes-list"),
   journalTradesList: document.getElementById("journal-trades-list"), journalTradeDetail: document.getElementById("journal-trade-detail"), journalTradeFilterStatus: document.getElementById("journal-trade-filter-status"), journalTradeFilterDirection: document.getElementById("journal-trade-filter-direction"), journalTradeFilterSource: document.getElementById("journal-trade-filter-source"), journalTradeFilterSetup: document.getElementById("journal-trade-filter-setup"), journalTradeSearch: document.getElementById("journal-trade-search"),
   microBotRoot: document.querySelector('[data-panel="microbot"]'), microBotStatus: document.getElementById("microbot-status"), microBotSymbol: document.getElementById("microbot-symbol"), microBotTimeframe: document.getElementById("microbot-timeframe"), microBotTradesCount: document.getElementById("microbot-trades-count"), microBotPnl: document.getElementById("microbot-pnl"), microBotAutoLabel: document.getElementById("microbot-auto-label"), microBotChart: document.getElementById("microbot-chart"), microBotLibraryRules: document.getElementById("microbot-library-rules"), microBotLastDecision: document.getElementById("microbot-last-decision"), microBotJournalStatus: document.getElementById("microbot-journal-status"), microBotActiveTrade: document.getElementById("microbot-active-trade"), microBotJournalPreview: document.getElementById("microbot-journal-preview"), microBotLearningPreview: document.getElementById("microbot-learning-preview"), microBotJournalToolsTradesCount: document.getElementById("microbot-export-trades-count"), microBotJournalToolsWinrate: document.getElementById("microbot-export-winrate"), microBotJournalToolsLastExport: document.getElementById("microbot-export-last"), microBotExportStatus: document.getElementById("microbot-export-status"), microBotStartBtn: document.getElementById("btn-microbot-start"), microBotPauseBtn: document.getElementById("btn-microbot-pause"), microBotResetBtn: document.getElementById("btn-microbot-reset"), microBotToggleAutoBtn: document.getElementById("btn-microbot-toggle-auto"), microBotRefreshLibraryBtn: document.getElementById("btn-microbot-refresh-library"), microBotExportJournalBtn: document.getElementById("btn-microbot-export-journal"),
+  sessionReviewerFileInput: document.getElementById("session-reviewer-file"), sessionReviewerInput: document.getElementById("session-reviewer-input"), sessionReviewerLoadPastedBtn: document.getElementById("btn-session-reviewer-load-pasted"), sessionReviewerExportBtn: document.getElementById("btn-session-reviewer-export"), sessionReviewerFileName: document.getElementById("session-reviewer-file-name"), sessionReviewerSchema: document.getElementById("session-reviewer-schema"), sessionReviewerStatus: document.getElementById("session-reviewer-status"), sessionReviewerSummary: document.getElementById("session-reviewer-summary"), sessionReviewerFindings: document.getElementById("session-reviewer-findings"), sessionReviewerSetup: document.getElementById("session-reviewer-setup"), sessionReviewerContext: document.getElementById("session-reviewer-context"), sessionReviewerLearning: document.getElementById("session-reviewer-learning"), sessionReviewerFixes: document.getElementById("session-reviewer-fixes"),
   reviewQueue: document.getElementById("review-queue"),
   forwardSplitMode: document.getElementById("forward-split-mode"), forwardRatio: document.getElementById("forward-ratio"), forwardDate: document.getElementById("forward-date"), forwardWrap: document.getElementById("forward-wrap"),
   errorClustersWrap: document.getElementById("error-clusters-wrap"), errorClusterDetails: document.getElementById("error-cluster-details"),
@@ -425,6 +427,7 @@ let _lastCopilotEvaluation = null;
 let _lastCopilotEffects = null;
 let _lastBrainVerdict = null;
 let microBotTab = null;
+let sessionReviewerTab = null;
 let manualControlsState = getManualControls();
 const brainMemoryStore = createBrainMemoryStore();
 const brainModeController = createBrainModeController({ mode: "executor", autoExecutionEnabled: true });
@@ -4136,6 +4139,9 @@ function setupTabs() {
       if (tab === "microbot") {
         microBotTab?.render?.();
       }
+      if (tab === "session-reviewer") {
+        sessionReviewerTab?.render?.();
+      }
     });
   });
 }
@@ -6957,6 +6963,24 @@ async function init() {
       brainTradeJournal.upsertJournalTrade(normalized);
     },
     getJournalTrades: () => brainTradeJournal.getAll(),
+  });
+
+  sessionReviewerTab = createSessionReviewerTab({
+    elements: {
+      fileInput: els.sessionReviewerFileInput,
+      input: els.sessionReviewerInput,
+      loadPasteBtn: els.sessionReviewerLoadPastedBtn,
+      exportBtn: els.sessionReviewerExportBtn,
+      fileName: els.sessionReviewerFileName,
+      schema: els.sessionReviewerSchema,
+      status: els.sessionReviewerStatus,
+      summary: els.sessionReviewerSummary,
+      findings: els.sessionReviewerFindings,
+      setup: els.sessionReviewerSetup,
+      context: els.sessionReviewerContext,
+      learning: els.sessionReviewerLearning,
+      fixes: els.sessionReviewerFixes,
+    },
   });
   setupMarketDataEvents();
   await refreshMarketDataSymbols();

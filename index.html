@@ -35,6 +35,7 @@
       <button class="tab-btn" data-tab="confidence">Confidence Evolution</button>
       <button class="tab-btn" data-tab="journal">Journal</button>
       <button class="tab-btn" data-tab="microbot">MicroBot</button>
+      <button class="tab-btn" data-tab="session-reviewer">Session Reviewer</button>
       <button class="tab-btn" data-tab="hypothesis">Hypothesis Lab</button>
       <button class="tab-btn" data-tab="suggestions">Suggestions</button>
       <button class="tab-btn" data-tab="clusters">Error Clusters</button>
@@ -494,6 +495,28 @@
             <ul id="microbot-learning-preview" class="mini-list"></ul>
           </article>
         </div>
+      </section>
+
+      <section class="panel tab-panel session-reviewer" data-panel="session-reviewer">
+        <h2>Session Reviewer</h2>
+        <article class="panel-soft">
+          <h3>File Loader</h3>
+          <div class="button-row compact">
+            <input id="session-reviewer-file" type="file" accept="application/json,.json" />
+            <button id="btn-session-reviewer-load-pasted" class="ghost">Load pasted JSON</button>
+            <button id="btn-session-reviewer-export" class="ghost">Export Review JSON</button>
+          </div>
+          <label>Optional JSON paste<textarea id="session-reviewer-input" rows="6" spellcheck="false" placeholder='{"schema":"patternlab_microbot_journal_export_v1","trades":[...]}'></textarea></label>
+          <p class="tiny"><strong>File:</strong> <span id="session-reviewer-file-name">-</span></p>
+          <p class="tiny"><strong>Detected schema:</strong> <span id="session-reviewer-schema">-</span></p>
+          <p class="tiny"><strong>Status:</strong> <span id="session-reviewer-status">idle</span></p>
+        </article>
+        <article class="panel-soft"><h3>Session Overview</h3><div id="session-reviewer-summary"></div></article>
+        <article class="panel-soft"><h3>Findings</h3><div id="session-reviewer-findings" class="stack"></div></article>
+        <article class="panel-soft"><h3>Setup Breakdown</h3><div id="session-reviewer-setup"></div></article>
+        <article class="panel-soft"><h3>Context / Library Breakdown</h3><div id="session-reviewer-context"></div></article>
+        <article class="panel-soft"><h3>Learning / Missing Data</h3><div id="session-reviewer-learning"></div></article>
+        <article class="panel-soft"><h3>Recommended Fixes</h3><div id="session-reviewer-fixes" class="stack"></div></article>
       </section>
 
       <section class="panel tab-panel" data-panel="hypothesis">
