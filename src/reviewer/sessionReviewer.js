@@ -5,6 +5,7 @@ import {
   analyzeSessionSummary,
   analyzeSetupDistribution,
 } from "./reviewerMetrics.js";
+import { extractWinningPatterns } from "./winnerPatternExtractor.js";
 import { toArray, toObject } from "./reviewerRules.js";
 
 const SOURCE_SCHEMAS = new Set(["patternlab_microbot_journal_export_v1", "patternlab_microbot_journal_export_v2"]);
@@ -182,6 +183,7 @@ export function reviewSessionExport(data) {
     missingDataAnalysis: {},
     recommendedFixes: [],
     scores: {},
+    winningDNA: {},
   };
 
   if (schemaValidation.limitedConfidence) draft.warnings.unshift("Limited confidence: input is incomplete or schema does not match expected export.");
@@ -191,6 +193,7 @@ export function reviewSessionExport(data) {
   draft.missingDataAnalysis = analyzeMissingData(trades, draft);
   draft.recommendedFixes = buildRecommendedFixes(draft);
   draft.scores = computeScores(draft);
+  draft.winningDNA = extractWinningPatterns(payload, { validation: schemaValidation });
 
   return draft;
 }

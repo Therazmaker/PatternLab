@@ -92,7 +92,7 @@ export function createSessionReviewerTab({ elements = {} } = {}) {
   function renderPanels() {
     const review = state.review;
     if (!review) {
-      [elements.findings, elements.setup, elements.context, elements.learning, elements.fixes].forEach((el) => {
+      [elements.findings, elements.setup, elements.context, elements.learning, elements.winningDna, elements.fixes].forEach((el) => {
         if (el) el.innerHTML = '<p class="muted">No review yet.</p>';
       });
       return;
@@ -160,6 +160,37 @@ export function createSessionReviewerTab({ elements = {} } = {}) {
           <article class="panel-soft"><h4>Nice to have</h4><ul class="mini-list">${list(missing.niceToHave, "None")}</ul></article>
         </div>
         <p><strong>Scores:</strong> execution ${review.scores.executionHealth} · context ${review.scores.contextDiscipline} · learning ${review.scores.learningReadiness} · data ${review.scores.dataQuality} · diversity ${review.scores.strategyDiversity}</p>
+      `;
+    }
+
+    if (elements.winningDna) {
+      const winning = review.winningDNA || {};
+      const qualifiers = (winning.positiveQualifiers || []).map((item) => `
+        <article class="panel-soft">
+          <p><span class="badge">${item.priority || "low"}</span> <strong>${item.title}</strong></p>
+          <p class="muted">${item.description || "No description."}</p>
+          <p><strong>Rule hint:</strong> ${item.ruleHint || "-"}</p>
+        </article>
+      `).join("");
+      const weak = list((winning.weakSignals || []).map((row) => String(row)));
+      const limitations = list((winning.dataLimitations || []).map((row) => String(row)));
+      const integrations = list((winning.recommendedNextIntegration || []).map((row) => String(row)));
+      const differences = (winning.comparison?.differences || []).slice(0, 6).map((row) => `<li>${row.title}: <strong>${fmt(row.value, 4)}</strong></li>`).join("");
+
+      elements.winningDna.innerHTML = `
+        <p><strong>Schema:</strong> ${winning.schema || "-"}</p>
+        <p><strong>Limited confidence:</strong> ${winning.limitedConfidence ? "yes" : "no"}</p>
+        <p><strong>Wins/Losses:</strong> ${(winning.sessionContext?.wins ?? 0)} / ${(winning.sessionContext?.losses ?? 0)} (total ${(winning.sessionContext?.totalTrades ?? 0)})</p>
+        <h4>Top Positive Qualifiers</h4>
+        ${qualifiers || '<p class="muted">No strong positive qualifiers found yet.</p>'}
+        <h4>Win/Loss differences</h4>
+        <ul class="mini-list">${differences || '<li class="muted">No comparable differences.</li>'}</ul>
+        <h4>Weak signals</h4>
+        <ul class="mini-list">${weak}</ul>
+        <h4>Data limitations</h4>
+        <ul class="mini-list">${limitations}</ul>
+        <h4>Recommended next integration</h4>
+        <ul class="mini-list">${integrations}</ul>
       `;
     }
 
