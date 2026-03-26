@@ -657,3 +657,12 @@ details[open] > .dt-summary::before { transform:rotate(90deg); }
     grid-template-columns: 1fr;
   }
 }
+
+.session-reviewer {
+  display: grid;
+  gap: .7rem;
+}
+
+.session-reviewer table {
+  min-width: 760px;
+}
