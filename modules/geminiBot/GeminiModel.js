@@ -58,8 +58,20 @@ export class GeminiModel {
 
   #lastPredictions;
 
+  #disposeCurrentModels() {
+    if (!Array.isArray(this.models)) return;
+    this.models.forEach((model) => {
+      try {
+        model?.dispose?.();
+      } catch (error) {
+        console.warn("[Brain] model dispose failed", error?.message || error);
+      }
+    });
+  }
+
   async init() {
     this.tf = await ensureTfReady();
+    this.#disposeCurrentModels();
     this.models = this.#buildModel();
     this.model = this.models[0];
     this.ready = true;
@@ -70,9 +82,7 @@ export class GeminiModel {
     if (!this.ready) await this.init();
     const tf = this.tf;
     const keys = this.#getModelStorageKeys();
-    if (Array.isArray(this.models)) {
-      this.models.forEach((model) => model?.dispose?.());
-    }
+    this.#disposeCurrentModels();
     this.models = this.#buildModel();
     this.model = this.models[0];
     this.stats = this.#createEmptyStats();
@@ -337,6 +347,7 @@ export class GeminiModel {
 
   async loadModel(storageKey = MODEL_STORAGE_KEY) {
     this.tf = await ensureTfReady();
+    this.#disposeCurrentModels();
     const keys = this.#getModelStorageKeys(storageKey);
     const loadedModels = await Promise.all(keys.map(async (key) => {
       try {

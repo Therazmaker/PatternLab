@@ -287,6 +287,10 @@ export function createGeminiBotController(elements = {}) {
 
   const start = async () => {
     try {
+      if (active) {
+        setStatus("Gemini Bot ya está activo");
+        return;
+      }
       streamer.config.symbol = (elements.symbolInput?.value || "BTCUSDT").toUpperCase();
       streamer.config.bullishStreakSize = Number(elements.streakInput?.value) || 3;
       streamer.config.bearishStreakSize = Number(elements.bearishStreakInput?.value) || 3;
