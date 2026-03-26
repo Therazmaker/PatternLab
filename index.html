@@ -211,12 +211,17 @@
                 <span id="gemini-chart-label">Gráfico en vivo</span>
                 <span id="gemini-candle-countdown" class="gemini-candle-countdown">Candle: --:--</span>
               </div>
-              <select id="gemini-chart-tf">
-                <option value="1m">1m</option>
-                <option value="5m" selected>5m</option>
-              </select>
+              <div class="gemini-chart-header-controls">
+                <button id="gemini-chart-fullscreen" class="gemini-chart-fullscreen-btn" title="Pantalla completa">⛶</button>
+                <select id="gemini-chart-tf">
+                  <option value="1m">1m</option>
+                  <option value="5m" selected>5m</option>
+                </select>
+              </div>
             </div>
-            <canvas id="gemini-chart" width="800" height="360"></canvas>
+            <div class="gemini-chart-wrap" id="gemini-chart-wrap">
+              <canvas id="gemini-chart"></canvas>
+            </div>
             <div class="gemini-indicator-row" id="gemini-indicator-row">
               <span id="gi-rsi">RSI —</span>
               <span id="gi-ema9">EMA9 —</span>
@@ -229,6 +234,17 @@
           <div class="gemini-stats-col" id="gemini-stats-container">
             <h3>Estadísticas</h3>
             <div class="gemini-stat-grid" id="gemini-stat-grid"></div>
+            <div class="gemini-brain-dashboard" id="gemini-brain-dashboard">
+              <h4 class="gemini-brain-title">🧠 Cerebro Neural</h4>
+              <div class="gemini-brain-grid" id="gemini-brain-grid"></div>
+              <div class="gemini-winrate-bar-wrap">
+                <div class="gemini-winrate-bar-label">Win Rate</div>
+                <div class="gemini-winrate-bar-track">
+                  <div class="gemini-winrate-bar-fill" id="gemini-winrate-bar-fill"></div>
+                </div>
+                <div class="gemini-winrate-bar-pct" id="gemini-winrate-bar-pct">0%</div>
+              </div>
+            </div>
             <h4>Por patrón</h4>
             <table class="gemini-pattern-table" id="gemini-pattern-table">
               <thead><tr><th>Patrón</th><th>N</th><th>W</th><th>L</th><th>WR%</th></tr></thead>

@@ -86,7 +86,7 @@ export function createGeminiBotController(elements = {}) {
 
   const refreshStats = () => {
     const stats = store.getStats();
-    elements.onStatsUpdate?.(stats);
+    elements.onStatsUpdate?.(stats, model.stats);
     console.info("[Training] stats updated", { total: stats.total, wins: stats.wins, losses: stats.losses, pending: stats.pending });
   };
 
@@ -99,7 +99,24 @@ export function createGeminiBotController(elements = {}) {
       const matching = patterns.find((p) => p.candles?.[p.candles.length - 1]?.closeTime === candles[idx]?.closeTime);
       return matching?.indicators || null;
     });
-    elements.onChartUpdate?.(timeframe, candles, patterns, indicators);
+    // Compute TP/SL/Entry trade levels for pending patterns
+    const trades = patterns
+      .filter((p) => p.outcome?.result === "pending")
+      .slice(-3)
+      .map((p) => {
+        const entry = Number(p.candles?.[p.candles.length - 1]?.close || 0);
+        const atr = Number(p.indicators?.atr14 || 0);
+        const isBullish = (p.prediction?.direction || "up") === "up";
+        return {
+          entry,
+          tp: atr > 0 ? (isBullish ? entry + atr * 2 : entry - atr * 2) : null,
+          sl: atr > 0 ? (isBullish ? entry - atr : entry + atr) : null,
+          direction: p.prediction?.direction || "neutral",
+          type: p.type,
+          status: "pending",
+        };
+      });
+    elements.onChartUpdate?.(timeframe, candles, patterns, indicators, trades);
   };
 
   const selectedTimeframes = () => {

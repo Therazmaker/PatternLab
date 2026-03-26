@@ -7094,7 +7094,7 @@ async function init() {
       loss: document.getElementById("gt-loss"),
       acc: document.getElementById("gt-acc"),
     },
-    onStatsUpdate: (stats) => {
+    onStatsUpdate: (stats, modelStats) => {
       const statGrid = document.getElementById("gemini-stat-grid");
       if (statGrid) {
         statGrid.innerHTML = [
@@ -7104,6 +7104,31 @@ async function init() {
           ["Losses", stats.losses],
           ["WinRate", `${(stats.winRate * 100).toFixed(1)}%`],
         ].map(([k, v]) => `<div class="stat-card"><span>${k}</span><strong>${v}</strong></div>`).join("");
+      }
+
+      // Brain learning dashboard
+      const brainGrid = document.getElementById("gemini-brain-grid");
+      if (brainGrid && modelStats) {
+        const loss = Number.isFinite(modelStats.lastTrainLoss) ? modelStats.lastTrainLoss.toFixed(4) : "n/a";
+        const acc = Number.isFinite(modelStats.lastTrainAcc) ? `${(modelStats.lastTrainAcc * 100).toFixed(1)}%` : "n/a";
+        const trained = Number(modelStats.trainedCount || modelStats.totalTrained || 0);
+        const skipped = Number(modelStats.skippedCount || 0);
+        const errors = Number(modelStats.errorCount || 0);
+        brainGrid.innerHTML = [
+          ["Entrenados", trained],
+          ["Omitidos", skipped],
+          ["Errores", errors],
+          ["Loss", loss],
+          ["Accuracy", acc],
+          ["Pending", stats.pending],
+        ].map(([k, v]) => `<div class="gemini-brain-stat"><span>${k}</span><strong>${v}</strong></div>`).join("");
+      }
+      const bar = document.getElementById("gemini-winrate-bar-fill");
+      const pct = document.getElementById("gemini-winrate-bar-pct");
+      if (bar && pct) {
+        const wr = (stats.winRate * 100).toFixed(1);
+        bar.style.width = `${wr}%`;
+        pct.textContent = `${wr}%`;
       }
 
       const patternTbody = document.getElementById("gemini-pattern-tbody");
@@ -7120,9 +7145,9 @@ async function init() {
         `).join("");
       }
     },
-    onChartUpdate: (timeframe, candles, patterns, indicators) => {
+    onChartUpdate: (timeframe, candles, patterns, indicators, trades) => {
       geminiBotChart.setTimeframe(timeframe);
-      geminiBotChart.update(candles, patterns, indicators);
+      geminiBotChart.update(candles, patterns, indicators, trades);
     },
     onIndicatorUpdate: (indicators) => {
       document.getElementById("gi-rsi").textContent = `RSI ${indicators.rsi14?.toFixed(1) ?? "—"}`;
@@ -7175,6 +7200,32 @@ async function init() {
   document.getElementById("gemini-chart-tf")?.addEventListener("change", (e) => {
     geminiBotChart.setTimeframe(e.target.value);
   });
+
+  // Fullscreen toggle for the chart
+  document.getElementById("gemini-chart-fullscreen")?.addEventListener("click", () => {
+    const wrap = document.getElementById("gemini-chart-wrap");
+    const btn = document.getElementById("gemini-chart-fullscreen");
+    if (!wrap) return;
+    const entering = !wrap.classList.contains("is-fullscreen");
+    wrap.classList.toggle("is-fullscreen", entering);
+    if (btn) btn.textContent = entering ? "✕" : "⛶";
+    // Add/remove close button inside wrap
+    let closeBtn = wrap.querySelector(".gemini-chart-fullscreen-close");
+    if (entering && !closeBtn) {
+      closeBtn = document.createElement("button");
+      closeBtn.className = "gemini-chart-fullscreen-close";
+      closeBtn.textContent = "✕ Cerrar";
+      closeBtn.addEventListener("click", () => {
+        wrap.classList.remove("is-fullscreen");
+        if (btn) btn.textContent = "⛶";
+        closeBtn.remove();
+      });
+      wrap.appendChild(closeBtn);
+    } else if (!entering && closeBtn) {
+      closeBtn.remove();
+    }
+  });
+
   setupMarketDataEvents();
   await refreshMarketDataSymbols();
   if (els.mdAsset && marketDataMeta.selectedSymbol) els.mdAsset.value = marketDataMeta.selectedSymbol;
