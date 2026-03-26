@@ -116,4 +116,37 @@ test('export payload serializa JSON válido', () => {
   assert.equal(reparsed.sessionSummary.tradeDecisionCount, 2);
   assert.equal(reparsed.decisionLog.length, 1);
   assert.equal(reparsed.decisionLog[0].reason, 'no_match');
+  assert.ok(reparsed.diagnosticSummary);
+  assert.ok(Array.isArray(reparsed.diagnosticSummary.topLossReasons));
+});
+
+test('export incluye campos diagnósticos por trade', () => {
+  const payload = buildMicroBotJournalExport([
+    {
+      id: 't2',
+      originTab: 'microbot_1m',
+      status: 'closed',
+      outcome: 'loss',
+      direction: 'long',
+      entry: 100,
+      stopLoss: 99,
+      takeProfit: 102,
+      exitPrice: 99,
+      diagnostics: {
+        patternName: 'bullish_consecutive_candles',
+        predictionDirection: 'long',
+        predictedConfidence: 0.58,
+        actualOutcome: 'loss',
+        mfe: 0.2,
+        mae: 1.1,
+        failureReasonCodes: ['late_entry', 'no_followthrough'],
+      },
+    },
+  ]);
+
+  const trade = payload.trades[0];
+  assert.equal(trade.patternName, 'bullish_consecutive_candles');
+  assert.equal(trade.predictionDirection, 'long');
+  assert.equal(trade.actualOutcome, 'loss');
+  assert.deepEqual(trade.failureReasonCodes, ['late_entry', 'no_followthrough']);
 });

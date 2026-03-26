@@ -1,3 +1,4 @@
+import { buildDiagnosticPerformanceSummary } from "./microBotDiagnosis.js";
 const EXPORT_SCHEMA = "patternlab_microbot_journal_export_v2";
 const DEFAULT_ORIGIN_TAB = "microbot_1m";
 
@@ -24,6 +25,7 @@ function resolveOriginTab(trade = {}) {
 function normalizeTradeForExport(trade = {}) {
   const contextSnapshot = toObject(trade.contextSnapshot);
   const tradeMeta = toObject(trade.tradeMeta);
+  const diagnostics = toObject(trade.diagnostics || tradeMeta.diagnostics);
   return {
     id: trade.id ?? null,
     originTab: resolveOriginTab(trade),
@@ -51,6 +53,26 @@ function normalizeTradeForExport(trade = {}) {
     libraryContextSnapshot: toObject(trade.libraryContextSnapshot || contextSnapshot.libraryContextSnapshot),
     decisionSnapshot: toObject(trade.decisionSnapshot || contextSnapshot.decisionSnapshot || tradeMeta.decisionSnapshot),
     learningOutput: toObject(trade.learningOutput || tradeMeta.learningOutput),
+    patternName: diagnostics.patternName || trade.patternName || trade.setup || null,
+    predictionDirection: diagnostics.predictionDirection || trade.direction || null,
+    predictedConfidence: toFiniteNumber(diagnostics.predictedConfidence, toFiniteNumber(trade?.decisionSnapshot?.confidence, null)),
+    actualOutcome: diagnostics.actualOutcome || trade.outcome || null,
+    entryPrice: toFiniteNumber(diagnostics.entryPrice, toFiniteNumber(trade.entry, null)),
+    exitPrice: toFiniteNumber(diagnostics.exitPrice, toFiniteNumber(trade.exitPrice, null)),
+    sl: toFiniteNumber(diagnostics.sl, toFiniteNumber(trade.stopLoss, null)),
+    tp: toFiniteNumber(diagnostics.tp, toFiniteNumber(trade.takeProfit, null)),
+    distanceFromEMA: toFiniteNumber(diagnostics.distanceFromEMA, null),
+    distanceFromBase: toFiniteNumber(diagnostics.distanceFromBase, null),
+    nearLocalHigh: Boolean(diagnostics.nearLocalHigh),
+    nearLocalLow: Boolean(diagnostics.nearLocalLow),
+    volumeRatio: toFiniteNumber(diagnostics.volumeRatio, null),
+    followthroughScore: toFiniteNumber(diagnostics.followthroughScore, null),
+    wickPressure: toFiniteNumber(diagnostics.wickPressure, null),
+    bodyQuality: toFiniteNumber(diagnostics.bodyQuality, null),
+    contextTags: toArray(diagnostics.contextTags),
+    failureReasonCodes: toArray(diagnostics.failureReasonCodes),
+    successReasonCodes: toArray(diagnostics.successReasonCodes),
+    diagnostics,
     tradeMeta,
     markers: toArray(trade.markers || tradeMeta.markers),
     lifecycleHistory: toArray(trade.lifecycleHistory),
@@ -153,6 +175,7 @@ export function buildMicroBotJournalExport(trades = [], options = {}) {
   const timeframe = options.timeframe || normalized[0]?.timeframe || "1m";
   const mode = options.mode || normalized[0]?.mode || "paper";
   const baseSummary = computeJournalSessionSummary(normalized);
+  const diagnosticSummary = buildDiagnosticPerformanceSummary(normalized.filter((trade) => trade.status === "closed"));
   const providedSummary = toObject(options.sessionSummary);
   return {
     schema: EXPORT_SCHEMA,
@@ -176,6 +199,7 @@ export function buildMicroBotJournalExport(trades = [], options = {}) {
       contexts: toArray(options.librarySnapshot?.contexts),
       lessons: toArray(options.librarySnapshot?.lessons),
     },
+    diagnosticSummary,
     trades: normalized,
     decisionLog,
   };
