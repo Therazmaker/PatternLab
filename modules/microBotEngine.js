@@ -1,4 +1,7 @@
 import { itemContains } from "./libraryDecisionAdapter.js";
+import { buildMarketContext } from "./contextEngine.js";
+import { evaluateBearishReversalEvidence } from "./reversalValidator.js";
+import { combineDecisionScores } from "./decisionCombiner.js";
 
 function avgRange(candles = [], size = 8) {
   const slice = candles.slice(-size);
@@ -16,8 +19,21 @@ function buildDecision(action, reason, extras = {}) {
     matchedLibraryItems: extras.matchedLibraryItems || [],
     warnings: extras.warnings || [],
     blockingReason: extras.blockingReason || [],
+    blockedReason: extras.blockedReason || null,
     confidence: extras.confidence ?? null,
     setup: extras.setup || null,
+    contextState: extras.contextState || "range",
+    emaSlope: extras.emaSlope || "flat",
+    priceVsEMA: extras.priceVsEMA || "unknown",
+    structureState: extras.structureState || "mixed",
+    trendBiasScore: Number(extras.trendBiasScore || 0),
+    reversalEvidenceScore: Number(extras.reversalEvidenceScore || 0),
+    counterTrendPenalty: Number(extras.counterTrendPenalty || 0),
+    entrySignalScore: Number(extras.entrySignalScore || 0),
+    finalShortScore: Number(extras.finalShortScore || 0),
+    contextScore: Number(extras.contextScore || 0),
+    reversalComponents: extras.reversalComponents || {},
+    finalDecision: extras.finalDecision || action,
   };
 }
 
@@ -81,11 +97,33 @@ function resolveContextVeto({ flags = {}, hasPatternMatch = false } = {}) {
   };
 }
 
+function resolveShortBlockReason({ context = {}, reversal = {} } = {}) {
+  if (context.contextState === "strong_uptrend" && !reversal.confirmedBreakdown) return "short_blocked_strong_uptrend";
+  if (!reversal.components?.breakdown) return "short_blocked_no_structure_break";
+  if (!reversal.components?.bearishFollowthrough) return "short_blocked_no_followthrough";
+  if (reversal.pullbackLikely) return "short_blocked_pullback_not_reversal";
+  if (!reversal.hasRobustCombination) return "short_blocked_no_reversal_confirmation";
+  return null;
+}
+
+function emitDecisionDebugLog(payload = {}) {
+  console.info("[MicroBotContext] decision", {
+    contextState: payload.contextState,
+    emaSlope: payload.emaSlope,
+    priceVsEMA: payload.priceVsEMA,
+    structureState: payload.structureState,
+    reversalEvidenceScore: payload.reversalEvidenceScore,
+    counterTrendPenalty: payload.counterTrendPenalty,
+    finalDecision: payload.finalDecision,
+    blockedReason: payload.blockedReason,
+  });
+}
+
 export function evaluateMicroBotDecision({ candles = [], libraryContext = null } = {}) {
   const lib = libraryContext || { patterns: [], contexts: [], lessons: [], bias: { longAllowed: true, shortAllowed: true, avoidChase: false }, warnings: [] };
   const baseWarnings = Array.isArray(lib.warnings) ? [...lib.warnings] : [];
 
-  if (!Array.isArray(candles) || candles.length < 3) {
+  if (!Array.isArray(candles) || candles.length < 4) {
     return buildDecision("no_trade", "no_match", {});
   }
 
@@ -116,50 +154,161 @@ export function evaluateMicroBotDecision({ candles = [], libraryContext = null }
   const warnings = [...baseWarnings, ...contextFlags.contextWarnings];
   const contextVeto = resolveContextVeto({ flags: contextFlags, hasPatternMatch: true });
 
+  const context = buildMarketContext(candles);
+  const reversal = evaluateBearishReversalEvidence(candles, context);
+  const entrySignalScore = shortMatched || longMatched ? 0.66 : 0;
+  const scorePack = combineDecisionScores({
+    action: shortMatched ? "short" : longMatched ? "long" : "no_trade",
+    entrySignalScore,
+    context,
+    reversal,
+  });
+
   if (contextVeto.blocked) {
-    return buildDecision("no_trade", "context_veto", {
+    const payload = {
       warnings,
       blockingReason: contextVeto.blockingReason,
       matchedLibraryItems,
       setup,
       confidence: 0.82,
-    });
+      contextState: context.contextState,
+      emaSlope: context.ema.slopeState,
+      priceVsEMA: context.priceVsEMA,
+      structureState: context.structure.structureState,
+      trendBiasScore: context.trendBiasScore,
+      reversalEvidenceScore: reversal.reversalEvidenceScore,
+      counterTrendPenalty: scorePack.counterTrendPenalty,
+      entrySignalScore,
+      finalShortScore: scorePack.finalShortScore,
+      contextScore: scorePack.contextScore,
+      reversalComponents: reversal.components,
+      blockedReason: "context_veto",
+      finalDecision: "no_trade",
+    };
+    emitDecisionDebugLog(payload);
+    return buildDecision("no_trade", "context_veto", payload);
   }
 
   if (shortMatched) {
+    const blockReason = resolveShortBlockReason({ context, reversal });
     if (lib.bias?.shortAllowed === false) {
-      return buildDecision("no_trade", "blocked_by_library", {
+      const payload = {
         warnings: [...warnings, "short_not_allowed"],
         blockingReason: ["short_not_allowed"],
         matchedLibraryItems,
         setup: "failed_breakout_short",
         confidence: 0.61,
-      });
+        contextState: context.contextState,
+        emaSlope: context.ema.slopeState,
+        priceVsEMA: context.priceVsEMA,
+        structureState: context.structure.structureState,
+        trendBiasScore: context.trendBiasScore,
+        reversalEvidenceScore: reversal.reversalEvidenceScore,
+        counterTrendPenalty: scorePack.counterTrendPenalty,
+        entrySignalScore,
+        finalShortScore: scorePack.finalShortScore,
+        contextScore: scorePack.contextScore,
+        reversalComponents: reversal.components,
+        blockedReason: "short_not_allowed",
+        finalDecision: "no_trade",
+      };
+      emitDecisionDebugLog(payload);
+      return buildDecision("no_trade", "blocked_by_library", payload);
     }
-    return buildDecision("short", "matched_library_pattern", {
+
+    if (blockReason) {
+      const payload = {
+        warnings,
+        blockingReason: [blockReason],
+        matchedLibraryItems,
+        setup: "failed_breakout_short",
+        confidence: 0.57,
+        contextState: context.contextState,
+        emaSlope: context.ema.slopeState,
+        priceVsEMA: context.priceVsEMA,
+        structureState: context.structure.structureState,
+        trendBiasScore: context.trendBiasScore,
+        reversalEvidenceScore: reversal.reversalEvidenceScore,
+        counterTrendPenalty: scorePack.counterTrendPenalty,
+        entrySignalScore,
+        finalShortScore: scorePack.finalShortScore,
+        contextScore: scorePack.contextScore,
+        reversalComponents: reversal.components,
+        blockedReason: blockReason,
+        finalDecision: "no_trade",
+      };
+      emitDecisionDebugLog(payload);
+      return buildDecision("no_trade", "context_veto", payload);
+    }
+
+    const payload = {
       matchedLibraryItems,
       setup: "failed_breakout_short",
-      confidence: 0.66,
+      confidence: scorePack.finalShortScore >= 0.55 ? 0.7 : 0.62,
       warnings,
-    });
+      contextState: context.contextState,
+      emaSlope: context.ema.slopeState,
+      priceVsEMA: context.priceVsEMA,
+      structureState: context.structure.structureState,
+      trendBiasScore: context.trendBiasScore,
+      reversalEvidenceScore: reversal.reversalEvidenceScore,
+      counterTrendPenalty: scorePack.counterTrendPenalty,
+      entrySignalScore,
+      finalShortScore: scorePack.finalShortScore,
+      contextScore: scorePack.contextScore,
+      reversalComponents: reversal.components,
+      finalDecision: "short",
+    };
+    emitDecisionDebugLog(payload);
+    return buildDecision("short", "matched_library_pattern", payload);
   }
 
   if (longMatched) {
     if (lib.bias?.longAllowed === false) {
-      return buildDecision("no_trade", "blocked_by_library", {
+      const payload = {
         warnings: [...warnings, "long_not_allowed"],
         blockingReason: ["long_not_allowed"],
         matchedLibraryItems,
         setup: "failed_breakout_long",
         confidence: 0.61,
-      });
+        contextState: context.contextState,
+        emaSlope: context.ema.slopeState,
+        priceVsEMA: context.priceVsEMA,
+        structureState: context.structure.structureState,
+        trendBiasScore: context.trendBiasScore,
+        reversalEvidenceScore: reversal.reversalEvidenceScore,
+        counterTrendPenalty: 0,
+        entrySignalScore,
+        finalShortScore: 0,
+        contextScore: scorePack.contextScore,
+        reversalComponents: reversal.components,
+        blockedReason: "long_not_allowed",
+        finalDecision: "no_trade",
+      };
+      emitDecisionDebugLog(payload);
+      return buildDecision("no_trade", "blocked_by_library", payload);
     }
-    return buildDecision("long", "matched_library_pattern", {
+
+    const payload = {
       matchedLibraryItems,
       setup: "failed_breakout_long",
       confidence: 0.66,
       warnings,
-    });
+      contextState: context.contextState,
+      emaSlope: context.ema.slopeState,
+      priceVsEMA: context.priceVsEMA,
+      structureState: context.structure.structureState,
+      trendBiasScore: context.trendBiasScore,
+      reversalEvidenceScore: reversal.reversalEvidenceScore,
+      counterTrendPenalty: 0,
+      entrySignalScore,
+      finalShortScore: 0,
+      contextScore: scorePack.contextScore,
+      reversalComponents: reversal.components,
+      finalDecision: "long",
+    };
+    emitDecisionDebugLog(payload);
+    return buildDecision("long", "matched_library_pattern", payload);
   }
 
   return buildDecision("no_trade", "no_match", {});

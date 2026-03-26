@@ -9,6 +9,7 @@ import {
   getMicroBotJournalTrades,
 } from "./microBotJournalExport.js";
 import { buildDiagnosticPerformanceSummary, buildTradeDiagnostics } from "./microBotDiagnosis.js";
+import { createMicroBotContextMetrics, updateMicroBotContextMetrics } from "./microBotContextMetrics.js";
 
 const ORIGIN_TAB = "microbot_1m";
 const REPLAY_TICK_MS = 250;
@@ -209,6 +210,7 @@ export function createMicroBotTab({
     journalStatus: "idle",
     lastExportAt: null,
     exportStatus: "idle",
+    contextMetrics: createMicroBotContextMetrics(),
   };
 
   let loop = null;
@@ -279,6 +281,7 @@ export function createMicroBotTab({
     if (["long", "short"].includes(state.lastDecision.action) || state.lastDecision.action === "no_trade") {
       state.tradeDecisionCount += 1;
     }
+    state.contextMetrics = updateMicroBotContextMetrics(state.contextMetrics, state.lastDecision);
 
     if (state.lastDecision.action === "no_trade") {
       registerNoTrade(state.lastDecision, candle);
@@ -411,6 +414,7 @@ export function createMicroBotTab({
     state.tradeDecisionCount = 0;
     state.executedTradeCount = 0;
     state.journalStatus = "idle";
+    state.contextMetrics = createMicroBotContextMetrics();
     render();
   }
 
@@ -429,6 +433,7 @@ export function createMicroBotTab({
           contextVetoCount: state.vetoCount,
           tradeDecisionCount: state.tradeDecisionCount,
           executedTradeCount: state.executedTradeCount,
+          contextMetrics: state.contextMetrics,
         },
         librarySnapshot: {
           patterns: state.libraryContext?.patterns || [],
