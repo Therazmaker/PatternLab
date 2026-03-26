@@ -13,7 +13,7 @@ test('exporta journal vacío sin fallar', () => {
   const payload = buildMicroBotJournalExport(rows, { symbol: 'BTCUSDT', timeframe: '1m' });
   assert.equal(payload.trades.length, 0);
   assert.equal(payload.sessionSummary.totalTrades, 0);
-  assert.equal(payload.schema, 'patternlab_microbot_journal_export_v1');
+  assert.equal(payload.schema, 'patternlab_microbot_journal_export_v2');
 });
 
 test('summary correcto con win y loss', () => {
@@ -85,10 +85,35 @@ test('export payload serializa JSON válido', () => {
       triggeredAt: '2026-03-26T10:01:00Z',
       resolvedAt: '2026-03-26T10:02:00Z',
     },
-  ]);
+  ], {
+    decisionLog: [
+      {
+        timestamp: '2026-03-26T10:00:00Z',
+        symbol: 'BTCUSDT',
+        timeframe: '1m',
+        action: 'no_trade',
+        reason: 'no_match',
+        matchedLibraryItems: [],
+        blockingReason: [],
+        warnings: [],
+        libraryContextSnapshot: { patterns: [] },
+        decisionSnapshot: { action: 'no_trade', reason: 'no_match' },
+      },
+    ],
+    sessionSummary: {
+      noMatchCount: 1,
+      contextVetoCount: 0,
+      tradeDecisionCount: 2,
+      executedTradeCount: 1,
+    },
+  });
 
   const json = JSON.stringify(payload, null, 2);
   const reparsed = JSON.parse(json);
   assert.equal(reparsed.trades[0].id, 't1');
   assert.equal(reparsed.sessionSummary.totalTrades, 1);
+  assert.equal(reparsed.sessionSummary.noMatchCount, 1);
+  assert.equal(reparsed.sessionSummary.tradeDecisionCount, 2);
+  assert.equal(reparsed.decisionLog.length, 1);
+  assert.equal(reparsed.decisionLog[0].reason, 'no_match');
 });

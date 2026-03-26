@@ -478,6 +478,9 @@
             <p><strong>Current decision:</strong> <span id="microbot-last-decision">-</span></p>
             <p><strong>Last no_trade:</strong> <span id="microbot-last-no-trade">none</span></p>
             <p><strong>Session veto count:</strong> <span id="microbot-veto-count">0</span></p>
+            <p><strong>Session no-match count:</strong> <span id="microbot-no-match-count">0</span></p>
+            <p><strong>Session trade decision count:</strong> <span id="microbot-trade-decision-count">0</span></p>
+            <p><strong>Session executed trade count:</strong> <span id="microbot-executed-trade-count">0</span></p>
             <p><strong>Journal write:</strong> <span id="microbot-journal-status">idle</span></p>
             <div class="panel-soft microbot-journal-tools">
               <h4>Journal Tools</h4>
@@ -508,7 +511,7 @@
             <button id="btn-session-reviewer-load-pasted" class="ghost">Load pasted JSON</button>
             <button id="btn-session-reviewer-export" class="ghost">Export Review JSON</button>
           </div>
-          <label>Optional JSON paste<textarea id="session-reviewer-input" rows="6" spellcheck="false" placeholder='{"schema":"patternlab_microbot_journal_export_v1","trades":[...]}'></textarea></label>
+          <label>Optional JSON paste<textarea id="session-reviewer-input" rows="6" spellcheck="false" placeholder='{"schema":"patternlab_microbot_journal_export_v2","trades":[...],"decisionLog":[...]}'></textarea></label>
           <p class="tiny"><strong>File:</strong> <span id="session-reviewer-file-name">-</span></p>
           <p class="tiny"><strong>Detected schema:</strong> <span id="session-reviewer-schema">-</span></p>
           <p class="tiny"><strong>Status:</strong> <span id="session-reviewer-status">idle</span></p>

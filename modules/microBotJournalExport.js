@@ -1,4 +1,4 @@
-const EXPORT_SCHEMA = "patternlab_microbot_journal_export_v1";
+const EXPORT_SCHEMA = "patternlab_microbot_journal_export_v2";
 const DEFAULT_ORIGIN_TAB = "microbot_1m";
 
 function toFiniteNumber(value, fallback = null) {
@@ -56,6 +56,22 @@ function normalizeTradeForExport(trade = {}) {
     lifecycleHistory: toArray(trade.lifecycleHistory),
     invalidReasons: toArray(trade.invalidReasons),
     learningExcluded: Boolean(trade.learningExcluded),
+  };
+}
+
+function normalizeDecisionRecordForExport(row = {}) {
+  const decisionSnapshot = toObject(row.decisionSnapshot);
+  return {
+    timestamp: row.timestamp ?? null,
+    symbol: row.symbol ?? null,
+    timeframe: row.timeframe ?? "1m",
+    action: row.action ?? "no_trade",
+    reason: row.reason ?? decisionSnapshot.reason ?? "no_match",
+    matchedLibraryItems: toArray(row.matchedLibraryItems || decisionSnapshot.matchedLibraryItems),
+    blockingReason: toArray(row.blockingReason || decisionSnapshot.blockingReason),
+    warnings: toArray(row.warnings || decisionSnapshot.warnings),
+    libraryContextSnapshot: toObject(row.libraryContextSnapshot),
+    decisionSnapshot,
   };
 }
 
@@ -130,10 +146,14 @@ export function computeJournalSessionSummary(trades = []) {
 
 export function buildMicroBotJournalExport(trades = [], options = {}) {
   const normalized = (Array.isArray(trades) ? trades : []).map((trade) => normalizeTradeForExport(trade));
+  const decisionLog = (Array.isArray(options.decisionLog) ? options.decisionLog : [])
+    .map((row) => normalizeDecisionRecordForExport(row));
   const exportedAt = options.exportedAt || new Date().toISOString();
   const symbol = options.symbol || normalized[0]?.symbol || null;
   const timeframe = options.timeframe || normalized[0]?.timeframe || "1m";
   const mode = options.mode || normalized[0]?.mode || "paper";
+  const baseSummary = computeJournalSessionSummary(normalized);
+  const providedSummary = toObject(options.sessionSummary);
   return {
     schema: EXPORT_SCHEMA,
     exportedAt,
@@ -144,13 +164,20 @@ export function buildMicroBotJournalExport(trades = [], options = {}) {
     timeframe,
     originTab: options.originTab || DEFAULT_ORIGIN_TAB,
     sessionId: options.sessionId || null,
-    sessionSummary: computeJournalSessionSummary(normalized),
+    sessionSummary: {
+      ...baseSummary,
+      noMatchCount: toFiniteNumber(providedSummary.noMatchCount, 0) || 0,
+      contextVetoCount: toFiniteNumber(providedSummary.contextVetoCount, 0) || 0,
+      tradeDecisionCount: toFiniteNumber(providedSummary.tradeDecisionCount, 0) || 0,
+      executedTradeCount: toFiniteNumber(providedSummary.executedTradeCount, baseSummary.totalTrades) || 0,
+    },
     librarySnapshot: {
       patterns: toArray(options.librarySnapshot?.patterns),
       contexts: toArray(options.librarySnapshot?.contexts),
       lessons: toArray(options.librarySnapshot?.lessons),
     },
     trades: normalized,
+    decisionLog,
   };
 }
 
