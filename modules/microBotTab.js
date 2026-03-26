@@ -10,6 +10,9 @@ import {
 } from "./microBotJournalExport.js";
 
 const ORIGIN_TAB = "microbot_1m";
+const REPLAY_TICK_MS = 250;
+const REPLAY_TICKS_PER_CANDLE = 12;
+const TOUCH_HIGHLIGHT_MS = 1500;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -42,23 +45,33 @@ function makeSeedCandles(symbol = "BTCUSDT") {
   return candles;
 }
 
-function createNextReplayCandle(last = {}, symbol = "BTCUSDT") {
-  const lastClose = Number(last.close) || 100;
-  const drift = (Math.random() - 0.5) * 0.6;
-  const open = lastClose;
-  const close = Math.max(0.1, open + drift);
-  const high = Math.max(open, close) + Math.random() * 0.25;
-  const low = Math.max(0.01, Math.min(open, close) - Math.random() * 0.25);
+function createNextFormingCandle(last = {}, symbol = "BTCUSDT") {
+  const baseClose = Number(last.close) || 100;
+  const openTime = Date.parse(last.timestamp || Date.now()) + 60_000;
   return {
-    timestamp: new Date(Date.parse(last.timestamp || Date.now()) + 60_000).toISOString(),
-    open: Number(open.toFixed(4)),
-    high: Number(high.toFixed(4)),
-    low: Number(low.toFixed(4)),
-    close: Number(close.toFixed(4)),
-    volume: Math.round(80 + Math.random() * 120),
+    timestamp: new Date(openTime).toISOString(),
+    closeTime: new Date(openTime + 60_000).toISOString(),
+    open: Number(baseClose.toFixed(4)),
+    high: Number(baseClose.toFixed(4)),
+    low: Number(baseClose.toFixed(4)),
+    close: Number(baseClose.toFixed(4)),
+    volume: 0,
     asset: symbol,
     timeframe: "1m",
-    source: "microbot_replay",
+    source: "microbot_replay_live",
+    isForming: true,
+  };
+}
+
+function updateFormingCandleFromTick(formingCandle = null, tickPrice = null) {
+  if (!formingCandle || !Number.isFinite(Number(tickPrice))) return formingCandle;
+  const price = Number(tickPrice);
+  return {
+    ...formingCandle,
+    close: Number(price.toFixed(4)),
+    high: Number(Math.max(Number(formingCandle.high), price).toFixed(4)),
+    low: Number(Math.min(Number(formingCandle.low), price).toFixed(4)),
+    volume: Number((Number(formingCandle.volume || 0) + (20 + Math.random() * 40)).toFixed(2)),
   };
 }
 
@@ -105,8 +118,9 @@ function buildLearningOutput(trade = {}) {
   };
 }
 
-function renderChartSvg(candles = [], activeTrade = null, closedTrades = []) {
-  const rows = candles.slice(-60);
+function renderChartSvg(candles = [], activeTrade = null, closedTrades = [], liveState = {}) {
+  const allRows = liveState.formingCandle ? [...candles, liveState.formingCandle] : [...candles];
+  const rows = allRows.slice(-60);
   if (!rows.length) return '<div class="muted tiny">Waiting for 1m candles...</div>';
   const width = 920;
   const height = 260;
@@ -138,9 +152,22 @@ function renderChartSvg(candles = [], activeTrade = null, closedTrades = []) {
 
   const lines = [];
   if (activeTrade) {
-    lines.push(`<line x1="${pad}" y1="${yFor(activeTrade.entry)}" x2="${width - pad}" y2="${yFor(activeTrade.entry)}" stroke="#4da3ff" stroke-dasharray="6 4" />`);
-    lines.push(`<line x1="${pad}" y1="${yFor(activeTrade.stopLoss)}" x2="${width - pad}" y2="${yFor(activeTrade.stopLoss)}" stroke="#ff8f00" stroke-dasharray="4 4" />`);
-    lines.push(`<line x1="${pad}" y1="${yFor(activeTrade.takeProfit)}" x2="${width - pad}" y2="${yFor(activeTrade.takeProfit)}" stroke="#2ecc71" stroke-dasharray="4 4" />`);
+    const touchState = liveState.tradeTouches || {};
+    const isTouched = (key) => Number.isFinite(touchState[key]) && touchState[key] > Date.now();
+    const entryY = yFor(activeTrade.entry);
+    const slY = yFor(activeTrade.stopLoss);
+    const tpY = yFor(activeTrade.takeProfit);
+    lines.push(`<rect x="${pad}" y="${Math.min(entryY, tpY)}" width="${width - pad * 2}" height="${Math.max(2, Math.abs(entryY - tpY))}" fill="rgba(46,204,113,0.08)" />`);
+    lines.push(`<rect x="${pad}" y="${Math.min(entryY, slY)}" width="${width - pad * 2}" height="${Math.max(2, Math.abs(entryY - slY))}" fill="rgba(255,90,107,0.08)" />`);
+    lines.push(`<line x1="${pad}" y1="${entryY}" x2="${width - pad}" y2="${entryY}" stroke="${isTouched("entry") ? "#7dd3fc" : "#4da3ff"}" stroke-width="${isTouched("entry") ? 2.4 : 1.4}" stroke-dasharray="6 4" />`);
+    lines.push(`<line x1="${pad}" y1="${slY}" x2="${width - pad}" y2="${slY}" stroke="${isTouched("sl") ? "#ffc27a" : "#ff8f00"}" stroke-width="${isTouched("sl") ? 2.4 : 1.4}" stroke-dasharray="4 4" />`);
+    lines.push(`<line x1="${pad}" y1="${tpY}" x2="${width - pad}" y2="${tpY}" stroke="${isTouched("tp") ? "#6af0aa" : "#2ecc71"}" stroke-width="${isTouched("tp") ? 2.4 : 1.4}" stroke-dasharray="4 4" />`);
+    lines.push(`<text x="${width - pad - 44}" y="${entryY - 5}" fill="#4da3ff" font-size="10">Entry</text>`);
+    lines.push(`<text x="${width - pad - 30}" y="${slY - 5}" fill="#ff8f00" font-size="10">SL</text>`);
+    lines.push(`<text x="${width - pad - 30}" y="${tpY - 5}" fill="#2ecc71" font-size="10">TP</text>`);
+    if (isTouched("entry")) lines.push(`<circle cx="${width - pad - 8}" cy="${entryY}" r="5" fill="#7dd3fc" />`);
+    if (isTouched("sl")) lines.push(`<circle cx="${width - pad - 8}" cy="${slY}" r="5" fill="#ffc27a" />`);
+    if (isTouched("tp")) lines.push(`<circle cx="${width - pad - 8}" cy="${tpY}" r="5" fill="#6af0aa" />`);
   }
   closedTrades.slice(-6).forEach((trade, index) => {
     const y = yFor(Number(trade.exitPrice || trade.entry));
@@ -164,6 +191,9 @@ export function createMicroBotTab({
     autoTrade: true,
     replayMode: true,
     candles: makeSeedCandles("BTCUSDT"),
+    formingCandle: null,
+    replayTickCount: 0,
+    tradeTouches: { entry: 0, sl: 0, tp: 0 },
     activeTrade: null,
     closedTrades: [],
     journalPreview: [],
@@ -286,15 +316,69 @@ export function createMicroBotTab({
     render();
   }
 
+  function markTradeTouch(level) {
+    if (!["entry", "sl", "tp"].includes(level)) return;
+    state.tradeTouches[level] = Date.now() + TOUCH_HIGHLIGHT_MS;
+    console.info(`[TradeOverlay] price touched ${level}`);
+  }
+
+  function updateTradeTouchState(formingCandle) {
+    if (!state.activeTrade || !formingCandle) return;
+    const high = Number(formingCandle.high);
+    const low = Number(formingCandle.low);
+    const entry = Number(state.activeTrade.entry);
+    const stopLoss = Number(state.activeTrade.stopLoss);
+    const takeProfit = Number(state.activeTrade.takeProfit);
+    if (Number.isFinite(entry) && low <= entry && high >= entry) markTradeTouch("entry");
+    if (Number.isFinite(stopLoss) && low <= stopLoss && high >= stopLoss) markTradeTouch("sl");
+    if (Number.isFinite(takeProfit) && low <= takeProfit && high >= takeProfit) markTradeTouch("tp");
+  }
+
   function stepReplay() {
-    const last = state.candles[state.candles.length - 1] || {};
-    processNewCandle(createNextReplayCandle(last, state.symbol));
+    const lastClosed = state.candles[state.candles.length - 1] || {};
+    if (!state.formingCandle) {
+      state.formingCandle = createNextFormingCandle(lastClosed, state.symbol);
+      state.replayTickCount = 0;
+      console.info("[LiveCandle] candle closed, new candle opened", state.formingCandle.timestamp);
+    }
+
+    const drift = (Math.random() - 0.5) * 0.28;
+    const nextTickPrice = Math.max(0.01, Number(state.formingCandle.close) + drift);
+    state.formingCandle = updateFormingCandleFromTick(state.formingCandle, nextTickPrice);
+    state.replayTickCount += 1;
+    console.debug("[LiveCandle] update current candle", {
+      ts: state.formingCandle.timestamp,
+      open: state.formingCandle.open,
+      high: state.formingCandle.high,
+      low: state.formingCandle.low,
+      close: state.formingCandle.close,
+      ticks: state.replayTickCount,
+    });
+
+    if (state.activeTrade) {
+      console.debug("[TradeOverlay] draw entry/sl/tp", {
+        entry: state.activeTrade.entry,
+        stopLoss: state.activeTrade.stopLoss,
+        takeProfit: state.activeTrade.takeProfit,
+      });
+    }
+    updateTradeTouchState(state.formingCandle);
+
+    if (state.replayTickCount >= REPLAY_TICKS_PER_CANDLE) {
+      const closed = { ...state.formingCandle, isForming: false };
+      state.formingCandle = null;
+      state.replayTickCount = 0;
+      processNewCandle(closed);
+      return;
+    }
+
+    render();
   }
 
   function start() {
     state.status = "running";
     if (loop) clearInterval(loop);
-    loop = setInterval(stepReplay, 1200);
+    loop = setInterval(stepReplay, REPLAY_TICK_MS);
     render();
   }
 
@@ -309,6 +393,9 @@ export function createMicroBotTab({
     pause();
     state.status = "idle";
     state.candles = makeSeedCandles(state.symbol);
+    state.formingCandle = null;
+    state.replayTickCount = 0;
+    state.tradeTouches = { entry: 0, sl: 0, tp: 0 };
     state.activeTrade = null;
     state.closedTrades = [];
     state.journalPreview = [];
@@ -381,7 +468,12 @@ export function createMicroBotTab({
     if (elements.timeframe) elements.timeframe.textContent = state.timeframe;
     if (elements.tradesCount) elements.tradesCount.textContent = String(state.closedTrades.length);
     if (elements.pnl) elements.pnl.textContent = computePaperPnl(state.closedTrades).toFixed(4);
-    if (elements.chart) elements.chart.innerHTML = renderChartSvg(state.candles, state.activeTrade, state.closedTrades);
+    if (elements.chart) {
+      elements.chart.innerHTML = renderChartSvg(state.candles, state.activeTrade, state.closedTrades, {
+        formingCandle: state.formingCandle,
+        tradeTouches: state.tradeTouches,
+      });
+    }
 
     if (elements.libraryRules) {
       const ids = state.libraryContext.activeItems?.slice(0, 6).map((item) => item.id) || [];
